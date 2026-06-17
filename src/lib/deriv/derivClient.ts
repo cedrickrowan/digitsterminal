@@ -1,5 +1,5 @@
 // Minimal Deriv WebSocket client tuned for mobile/high-latency networks.
-// Public app_id 1089 is used for read-only/demo; users supply their own token for buys.
+// Public app_id 1089 is used for read-only tick streams. No buy/auth — analysis only.
 
 type Listener = (msg: any) => void;
 
@@ -7,10 +7,9 @@ export interface DerivEvents {
   onOpen?: () => void;
   onClose?: () => void;
   onTick?: (digit: number, quote: number, epoch: number, arrivalMs: number) => void;
-  onHistory?: (digits: number[]) => void;
+  onHistory?: (digits: number[], lastPrice: number) => void;
   onPing?: (rttMs: number) => void;
   onTimeSync?: (driftMs: number) => void;
-  onBuy?: (msg: any) => void;
   onError?: (err: string) => void;
 }
 
@@ -21,48 +20,73 @@ export class DerivClient {
   private subId: string | null = null;
   private symbol = "R_100";
   private pipSize = 2;
-  private timer: number | null = null;
+  private timeTimer: number | null = null;
   private pingTimer: number | null = null;
+  private watchdog: number | null = null;
+  private lastMsgAt = 0;
   private closed = false;
+  private reconnectAttempt = 0;
 
   constructor(private events: DerivEvents) {}
 
   connect() {
     this.closed = false;
     const url = "wss://ws.derivws.com/websockets/v3?app_id=1089";
-    const ws = new WebSocket(url);
+    let ws: WebSocket;
+    try {
+      ws = new WebSocket(url);
+    } catch {
+      this.scheduleReconnect();
+      return;
+    }
     this.ws = ws;
     ws.onopen = () => {
+      this.reconnectAttempt = 0;
+      this.lastMsgAt = performance.now();
       this.events.onOpen?.();
+      this.subscribeTicks(this.symbol);
       this.syncTime();
-      this.timer = window.setInterval(() => this.syncTime(), 30_000);
+      this.timeTimer = window.setInterval(() => this.syncTime(), 30_000);
       this.pingTimer = window.setInterval(() => this.ping(), 5_000);
+      // Watchdog: if no message for 20s, force reconnect (mobile networks drop silently).
+      this.watchdog = window.setInterval(() => {
+        if (performance.now() - this.lastMsgAt > 20_000) {
+          try { this.ws?.close(); } catch { /* ignore */ }
+        }
+      }, 5_000);
     };
     ws.onclose = () => {
       this.events.onClose?.();
       this.clearTimers();
-      if (!this.closed) setTimeout(() => this.connect(), 1500);
+      if (!this.closed) this.scheduleReconnect();
     };
     ws.onerror = () => this.events.onError?.("ws error");
-    ws.onmessage = (e) => this.handle(e.data);
+    ws.onmessage = (e) => {
+      this.lastMsgAt = performance.now();
+      this.handle(e.data);
+    };
+  }
+
+  private scheduleReconnect() {
+    if (this.closed) return;
+    const delay = Math.min(15_000, 500 * Math.pow(2, this.reconnectAttempt++));
+    setTimeout(() => this.connect(), delay);
   }
 
   disconnect() {
     this.closed = true;
     this.clearTimers();
-    try {
-      this.ws?.close();
-    } catch {
-      /* ignore */
-    }
+    try { this.ws?.close(); } catch { /* ignore */ }
     this.ws = null;
   }
 
   private clearTimers() {
-    if (this.timer) clearInterval(this.timer);
+    if (this.timeTimer) clearInterval(this.timeTimer);
     if (this.pingTimer) clearInterval(this.pingTimer);
-    this.timer = null;
+    if (this.watchdog) clearInterval(this.watchdog);
+    this.timeTimer = null;
     this.pingTimer = null;
+    this.watchdog = null;
   }
 
   private send(payload: any, cb?: Listener) {
@@ -74,11 +98,7 @@ export class DerivClient {
 
   private handle(raw: string) {
     let msg: any;
-    try {
-      msg = JSON.parse(raw);
-    } catch {
-      return;
-    }
+    try { msg = JSON.parse(raw); } catch { return; }
     if (msg.req_id && this.pending.has(msg.req_id)) {
       const cb = this.pending.get(msg.req_id)!;
       this.pending.delete(msg.req_id);
@@ -100,9 +120,7 @@ export class DerivClient {
       const pip = msg.pip_size ?? 2;
       this.pipSize = pip;
       const digits = prices.map((p) => lastDigit(p, pip));
-      this.events.onHistory?.(digits);
-    } else if (msg.msg_type === "buy") {
-      this.events.onBuy?.(msg);
+      this.events.onHistory?.(digits, prices[prices.length - 1] ?? 0);
     }
   }
 
@@ -136,33 +154,6 @@ export class DerivClient {
     const t0 = performance.now();
     this.send({ ping: 1 }, () => {
       this.events.onPing?.(performance.now() - t0);
-    });
-  }
-
-  authorize(token: string, cb?: Listener) {
-    this.send({ authorize: token }, cb);
-  }
-
-  buyDigitMatches(opts: {
-    symbol: string;
-    duration: number;
-    stake: number;
-    barrier: number;
-    currency?: string;
-  }) {
-    this.send({
-      buy: 1,
-      price: opts.stake,
-      parameters: {
-        amount: opts.stake,
-        basis: "stake",
-        contract_type: "DIGITMATCH",
-        currency: opts.currency ?? "USD",
-        duration: opts.duration,
-        duration_unit: "t",
-        symbol: opts.symbol,
-        barrier: String(opts.barrier),
-      },
     });
   }
 }

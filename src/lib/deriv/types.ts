@@ -1,6 +1,15 @@
 export type Mode = "alert" | "simulated" | "live";
 export type NetHealth = "green" | "yellow" | "red";
 
+export interface RuleToggles {
+  streak: boolean;
+  prob: boolean;
+  markov: boolean;
+  sequence: boolean;
+  cold: boolean;
+  deviation: boolean;
+}
+
 export interface AppConfig {
   symbol: string;
   predictDigit: number;
@@ -9,10 +18,13 @@ export interface AppConfig {
   lookback: 25 | 50 | 100;
   latencyOffsetMs: number;
   mode: Mode;
-  rememberToken: boolean;
-  token: string;
   triggerStreak: number;
   triggerProbBelow: number;
+  triggerMarkovAbove: number;
+  triggerSequenceAbove: number;
+  triggerColdProbBelow: number;
+  triggerDeviationPct: number;
+  rules: RuleToggles;
 }
 
 export interface Signal {
@@ -20,6 +32,8 @@ export interface Signal {
   ts: number;
   reason: string;
   predicted: number;
+  entryPrice?: number;
+  entryTick?: number;
   resolvedDigit?: number;
   result?: "win" | "loss";
   mode: Mode;
@@ -33,10 +47,20 @@ export const DEFAULT_CONFIG: AppConfig = {
   lookback: 50,
   latencyOffsetMs: 1000,
   mode: "simulated",
-  rememberToken: false,
-  token: "",
   triggerStreak: 3,
   triggerProbBelow: 8,
+  triggerMarkovAbove: 18,
+  triggerSequenceAbove: 20,
+  triggerColdProbBelow: 10,
+  triggerDeviationPct: 4,
+  rules: {
+    streak: true,
+    prob: true,
+    markov: true,
+    sequence: false,
+    cold: false,
+    deviation: false,
+  },
 };
 
 export const SYMBOLS = [
