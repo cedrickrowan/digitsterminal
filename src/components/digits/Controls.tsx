@@ -1,5 +1,5 @@
 import { memo } from "react";
-import type { AppConfig, Mode } from "@/lib/deriv/types";
+import type { AppConfig, Mode, RuleToggles } from "@/lib/deriv/types";
 import { SYMBOLS } from "@/lib/deriv/types";
 
 interface Props {
@@ -12,7 +12,19 @@ interface Props {
   onToggleArm: () => void;
 }
 
+const RULE_META: { key: keyof RuleToggles; label: string; field?: keyof AppConfig; suffix?: string }[] = [
+  { key: "streak", label: "Streak ≥", field: "triggerStreak" },
+  { key: "prob", label: "Freq% <", field: "triggerProbBelow", suffix: "%" },
+  { key: "markov", label: "Markov% >", field: "triggerMarkovAbove", suffix: "%" },
+  { key: "sequence", label: "2-tick% >", field: "triggerSequenceAbove", suffix: "%" },
+  { key: "cold", label: "Cold P% <", field: "triggerColdProbBelow", suffix: "%" },
+  { key: "deviation", label: "|Δ from 10%| >", field: "triggerDeviationPct", suffix: "%" },
+];
+
 function ControlsImpl({ cfg, onChange, connected, onConnect, onDisconnect, armed, onToggleArm }: Props) {
+  const setRule = (k: keyof RuleToggles, v: boolean) =>
+    onChange({ rules: { ...cfg.rules, [k]: v } });
+
   return (
     <div className="space-y-2 rounded-md border border-border bg-card px-3 py-2 text-xs">
       <div className="grid grid-cols-2 gap-2">
@@ -76,27 +88,35 @@ function ControlsImpl({ cfg, onChange, connected, onConnect, onDisconnect, armed
             onChange={(e) => onChange({ latencyOffsetMs: Number(e.target.value) })}
           />
         </label>
-        <label className="flex flex-col gap-1">
-          <span className="text-muted-foreground">Trigger streak ≥</span>
-          <input
-            type="number" min={2} max={9}
-            className="rounded border border-input bg-background px-2 py-1.5"
-            value={cfg.triggerStreak}
-            onChange={(e) => onChange({ triggerStreak: Number(e.target.value) })}
-          />
-        </label>
-        <label className="flex flex-col gap-1">
-          <span className="text-muted-foreground">…or P below %</span>
-          <input
-            type="number" min={1} max={20} step="0.5"
-            className="rounded border border-input bg-background px-2 py-1.5"
-            value={cfg.triggerProbBelow}
-            onChange={(e) => onChange({ triggerProbBelow: Number(e.target.value) })}
-          />
-        </label>
       </div>
 
-      <div className="flex items-center gap-2">
+      <div className="border-t border-border pt-2">
+        <div className="mb-1 font-semibold">Trigger rules</div>
+        <div className="grid grid-cols-1 gap-1">
+          {RULE_META.map((r) => (
+            <label key={r.key} className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={cfg.rules[r.key]}
+                onChange={(e) => setRule(r.key, e.target.checked)}
+              />
+              <span className="w-32 text-muted-foreground">{r.label}</span>
+              {r.field && (
+                <input
+                  type="number"
+                  step={r.suffix === "%" ? 0.5 : 1}
+                  className="w-20 rounded border border-input bg-background px-2 py-1"
+                  value={cfg[r.field] as number}
+                  onChange={(e) => onChange({ [r.field as string]: Number(e.target.value) } as Partial<AppConfig>)}
+                />
+              )}
+              {r.suffix && <span className="text-muted-foreground">{r.suffix}</span>}
+            </label>
+          ))}
+        </div>
+      </div>
+
+      <div className="flex items-center gap-2 border-t border-border pt-2">
         <span className="text-muted-foreground">Mode</span>
         {(["alert", "simulated", "live"] as Mode[]).map((m) => (
           <button
@@ -111,25 +131,6 @@ function ControlsImpl({ cfg, onChange, connected, onConnect, onDisconnect, armed
           </button>
         ))}
       </div>
-
-      <label className="flex flex-col gap-1">
-        <span className="text-muted-foreground">Deriv API token (live mode only)</span>
-        <input
-          type="password"
-          className="rounded border border-input bg-background px-2 py-1.5 font-mono"
-          value={cfg.token}
-          placeholder="paste token"
-          onChange={(e) => onChange({ token: e.target.value })}
-        />
-      </label>
-      <label className="flex items-center gap-2">
-        <input
-          type="checkbox"
-          checked={cfg.rememberToken}
-          onChange={(e) => onChange({ rememberToken: e.target.checked })}
-        />
-        <span className="text-muted-foreground">Remember token in this browser (insecure)</span>
-      </label>
 
       <div className="flex gap-2 pt-1">
         {connected ? (
