@@ -1,29 +1,25 @@
 import { createFileRoute } from "@tanstack/react-router";
+import DigitsApp from "@/components/digits/DigitsApp";
 
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
-      { title: "Your App" },
-      { name: "description", content: "Replace this with a one-sentence description of your app." },
-      { property: "og:title", content: "Your App" },
-      { property: "og:description", content: "Replace this with a one-sentence description of your app." },
+      { title: "Deriv Digits Matches · Mobile Analysis" },
+      {
+        name: "description",
+        content:
+          "Lightweight mobile tool for Deriv Digits Matches: real-time stats, Markov, entropy, Poisson cold-digit analysis, and network-safe execution.",
+      },
+      { property: "og:title", content: "Deriv Digits Matches · Mobile Analysis" },
+      {
+        property: "og:description",
+        content: "Mobile-first analysis & trading tool for Deriv Volatility digits.",
+      },
     ],
   }),
   component: Index,
 });
 
-// IMPORTANT: Replace this placeholder. See ./README.md for routing conventions.
 function Index() {
-  return (
-    <div
-      className="flex min-h-screen items-center justify-center"
-      style={{ backgroundColor: "#fcfbf8" }}
-    >
-      <img
-        data-lovable-blank-page-placeholder="REMOVE_THIS"
-        src="https://cdn.gpteng.co/blank-app-v1.svg"
-        alt="Your app will live here!"
-      />
-    </div>
-  );
+  return <DigitsApp />;
 }
