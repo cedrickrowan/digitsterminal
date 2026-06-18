@@ -1,9 +1,9 @@
 // Composable trigger rules engine.
-// Each rule reads the current rolling window + config and emits a fire reason or null.
 
 import type { AppConfig } from "./types";
 import {
   coldProb,
+  ensemblePredict,
   frequencies,
   gapsSinceLast,
   markov1,
@@ -35,10 +35,8 @@ export function evaluateRules({ window, cfg }: RuleContext): RuleHit[] {
     }
   }
 
-  if (cfg.rules.prob) {
-    if (pPredict * 100 < cfg.triggerProbBelow) {
-      hits.push({ rule: "prob", detail: `freq=${(pPredict * 100).toFixed(1)}%` });
-    }
+  if (cfg.rules.prob && pPredict * 100 < cfg.triggerProbBelow) {
+    hits.push({ rule: "prob", detail: `freq=${(pPredict * 100).toFixed(1)}%` });
   }
 
   if (cfg.rules.markov) {
@@ -63,8 +61,7 @@ export function evaluateRules({ window, cfg }: RuleContext): RuleHit[] {
   }
 
   if (cfg.rules.cold) {
-    const gaps = gapsSinceLast(window);
-    const g = gaps[cfg.predictDigit];
+    const g = gapsSinceLast(window)[cfg.predictDigit];
     const p = coldProb(g);
     if (p * 100 < cfg.triggerColdProbBelow) {
       hits.push({ rule: "cold", detail: `gap=${g} P=${(p * 100).toFixed(1)}%` });
@@ -75,6 +72,13 @@ export function evaluateRules({ window, cfg }: RuleContext): RuleHit[] {
     const dev = Math.abs(pPredict * 100 - 10);
     if (dev > cfg.triggerDeviationPct) {
       hits.push({ rule: "deviation", detail: `Δ=${dev.toFixed(1)}%` });
+    }
+  }
+
+  if (cfg.rules.ensemble) {
+    const e = ensemblePredict(window);
+    if (e.topDigit === cfg.predictDigit && e.confidence * 100 > cfg.triggerEnsembleAbove) {
+      hits.push({ rule: "ensemble", detail: `→${e.topDigit} ${(e.confidence * 100).toFixed(0)}%` });
     }
   }
 
