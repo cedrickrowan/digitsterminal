@@ -62,49 +62,55 @@
   --color-success: var(--success);
   --color-warning: var(--warning);
   --color-danger: var(--danger);
-
+  --color-cyan: var(--cyan);
+  --color-magenta: var(--magenta);
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
+
 
 :root {
-  --radius: 0.5rem;
-  /* Dark, OLED-friendly default to minimize repaint cost on budget phones */
-  --background: oklch(0.16 0.02 250);
-  --foreground: oklch(0.96 0.01 250);
-  --primary-hsl: 158 84% 52%;
-  --success: oklch(0.74 0.17 150);
-  --warning: oklch(0.82 0.16 85);
-  --danger: oklch(0.66 0.22 25);
-  --card: oklch(0.21 0.02 250);
-  --card-foreground: oklch(0.96 0.01 250);
-  --popover: oklch(0.21 0.02 250);
-  --popover-foreground: oklch(0.96 0.01 250);
-  --primary: oklch(0.74 0.17 158);
-  --primary-foreground: oklch(0.12 0.02 250);
-  --secondary: oklch(0.26 0.02 250);
-  --secondary-foreground: oklch(0.96 0.01 250);
-  --muted: oklch(0.26 0.02 250);
-  --muted-foreground: oklch(0.72 0.02 250);
-  --accent: oklch(0.3 0.04 250);
-  --accent-foreground: oklch(0.96 0.01 250);
-  --destructive: oklch(0.66 0.22 25);
-  --destructive-foreground: oklch(0.98 0.01 250);
-  --border: oklch(0.3 0.02 250);
-  --input: oklch(0.3 0.02 250);
-  --ring: oklch(0.5 0.03 250);
-  --chart-1: oklch(0.74 0.17 158);
-  --chart-2: oklch(0.7 0.17 250);
-  --chart-3: oklch(0.82 0.16 85);
-  --chart-4: oklch(0.66 0.22 25);
-  --chart-5: oklch(0.72 0.18 300);
-  --sidebar: oklch(0.21 0.02 250);
-  --sidebar-foreground: oklch(0.96 0.01 250);
-  --sidebar-primary: oklch(0.74 0.17 158);
-  --sidebar-primary-foreground: oklch(0.12 0.02 250);
-  --sidebar-accent: oklch(0.3 0.04 250);
-  --sidebar-accent-foreground: oklch(0.96 0.01 250);
-  --sidebar-border: oklch(0.3 0.02 250);
-  --sidebar-ring: oklch(0.5 0.03 250);
+  --radius: 0.625rem;
+  /* Futuristic trading terminal: deep space + neon cyan */
+  --background: oklch(0.13 0.025 240);
+  --foreground: oklch(0.96 0.02 200);
+  --primary-hsl: 186 90% 55%;
+  --cyan: oklch(0.82 0.16 200);
+  --magenta: oklch(0.72 0.22 340);
+  --success: oklch(0.82 0.18 175);
+  --warning: oklch(0.84 0.16 85);
+  --danger: oklch(0.68 0.24 20);
+  --card: oklch(0.17 0.03 240);
+  --card-foreground: oklch(0.96 0.02 200);
+  --popover: oklch(0.17 0.03 240);
+  --popover-foreground: oklch(0.96 0.02 200);
+  --primary: oklch(0.82 0.16 200);
+  --primary-foreground: oklch(0.1 0.02 240);
+  --secondary: oklch(0.22 0.03 240);
+  --secondary-foreground: oklch(0.96 0.02 200);
+  --muted: oklch(0.22 0.03 240);
+  --muted-foreground: oklch(0.7 0.03 220);
+  --accent: oklch(0.26 0.05 220);
+  --accent-foreground: oklch(0.96 0.02 200);
+  --destructive: oklch(0.68 0.24 20);
+  --destructive-foreground: oklch(0.98 0.01 240);
+  --border: oklch(0.3 0.04 220);
+  --input: oklch(0.26 0.04 220);
+  --ring: oklch(0.82 0.16 200);
+  --chart-1: oklch(0.82 0.16 200);
+  --chart-2: oklch(0.72 0.22 340);
+  --chart-3: oklch(0.84 0.16 85);
+  --chart-4: oklch(0.68 0.24 20);
+  --chart-5: oklch(0.72 0.18 280);
+  --sidebar: oklch(0.17 0.03 240);
+  --sidebar-foreground: oklch(0.96 0.02 200);
+  --sidebar-primary: oklch(0.82 0.16 200);
+  --sidebar-primary-foreground: oklch(0.1 0.02 240);
+  --sidebar-accent: oklch(0.26 0.05 220);
+  --sidebar-accent-foreground: oklch(0.96 0.02 200);
+  --sidebar-border: oklch(0.3 0.04 220);
+  --sidebar-ring: oklch(0.82 0.16 200);
 }
+
 
 .dark {
   --background: oklch(0.129 0.042 264.695);
@@ -149,5 +155,30 @@
   body {
     background-color: var(--color-background);
     color: var(--color-foreground);
+    background-image:
+      radial-gradient(circle at 0% 0%, color-mix(in oklab, var(--color-cyan) 12%, transparent), transparent 40%),
+      radial-gradient(circle at 100% 100%, color-mix(in oklab, var(--color-magenta) 10%, transparent), transparent 40%);
+    background-attachment: fixed;
+  }
+
+  .font-mono, .tabular-nums {
+    font-family: var(--font-mono);
+    font-feature-settings: "tnum" 1;
   }
 }
+
+@utility text-cyan { color: var(--color-cyan); }
+@utility text-magenta { color: var(--color-magenta); }
+@utility bg-cyan { background-color: var(--color-cyan); }
+@utility bg-magenta { background-color: var(--color-magenta); }
+@utility border-cyan { border-color: var(--color-cyan); }
+@utility border-magenta { border-color: var(--color-magenta); }
+
+@keyframes neon-pulse {
+  0%, 100% { box-shadow: 0 0 12px -2px var(--color-cyan); }
+  50% { box-shadow: 0 0 24px 2px var(--color-cyan); }
+}
+@utility neon-pulse {
+  animation: neon-pulse 1.6s ease-in-out infinite;
+}
+
