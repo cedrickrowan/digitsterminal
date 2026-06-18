@@ -167,13 +167,6 @@
   }
 }
 
-@utility text-cyan { color: var(--color-cyan); }
-@utility text-magenta { color: var(--color-magenta); }
-@utility bg-cyan { background-color: var(--color-cyan); }
-@utility bg-magenta { background-color: var(--color-magenta); }
-@utility border-cyan { border-color: var(--color-cyan); }
-@utility border-magenta { border-color: var(--color-magenta); }
-
 @keyframes neon-pulse {
   0%, 100% { box-shadow: 0 0 12px -2px var(--color-cyan); }
   50% { box-shadow: 0 0 24px 2px var(--color-cyan); }
@@ -181,4 +174,5 @@
 @utility neon-pulse {
   animation: neon-pulse 1.6s ease-in-out infinite;
 }
+
 
