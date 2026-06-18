@@ -1,5 +1,6 @@
 export type Mode = "alert" | "simulated" | "live";
 export type NetHealth = "green" | "yellow" | "red";
+export type Market = "matches" | "overunder" | "evenodd" | "risefall";
 
 export interface RuleToggles {
   streak: boolean;
@@ -8,6 +9,7 @@ export interface RuleToggles {
   sequence: boolean;
   cold: boolean;
   deviation: boolean;
+  ensemble: boolean;
 }
 
 export interface AppConfig {
@@ -18,12 +20,17 @@ export interface AppConfig {
   lookback: 25 | 50 | 100;
   latencyOffsetMs: number;
   mode: Mode;
+  market: Market;
+  barrier: number; // for over/under
   triggerStreak: number;
   triggerProbBelow: number;
   triggerMarkovAbove: number;
   triggerSequenceAbove: number;
   triggerColdProbBelow: number;
   triggerDeviationPct: number;
+  triggerEnsembleAbove: number; // confidence %
+  safePingMs: number; // execution safety: max ping
+  safeGapMs: number; // execution safety: max inter-tick gap
   rules: RuleToggles;
 }
 
@@ -32,6 +39,8 @@ export interface Signal {
   ts: number;
   reason: string;
   predicted: number;
+  market?: Market;
+  side?: string; // "OVER 5" | "EVEN" | "RISE" etc.
   entryPrice?: number;
   entryTick?: number;
   resolvedDigit?: number;
@@ -47,19 +56,25 @@ export const DEFAULT_CONFIG: AppConfig = {
   lookback: 50,
   latencyOffsetMs: 1000,
   mode: "simulated",
+  market: "matches",
+  barrier: 4,
   triggerStreak: 3,
   triggerProbBelow: 8,
   triggerMarkovAbove: 18,
   triggerSequenceAbove: 20,
   triggerColdProbBelow: 10,
   triggerDeviationPct: 4,
+  triggerEnsembleAbove: 22,
+  safePingMs: 500,
+  safeGapMs: 800,
   rules: {
-    streak: true,
-    prob: true,
+    streak: false,
+    prob: false,
     markov: true,
     sequence: false,
     cold: false,
     deviation: false,
+    ensemble: true,
   },
 };
 
