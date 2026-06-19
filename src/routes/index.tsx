@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import DigitsApp from "@/components/digits/DigitsApp";
+import { AuthGate } from "@/components/digits/LoginScreen";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -21,5 +22,9 @@ export const Route = createFileRoute("/")({
 });
 
 function Index() {
-  return <DigitsApp />;
+  return (
+    <AuthGate>
+      <DigitsApp />
+    </AuthGate>
+  );
 }

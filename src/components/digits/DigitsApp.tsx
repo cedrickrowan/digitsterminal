@@ -21,6 +21,7 @@ import {
 } from "@/lib/deriv/stats";
 import { evaluateRules } from "@/lib/deriv/triggers";
 import { beep } from "@/lib/deriv/audio";
+import { signOut } from "./LoginScreen";
 import { NetworkBadge } from "./NetworkBadge";
 import { Controls } from "./Controls";
 import { DigitGrid } from "./DigitGrid";
@@ -337,9 +338,18 @@ export default function DigitsApp() {
             Bayesian ensemble · Markov · Mobile-grade safety
           </p>
         </div>
-        <span className={`rounded border px-2 py-0.5 text-[10px] font-mono ${connected ? "border-cyan text-cyan" : "border-danger text-danger"}`}>
-          {connected ? "LIVE FEED" : "OFFLINE"}
-        </span>
+        <div className="flex items-center gap-1">
+          <span className={`rounded border px-2 py-0.5 text-[10px] font-mono ${connected ? "border-cyan text-cyan" : "border-danger text-danger"}`}>
+            {connected ? "LIVE FEED" : "OFFLINE"}
+          </span>
+          <button
+            type="button"
+            onClick={signOut}
+            className="rounded border border-input px-2 py-0.5 text-[10px] font-mono text-muted-foreground"
+          >
+            Logout
+          </button>
+        </div>
       </header>
 
       <div className="space-y-3">
@@ -355,13 +365,25 @@ export default function DigitsApp() {
           countdownMs={countdownMs}
           purchaseInMs={purchaseInMs}
         />
-        <PredictedDigit
-          digit={cfg.market === "matches" ? cfg.predictDigit : derived.ens.topDigit}
-          entryPrice={openEntry?.price ?? null}
-          lastPrice={lastPrice}
-          matched={matched}
-          armed={armed}
-        />
+        {(() => {
+          const isMatches = cfg.market === "matches";
+          const displayDigit = isMatches ? cfg.predictDigit : derived.ens.topDigit;
+          const conf = isMatches
+            ? derived.ens.posterior[cfg.predictDigit] ?? 0
+            : derived.ens.confidence;
+          const highlight = isMatches && conf >= 0.7;
+          return (
+            <PredictedDigit
+              digit={displayDigit}
+              entryPrice={openEntry?.price ?? null}
+              lastPrice={lastPrice}
+              matched={matched}
+              armed={armed}
+              confidence={conf}
+              highlight={highlight}
+            />
+          );
+        })()}
         <DigitGrid freq={derived.freq} total={derived.win.length} predict={cfg.predictDigit} />
         <SplitPanel
           pEven={derived.split.pEven}
