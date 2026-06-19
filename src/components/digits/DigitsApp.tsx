@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { DerivClient } from "@/lib/deriv/derivClient";
-import { loadConfig, saveConfig } from "@/lib/deriv/storage";
+import { DerivClient, type AuthInfo, type ContractType } from "@/lib/deriv/derivClient";
+import { loadConfig, loadToken, saveConfig, saveToken } from "@/lib/deriv/storage";
 import type { AppConfig, NetHealth, Signal } from "@/lib/deriv/types";
 import {
   biasIndex,
@@ -33,6 +33,8 @@ import { MarkovMatrix } from "./MarkovMatrix";
 import { EnsemblePanel } from "./EnsemblePanel";
 import { SplitPanel } from "./SplitPanel";
 import { PatternsPanel } from "./PatternsPanel";
+import { TokenConnector } from "./TokenConnector";
+import { TradeConsole } from "./TradeConsole";
 
 const MAX_BUFFER = 500;
 
@@ -49,6 +51,10 @@ export default function DigitsApp() {
   const [openEntry, setOpenEntry] = useState<{ price: number; tick: number } | null>(null);
   const [matched, setMatched] = useState(false);
   const [, forceRender] = useState(0);
+  const [token, setToken] = useState<string>(() => loadToken());
+  const [auth, setAuth] = useState<AuthInfo | null>(null);
+  const [buyBusy, setBuyBusy] = useState(false);
+  const [lastBuyResult, setLastBuyResult] = useState<string>("");
 
   const bufRef = useRef<number[]>([]);
   const lastArrivalRef = useRef<number>(0);
