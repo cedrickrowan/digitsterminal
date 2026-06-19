@@ -213,6 +213,7 @@ export default function DigitsApp() {
         setPingMs(medianOf(arr));
       },
       onTimeSync: (drift) => setDriftMs(drift),
+      onAuth: (info) => setAuth(info),
       onError: (e) => {
         pushSignal({
           id: Date.now() + Math.random(),
@@ -225,7 +226,8 @@ export default function DigitsApp() {
     });
     clientRef.current = client;
     client.connect();
-  }, [evaluateAndMaybeFire, pushSignal, resolveSims, scheduleRender]);
+    if (token) client.setToken(token);
+  }, [evaluateAndMaybeFire, pushSignal, resolveSims, scheduleRender, token]);
 
   const handleDisconnect = useCallback(() => {
     clientRef.current?.disconnect();
