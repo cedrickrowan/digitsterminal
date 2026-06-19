@@ -333,6 +333,43 @@ export default function DigitsApp() {
     setCfg((c) => ({ ...c, ...patch }));
   }, []);
 
+  const applyToken = useCallback(() => {
+    saveToken(token);
+    clientRef.current?.setToken(token);
+  }, [token]);
+
+  const clearToken = useCallback(() => {
+    setToken("");
+    saveToken("");
+    clientRef.current?.setToken(null);
+    setAuth(null);
+  }, []);
+
+  const handleBuy = useCallback(
+    async (contractType: ContractType, barrier?: number) => {
+      if (!clientRef.current || !auth) return;
+      setBuyBusy(true);
+      setLastBuyResult("Sending order…");
+      const res = await clientRef.current.buy({
+        contractType,
+        symbol: cfg.symbol,
+        stake: cfg.stake,
+        durationTicks: cfg.duration,
+        barrier,
+        currency: auth.currency,
+      });
+      setBuyBusy(false);
+      if (res.ok) {
+        setLastBuyResult(
+          `✓ ${contractType}${barrier !== undefined ? " " + barrier : ""} · stake ${res.buyPrice?.toFixed(2)} · payout ${res.payout?.toFixed(2)}`,
+        );
+      } else {
+        setLastBuyResult(`✗ ${res.error}`);
+      }
+    },
+    [auth, cfg.symbol, cfg.stake, cfg.duration],
+  );
+
   return (
     <div className={`min-h-screen p-3 text-foreground ${flash ? "ring-4 ring-magenta" : ""}`}>
       <header className="mb-3 flex items-center justify-between">
@@ -392,6 +429,29 @@ export default function DigitsApp() {
             />
           );
         })()}
+        <TokenConnector
+          token={token}
+          onTokenChange={setToken}
+          auth={auth}
+          connected={connected}
+          onApply={applyToken}
+          onClear={clearToken}
+        />
+        <TradeConsole
+          authorized={!!auth}
+          stake={cfg.stake}
+          duration={cfg.duration}
+          barrier={cfg.barrier}
+          predictDigit={cfg.predictDigit}
+          onStakeChange={(n) => setPartial({ stake: n })}
+          onDurationChange={(n) => setPartial({ duration: n })}
+          onBarrierChange={(n) => setPartial({ barrier: n })}
+          onPredictDigitChange={(n) => setPartial({ predictDigit: n })}
+          onBuy={handleBuy}
+          safe={safe}
+          lastResult={lastBuyResult}
+          busy={buyBusy}
+        />
         <DigitGrid freq={derived.freq} total={derived.win.length} predict={cfg.predictDigit} />
         <SplitPanel
           pEven={derived.split.pEven}
