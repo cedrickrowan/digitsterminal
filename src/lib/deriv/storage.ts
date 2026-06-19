@@ -26,3 +26,16 @@ export function saveConfig(cfg: AppConfig) {
     /* ignore */
   }
 }
+
+const TOKEN_KEY = "deriv-api-token";
+export function loadToken(): string {
+  if (typeof window === "undefined") return "";
+  try { return localStorage.getItem(TOKEN_KEY) ?? ""; } catch { return ""; }
+}
+export function saveToken(t: string) {
+  if (typeof window === "undefined") return;
+  try {
+    if (t) localStorage.setItem(TOKEN_KEY, t);
+    else localStorage.removeItem(TOKEN_KEY);
+  } catch { /* ignore */ }
+}
