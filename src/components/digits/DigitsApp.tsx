@@ -33,7 +33,8 @@ import { MarkovMatrix } from "./MarkovMatrix";
 import { EnsemblePanel } from "./EnsemblePanel";
 import { SplitPanel } from "./SplitPanel";
 import { PatternsPanel } from "./PatternsPanel";
-import { ThemeToggle } from "./ThemeToggle";
+import { TokenConnector } from "./TokenConnector";
+import { TradeConsole } from "./TradeConsole";
 
 const MAX_BUFFER = 500;
 
@@ -374,19 +375,18 @@ export default function DigitsApp() {
       <header className="mb-3 flex items-center justify-between">
         <div>
           <h1 className="text-base font-bold tracking-wide">
-            <span className="text-cyan">CEDRICK</span>
+            <span className="text-cyan">DERIV</span>
             <span className="text-muted-foreground"> · </span>
-            <span>DIGIT TERMINAL</span>
+            <span>DIGITS TERMINAL</span>
           </h1>
           <p className="text-[10px] uppercase tracking-widest text-muted-foreground">
-            Bayesian ensemble · Markov · Live network safety
+            Bayesian ensemble · Markov · Mobile-grade safety
           </p>
         </div>
         <div className="flex items-center gap-1">
           <span className={`rounded border px-2 py-0.5 text-[10px] font-mono ${connected ? "border-cyan text-cyan" : "border-danger text-danger"}`}>
             {connected ? "LIVE FEED" : "OFFLINE"}
           </span>
-          <ThemeToggle />
           <button
             type="button"
             onClick={signOut}
@@ -429,7 +429,29 @@ export default function DigitsApp() {
             />
           );
         })()}
-        {/* Trade console & token connector removed — analysis-only mode */}
+        <TokenConnector
+          token={token}
+          onTokenChange={setToken}
+          auth={auth}
+          connected={connected}
+          onApply={applyToken}
+          onClear={clearToken}
+        />
+        <TradeConsole
+          authorized={!!auth}
+          stake={cfg.stake}
+          duration={cfg.duration}
+          barrier={cfg.barrier}
+          predictDigit={cfg.predictDigit}
+          onStakeChange={(n) => setPartial({ stake: n })}
+          onDurationChange={(n) => setPartial({ duration: n })}
+          onBarrierChange={(n) => setPartial({ barrier: n })}
+          onPredictDigitChange={(n) => setPartial({ predictDigit: n })}
+          onBuy={handleBuy}
+          safe={safe}
+          lastResult={lastBuyResult}
+          busy={buyBusy}
+        />
         <DigitGrid freq={derived.freq} total={derived.win.length} predict={cfg.predictDigit} />
         <SplitPanel
           pEven={derived.split.pEven}
