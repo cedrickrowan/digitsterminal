@@ -1,21 +1,9 @@
 import { useEffect, useState, type ReactNode } from "react";
+import { checkAuthFn, loginFn, logoutFn } from "@/lib/auth.functions";
 
-const AUTH_KEY = "digits-auth-v1";
-const USER = "CEDRICK";
-const PASS = "6216720";
-
-export function isAuthed(): boolean {
-  if (typeof window === "undefined") return false;
+export async function signOut() {
   try {
-    return localStorage.getItem(AUTH_KEY) === "1";
-  } catch {
-    return false;
-  }
-}
-
-export function signOut() {
-  try {
-    localStorage.removeItem(AUTH_KEY);
+    await logoutFn();
   } catch {
     /* ignore */
   }
@@ -26,8 +14,20 @@ export function AuthGate({ children }: { children: ReactNode }) {
   const [authed, setAuthed] = useState(false);
   const [ready, setReady] = useState(false);
   useEffect(() => {
-    setAuthed(isAuthed());
-    setReady(true);
+    let cancelled = false;
+    checkAuthFn()
+      .then((r) => {
+        if (cancelled) return;
+        setAuthed(r.authed);
+        setReady(true);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setReady(true);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, []);
   if (!ready) return null;
   if (!authed) return <LoginScreen onSuccess={() => setAuthed(true)} />;
@@ -38,15 +38,23 @@ function LoginScreen({ onSuccess }: { onSuccess: () => void }) {
   const [u, setU] = useState("");
   const [p, setP] = useState("");
   const [err, setErr] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
 
-  const submit = (e: React.FormEvent) => {
+  const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (u.trim() === USER && p === PASS) {
-      try { localStorage.setItem(AUTH_KEY, "1"); } catch { /* ignore */ }
-      setErr(null);
-      onSuccess();
-    } else {
+    setBusy(true);
+    try {
+      const res = await loginFn({ data: { username: u.trim(), password: p } });
+      if (res.ok) {
+        setErr(null);
+        onSuccess();
+      } else {
+        setErr("Access Denied: Invalid credentials. Please contact the administrator.");
+      }
+    } catch {
       setErr("Access Denied: Invalid credentials. Please contact the administrator.");
+    } finally {
+      setBusy(false);
     }
   };
 
@@ -94,9 +102,10 @@ function LoginScreen({ onSuccess }: { onSuccess: () => void }) {
         )}
         <button
           type="submit"
-          className="w-full rounded border border-cyan bg-cyan/15 px-3 py-2 font-semibold text-cyan shadow-[0_0_12px_-2px_var(--color-cyan)]"
+          disabled={busy}
+          className="w-full rounded border border-cyan bg-cyan/15 px-3 py-2 font-semibold text-cyan shadow-[0_0_12px_-2px_var(--color-cyan)] disabled:opacity-60"
         >
-          Enter Terminal
+          {busy ? "Verifying…" : "Enter Terminal"}
         </button>
       </form>
     </div>
