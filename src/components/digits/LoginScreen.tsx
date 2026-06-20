@@ -1,34 +1,35 @@
 import { useEffect, useState, type ReactNode } from "react";
-
-const AUTH_KEY = "digits-auth-v1";
-const USER = "CEDRICK";
-const PASS = "6216720";
-
-export function isAuthed(): boolean {
-  if (typeof window === "undefined") return false;
-  try {
-    return localStorage.getItem(AUTH_KEY) === "1";
-  } catch {
-    return false;
-  }
-}
+import { useServerFn } from "@tanstack/react-start";
+import { checkAuth, login, logout } from "@/lib/auth.functions";
 
 export function signOut() {
-  try {
-    localStorage.removeItem(AUTH_KEY);
-  } catch {
-    /* ignore */
-  }
-  if (typeof window !== "undefined") window.location.reload();
+  void logout().finally(() => {
+    if (typeof window !== "undefined") window.location.reload();
+  });
 }
 
 export function AuthGate({ children }: { children: ReactNode }) {
   const [authed, setAuthed] = useState(false);
   const [ready, setReady] = useState(false);
+  const check = useServerFn(checkAuth);
+
   useEffect(() => {
-    setAuthed(isAuthed());
-    setReady(true);
-  }, []);
+    let cancelled = false;
+    check()
+      .then((r) => {
+        if (!cancelled) setAuthed(r.authed);
+      })
+      .catch(() => {
+        if (!cancelled) setAuthed(false);
+      })
+      .finally(() => {
+        if (!cancelled) setReady(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [check]);
+
   if (!ready) return null;
   if (!authed) return <LoginScreen onSuccess={() => setAuthed(true)} />;
   return <>{children}</>;
@@ -38,15 +39,25 @@ function LoginScreen({ onSuccess }: { onSuccess: () => void }) {
   const [u, setU] = useState("");
   const [p, setP] = useState("");
   const [err, setErr] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const doLogin = useServerFn(login);
 
-  const submit = (e: React.FormEvent) => {
+  const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (u.trim() === USER && p === PASS) {
-      try { localStorage.setItem(AUTH_KEY, "1"); } catch { /* ignore */ }
-      setErr(null);
-      onSuccess();
-    } else {
+    if (busy) return;
+    setBusy(true);
+    setErr(null);
+    try {
+      const res = await doLogin({ data: { username: u, password: p } });
+      if (res.ok) {
+        onSuccess();
+      } else {
+        setErr("Access Denied: Invalid credentials. Please contact the administrator.");
+      }
+    } catch {
       setErr("Access Denied: Invalid credentials. Please contact the administrator.");
+    } finally {
+      setBusy(false);
     }
   };
 
@@ -58,7 +69,7 @@ function LoginScreen({ onSuccess }: { onSuccess: () => void }) {
       >
         <div className="text-center">
           <h1 className="text-lg font-bold tracking-wide">
-            <span className="text-cyan">DERIV</span> · DIGITS TERMINAL
+            <span className="text-cyan">CEDRICK</span> · DIGIT TERMINAL
           </h1>
           <p className="mt-1 text-[10px] uppercase tracking-widest text-muted-foreground">
             Restricted access
@@ -94,9 +105,10 @@ function LoginScreen({ onSuccess }: { onSuccess: () => void }) {
         )}
         <button
           type="submit"
-          className="w-full rounded border border-cyan bg-cyan/15 px-3 py-2 font-semibold text-cyan shadow-[0_0_12px_-2px_var(--color-cyan)]"
+          disabled={busy}
+          className="w-full rounded border border-cyan bg-cyan/15 px-3 py-2 font-semibold text-cyan shadow-[0_0_12px_-2px_var(--color-cyan)] disabled:opacity-50"
         >
-          Enter Terminal
+          {busy ? "Verifying…" : "Enter Terminal"}
         </button>
       </form>
     </div>
