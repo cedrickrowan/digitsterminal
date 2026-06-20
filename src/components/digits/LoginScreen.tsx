@@ -41,7 +41,7 @@ function LoginScreen({ onSuccess }: { onSuccess: () => void }) {
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (u.trim() === USER && p === PASS) {
+    if (u.trim().toUpperCase() === USER && p.trim() === PASS) {
       try { localStorage.setItem(AUTH_KEY, "1"); } catch { /* ignore */ }
       setErr(null);
       onSuccess();
