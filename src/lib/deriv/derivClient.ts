@@ -282,7 +282,32 @@ export class DerivClient {
   }
 }
 
-function lastDigit(price: number, pip: number): number {
-  const s = price.toFixed(pip);
-  return Number(s[s.length - 1]);
+// Strict per-symbol decimal places. Prevents JS from dropping trailing zeros
+// on prices like 1245.30 (which would otherwise parse as 1245.3).
+// 4 decimals: R_50, R_75
+// 3 decimals: R_10, R_25
+// 2 decimals: R_100 and ALL 1s indices (1HZ*V)
+export function decimalsForSymbol(symbol: string): number {
+  switch (symbol) {
+    case "R_50":
+    case "R_75":
+      return 4;
+    case "R_10":
+    case "R_25":
+      return 3;
+    case "R_100":
+      return 2;
+    default:
+      // All 1HZ*V (1s) indices use 2 decimals
+      if (/^1HZ\d+V$/.test(symbol)) return 2;
+      return 2;
+  }
+}
+
+function lastDigit(price: number, pip: number, symbol?: string): number {
+  const decimals = symbol ? decimalsForSymbol(symbol) : pip;
+  const s = price.toFixed(decimals);
+  const ch = s.charAt(s.length - 1);
+  const d = parseInt(ch, 10);
+  return Number.isFinite(d) ? d : 0;
 }
