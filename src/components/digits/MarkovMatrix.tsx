@@ -2,7 +2,7 @@ import { memo } from "react";
 
 interface Props {
   matrix: number[][]; // 10x10 probs
-  lastDigit: number;
+  lastDigit: number | null;
   predict: number;
 }
 
@@ -24,7 +24,13 @@ function MarkovMatrixImpl({ matrix, lastDigit, predict }: Props) {
           </div>
         ))}
         {matrix.map((row, r) => (
-          <Row key={r} r={r} row={row} highlightRow={r === lastDigit} predict={predict} />
+          <Row
+            key={r}
+            r={r}
+            row={row}
+            highlightRow={lastDigit !== null && lastDigit !== undefined && r === lastDigit}
+            predict={predict}
+          />
         ))}
       </div>
     </div>

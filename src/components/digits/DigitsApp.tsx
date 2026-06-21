@@ -179,7 +179,9 @@ export default function DigitsApp() {
       onOpen: () => setConnected(true),
       onClose: () => setConnected(false),
       onHistory: (digits, last) => {
-        bufRef.current = digits.slice(-MAX_BUFFER);
+        // Strict filter: keep every digit 0-9 (including 0). Drop only sentinel -1 (parse failure).
+        const clean = digits.filter((d) => d !== null && d !== undefined && d >= 0 && d <= 9);
+        bufRef.current = clean.slice(-MAX_BUFFER);
         totalTicksRef.current = bufRef.current.length;
         lastPriceRef.current = last;
         setLastPrice(last);
@@ -196,6 +198,12 @@ export default function DigitsApp() {
         }
         const isStale = prev !== 0 && gap > cfgRef.current.safeGapMs;
         setStale(isStale);
+        // Strict validity check — digit === 0 is valid and must pass through.
+        const validDigit = digit !== null && digit !== undefined && digit >= 0 && digit <= 9;
+        if (!validDigit) {
+          scheduleRender();
+          return;
+        }
         const b = bufRef.current;
         b.push(digit);
         if (b.length > MAX_BUFFER) b.splice(0, b.length - MAX_BUFFER);
@@ -313,7 +321,11 @@ export default function DigitsApp() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tickKey, cfg.lookback, cfg.predictDigit]);
 
-  const lastDigit = buf.length ? buf[buf.length - 1] : 0;
+  // Use null sentinel so digit 0 is never confused with "no data". All downstream
+  // checks must use strict null/undefined comparisons (digit !== null && digit !== undefined),
+  // never truthy checks like `if (lastDigit)` which would drop a legitimate 0.
+  const lastDigit: number | null =
+    buf.length > 0 && buf[buf.length - 1] !== undefined ? buf[buf.length - 1] : null;
 
   const health: NetHealth =
     pingMs === 0 ? "yellow" : pingMs > cfg.safePingMs ? "red" : pingMs > 250 ? "yellow" : "green";
