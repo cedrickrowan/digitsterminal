@@ -154,14 +154,16 @@ export class DerivClient {
       const quote: number = msg.tick.quote;
       const pip = msg.tick.pip_size ?? this.pipSize;
       this.pipSize = pip;
-      const digit = lastDigit(quote, pip);
+      const sym = msg.tick.symbol ?? this.symbol;
+      const digit = lastDigit(quote, pip, sym);
       this.subId = msg.tick.id ?? this.subId;
       this.events.onTick?.(digit, quote, msg.tick.epoch, performance.now());
     } else if (msg.msg_type === "history" && msg.history) {
       const prices: number[] = msg.history.prices;
       const pip = msg.pip_size ?? 2;
       this.pipSize = pip;
-      const digits = prices.map((p) => lastDigit(p, pip));
+      const sym = msg.echo_req?.ticks_history ?? this.symbol;
+      const digits = prices.map((p) => lastDigit(p, pip, sym));
       this.events.onHistory?.(digits, prices[prices.length - 1] ?? 0);
     } else if (msg.msg_type === "balance" && msg.balance) {
       const b = Number(msg.balance.balance);
