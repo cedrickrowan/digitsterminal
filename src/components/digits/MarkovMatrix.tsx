@@ -2,7 +2,7 @@ import { memo } from "react";
 
 interface Props {
   matrix: number[][]; // 10x10 probs
-  lastDigit: number;
+  lastDigit: number | null;
   predict: number;
 }
 
