@@ -308,8 +308,16 @@ export function decimalsForSymbol(symbol: string): number {
 
 function lastDigit(price: number, pip: number, symbol?: string): number {
   const decimals = symbol ? decimalsForSymbol(symbol) : pip;
+  // toFixed preserves trailing zeros so "1245.30" stays "1245.30" → last char "0"
   const s = price.toFixed(decimals);
   const ch = s.charAt(s.length - 1);
   const d = parseInt(ch, 10);
-  return Number.isFinite(d) ? d : 0;
+  // Strict validation: 0 is a fully valid digit. Only flag truly invalid parses (NaN, out of 0-9).
+  // Use Number.isInteger + range check rather than truthy `if (d)` which would wrongly skip 0.
+  if (!Number.isInteger(d) || d < 0 || d > 9) {
+    // eslint-disable-next-line no-console
+    console.warn("[lastDigit] invalid parse", { price, decimals, formatted: s, ch });
+    return -1;
+  }
+  return d;
 }
