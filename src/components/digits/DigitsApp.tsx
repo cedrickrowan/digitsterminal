@@ -179,7 +179,9 @@ export default function DigitsApp() {
       onOpen: () => setConnected(true),
       onClose: () => setConnected(false),
       onHistory: (digits, last) => {
-        bufRef.current = digits.slice(-MAX_BUFFER);
+        // Strict filter: keep every digit 0-9 (including 0). Drop only sentinel -1 (parse failure).
+        const clean = digits.filter((d) => d !== null && d !== undefined && d >= 0 && d <= 9);
+        bufRef.current = clean.slice(-MAX_BUFFER);
         totalTicksRef.current = bufRef.current.length;
         lastPriceRef.current = last;
         setLastPrice(last);
@@ -196,6 +198,12 @@ export default function DigitsApp() {
         }
         const isStale = prev !== 0 && gap > cfgRef.current.safeGapMs;
         setStale(isStale);
+        // Strict validity check — digit === 0 is valid and must pass through.
+        const validDigit = digit !== null && digit !== undefined && digit >= 0 && digit <= 9;
+        if (!validDigit) {
+          scheduleRender();
+          return;
+        }
         const b = bufRef.current;
         b.push(digit);
         if (b.length > MAX_BUFFER) b.splice(0, b.length - MAX_BUFFER);
