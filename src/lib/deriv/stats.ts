@@ -252,12 +252,67 @@ export interface Ensemble {
     freqRev: number[];
     mk1: number[];
     mk2: number[];
+    poisson: number[]; // per-digit variance multipliers in (0,1]
+  };
+  poisson: {
+    lookback: number;
+    contractTicks: number;
+    lambdaPerTick: number[];
+    pZero: number[];
+    pGtTwo: number[];
+    multiplier: number[];
   };
 }
 
-// Ensemble: weighted mix of frequency reversion + Markov 1st + Markov 2nd.
-// Acts as a small naive-Bayesian fusion: log-add with priors then renormalize.
-export function ensemblePredict(window: number[]): Ensemble {
+// ---- Poisson Distribution Variance Filter ----------------------------------
+// Models occurrences of each digit over the upcoming contract window as
+// Poisson(λ·T), where λ = recent rate per tick (last `lookback` ticks) and T
+// is the contract duration in ticks. Penalize digits whose probability of
+// clustering early (X > 2) is high — they tend to be "spent" before the
+// terminal tick, producing false signals on the final tick.
+function poissonPMF(k: number, mu: number): number {
+  if (mu <= 0) return k === 0 ? 1 : 0;
+  let logp = -mu + k * Math.log(mu);
+  for (let i = 2; i <= k; i++) logp -= Math.log(i);
+  return Math.exp(logp);
+}
+
+export function poissonVarianceFilter(
+  window: number[],
+  contractTicks = 4,
+  lookback = 50,
+): {
+  lambdaPerTick: number[];
+  pZero: number[];
+  pGtTwo: number[];
+  multiplier: number[];
+} {
+  const w = window.slice(-lookback);
+  const n = w.length || 1;
+  const f = frequencies(w);
+  const lambdaPerTick = f.map((c) => c / n);
+  const pZero = new Array(10).fill(0);
+  const pGtTwo = new Array(10).fill(0);
+  const multiplier = new Array(10).fill(1);
+  const T = Math.max(1, contractTicks);
+  for (let d = 0; d < 10; d++) {
+    const mu = lambdaPerTick[d] * T;
+    const p0 = poissonPMF(0, mu);
+    const p1 = poissonPMF(1, mu);
+    const p2 = poissonPMF(2, mu);
+    const pGt2 = Math.max(0, 1 - p0 - p1 - p2);
+    pZero[d] = p0;
+    pGtTwo[d] = pGt2;
+    const clusterPenalty = 0.6 * pGt2;
+    const droughtAdj = lambdaPerTick[d] > 0.1 ? 0.15 * p0 : 0;
+    multiplier[d] = Math.max(0.35, 1 - clusterPenalty - droughtAdj);
+  }
+  return { lambdaPerTick, pZero, pGtTwo, multiplier };
+}
+
+// Ensemble: weighted mix of frequency reversion + Markov 1st + Markov 2nd,
+// scaled by the Poisson variance filter as a structural multiplier.
+export function ensemblePredict(window: number[], contractTicks = 4): Ensemble {
   const n = window.length;
   const freq = frequencies(window);
   const freqRev = freqReversion(freq, n);
@@ -267,23 +322,33 @@ export function ensemblePredict(window: number[]): Ensemble {
   const mk1Row = mk1m[last] && mk1m[last].some((x) => x > 0) ? mk1m[last] : new Array(10).fill(0.1);
   const mk2 = markov2(window).dist(prev, last);
 
-  // Bayesian fusion in log-space with small Laplace smoothing.
   const eps = 1e-3;
-  const post = new Array(10);
+  const fused = new Array(10);
   for (let i = 0; i < 10; i++) {
     const lf = Math.log(freqRev[i] + eps);
     const l1 = Math.log(mk1Row[i] + eps);
     const l2 = Math.log(mk2[i] + eps);
-    // weights: 0.25 freq-rev, 0.4 mk1, 0.35 mk2
-    post[i] = Math.exp(0.25 * lf + 0.4 * l1 + 0.35 * l2);
+    fused[i] = Math.exp(0.25 * lf + 0.4 * l1 + 0.35 * l2);
   }
-  const posterior = normalize(post);
+
+  const pois = poissonVarianceFilter(window, contractTicks, 50);
+  const scaled = fused.map((v, i) => v * pois.multiplier[i]);
+  const posterior = normalize(scaled);
+
   let topDigit = 0;
   for (let i = 1; i < 10; i++) if (posterior[i] > posterior[topDigit]) topDigit = i;
   return {
     posterior,
     topDigit,
     confidence: posterior[topDigit],
-    components: { freqRev, mk1: mk1Row, mk2 },
+    components: { freqRev, mk1: mk1Row, mk2, poisson: pois.multiplier },
+    poisson: {
+      lookback: 50,
+      contractTicks,
+      lambdaPerTick: pois.lambdaPerTick,
+      pZero: pois.pZero,
+      pGtTwo: pois.pGtTwo,
+      multiplier: pois.multiplier,
+    },
   };
 }
