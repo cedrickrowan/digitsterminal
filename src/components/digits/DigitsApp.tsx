@@ -313,7 +313,11 @@ export default function DigitsApp() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tickKey, cfg.lookback, cfg.predictDigit]);
 
-  const lastDigit = buf.length ? buf[buf.length - 1] : 0;
+  // Use null sentinel so digit 0 is never confused with "no data". All downstream
+  // checks must use strict null/undefined comparisons (digit !== null && digit !== undefined),
+  // never truthy checks like `if (lastDigit)` which would drop a legitimate 0.
+  const lastDigit: number | null =
+    buf.length > 0 && buf[buf.length - 1] !== undefined ? buf[buf.length - 1] : null;
 
   const health: NetHealth =
     pingMs === 0 ? "yellow" : pingMs > cfg.safePingMs ? "red" : pingMs > 250 ? "yellow" : "green";
