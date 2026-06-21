@@ -24,7 +24,13 @@ function MarkovMatrixImpl({ matrix, lastDigit, predict }: Props) {
           </div>
         ))}
         {matrix.map((row, r) => (
-          <Row key={r} r={r} row={row} highlightRow={r === lastDigit} predict={predict} />
+          <Row
+            key={r}
+            r={r}
+            row={row}
+            highlightRow={lastDigit !== null && lastDigit !== undefined && r === lastDigit}
+            predict={predict}
+          />
         ))}
       </div>
     </div>
