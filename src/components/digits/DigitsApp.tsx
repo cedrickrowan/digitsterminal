@@ -411,36 +411,6 @@ export default function DigitsApp() {
 
       <div className="space-y-3">
         <NetworkBadge health={health} pingMs={pingMs} driftMs={driftMs} ticks={totalTicksRef.current} stale={stale} />
-        {(() => {
-          const valid = lastDigit !== null && lastDigit !== undefined && lastDigit >= 0 && lastDigit <= 9;
-          const ensembleOK = valid && derived.win.length >= 10;
-          const markovOK = valid;
-          const followOK = valid && derived.followPrefix !== null;
-          const chiOK = derived.win100.length >= 10;
-          const uiOK = valid;
-          const pill = (label: string, ok: boolean) => (
-            <span
-              key={label}
-              className={`rounded border px-1.5 py-0.5 font-mono ${ok ? "border-cyan/60 text-cyan" : "border-danger/60 text-danger"}`}
-            >
-              {label}:{ok ? "✓" : "✗"}
-            </span>
-          );
-          return (
-            <div className="flex flex-wrap items-center gap-1 rounded border border-border/60 bg-background/40 px-2 py-1 text-[10px]">
-              <span className="font-mono text-muted-foreground">DBG</span>
-              <span className="font-mono text-cyan">
-                lastDigit={lastDigit === null ? "null" : String(lastDigit)}
-              </span>
-              <span className="font-mono text-muted-foreground">buf={buf.length}</span>
-              {pill("Ensemble", ensembleOK)}
-              {pill("Markov", markovOK)}
-              {pill("Follow", followOK)}
-              {pill("ChiSq", chiOK)}
-              {pill("UI", uiOK)}
-            </div>
-          );
-        })()}
         <EnsemblePanel
           ensemble={derived.ens}
           market={cfg.market}
