@@ -291,7 +291,7 @@ export default function DigitsApp() {
     const split = splitStats(win);
     const hc = hotCold(buf, 30);
     const rf = riseFall(buf, 12);
-    const ens = ensemblePredict(win);
+    const ens = ensemblePredict(win, cfg.duration);
     const bigrams = topNgrams(win, 2, 5);
     const trigrams = topNgrams(win, 3, 5);
     const chiIndep = chiSquaredIndependence(win).chi;
