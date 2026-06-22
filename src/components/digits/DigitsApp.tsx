@@ -33,8 +33,6 @@ import { MarkovMatrix } from "./MarkovMatrix";
 import { EnsemblePanel } from "./EnsemblePanel";
 import { SplitPanel } from "./SplitPanel";
 import { PatternsPanel } from "./PatternsPanel";
-import { TokenConnector } from "./TokenConnector";
-import { TradeConsole } from "./TradeConsole";
 
 const MAX_BUFFER = 500;
 
