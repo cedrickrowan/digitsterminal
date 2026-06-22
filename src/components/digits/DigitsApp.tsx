@@ -387,7 +387,7 @@ export default function DigitsApp() {
       <header className="mb-3 flex items-center justify-between">
         <div>
           <h1 className="text-base font-bold tracking-wide">
-            <span className="text-cyan">DERIV</span>
+            <span className="text-cyan">CEDRICK</span>
             <span className="text-muted-foreground"> · </span>
             <span>DIGITS TERMINAL</span>
           </h1>
