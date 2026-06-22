@@ -441,29 +441,6 @@ export default function DigitsApp() {
             />
           );
         })()}
-        <TokenConnector
-          token={token}
-          onTokenChange={setToken}
-          auth={auth}
-          connected={connected}
-          onApply={applyToken}
-          onClear={clearToken}
-        />
-        <TradeConsole
-          authorized={!!auth}
-          stake={cfg.stake}
-          duration={cfg.duration}
-          barrier={cfg.barrier}
-          predictDigit={cfg.predictDigit}
-          onStakeChange={(n) => setPartial({ stake: n })}
-          onDurationChange={(n) => setPartial({ duration: n })}
-          onBarrierChange={(n) => setPartial({ barrier: n })}
-          onPredictDigitChange={(n) => setPartial({ predictDigit: n })}
-          onBuy={handleBuy}
-          safe={safe}
-          lastResult={lastBuyResult}
-          busy={buyBusy}
-        />
         <DigitGrid freq={derived.freq} total={derived.win.length} predict={cfg.predictDigit} />
         <SplitPanel
           pEven={derived.split.pEven}
