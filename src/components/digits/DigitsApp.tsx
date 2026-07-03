@@ -21,6 +21,7 @@ import {
 } from "@/lib/deriv/stats";
 import { evaluateRules } from "@/lib/deriv/triggers";
 import { beep } from "@/lib/deriv/audio";
+import { createNetGuardState, evaluateNetGuard, type NetGuardState } from "@/lib/deriv/netGuard";
 import { signOut } from "./LoginScreen";
 import { NetworkBadge } from "./NetworkBadge";
 import { Controls } from "./Controls";
@@ -66,6 +67,11 @@ export default function DigitsApp() {
   const pendingSimRef = useRef<Array<{ id: number; tickIndex: number; predicted: number; entryPrice: number }>>([]);
   const lastSignalTickRef = useRef(-100);
   const renderScheduled = useRef(false);
+  const netGuardRef = useRef<NetGuardState>(createNetGuardState());
+  const [netGuard, setNetGuard] = useState<NetGuardState & { safe: boolean }>(() => ({
+    ...createNetGuardState(),
+    safe: true,
+  }));
   // ticker for countdown updates
   const [tick, setTick] = useState(0);
 
@@ -96,6 +102,10 @@ export default function DigitsApp() {
     const cfgNow = cfgRef.current;
     const win = buf.slice(-cfgNow.lookback);
     if (win.length < 10) return;
+
+    // Signal blocking only: unsafe net window → don't fire triggers or alerts.
+    // Charts/stats/matrix keep updating in the caller.
+    if (Date.now() < netGuardRef.current.lockedUntil) return;
 
     const hits = evaluateRules({ window: win, cfg: cfgNow });
     if (hits.length === 0) return;
@@ -220,6 +230,10 @@ export default function DigitsApp() {
       },
       onTimeSync: (drift) => setDriftMs(drift),
       onAuth: (info) => setAuth(info),
+      onNetGuard: (slippageMs, bunchingMs) => {
+        const next = evaluateNetGuard(netGuardRef.current, { slippageMs, bunchingMs });
+        setNetGuard(next);
+      },
       onError: (e) => {
         pushSignal({
           id: Date.now() + Math.random(),
@@ -408,7 +422,7 @@ export default function DigitsApp() {
       </header>
 
       <div className="space-y-3">
-        <NetworkBadge health={health} pingMs={pingMs} driftMs={driftMs} ticks={totalTicksRef.current} stale={stale} />
+        <NetworkBadge health={health} pingMs={pingMs} driftMs={driftMs} ticks={totalTicksRef.current} stale={stale} guard={netGuard} />
         <EnsemblePanel
           ensemble={derived.ens}
           market={cfg.market}

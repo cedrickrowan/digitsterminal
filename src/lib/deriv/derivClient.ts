@@ -30,6 +30,9 @@ export interface DerivEvents {
   onError?: (err: string) => void;
   onAuth?: (info: AuthInfo | null) => void;
   onBalance?: (balance: number, currency: string) => void;
+  // Slippage: local wall-clock vs server tick epoch (drift-corrected), ms.
+  // Bunching: gap since previous tick arrival, ms (null on the first tick after connect).
+  onNetGuard?: (slippageMs: number, bunchingMs: number | null) => void;
 }
 
 export type ContractType =
@@ -67,6 +70,8 @@ export class DerivClient {
   private reconnectAttempt = 0;
   private token: string | null = null;
   private authInfo: AuthInfo | null = null;
+  private driftMs = 0; // server_ms - local_ms (from time sync)
+  private lastTickArrivalWall = 0; // Date.now() at previous tick
 
   constructor(private events: DerivEvents) {}
 
@@ -157,7 +162,13 @@ export class DerivClient {
       const sym = msg.tick.symbol ?? this.symbol;
       const digit = lastDigit(quote, pip, sym);
       this.subId = msg.tick.id ?? this.subId;
+      const nowWall = Date.now();
+      const serverArrival = nowWall - this.driftMs;
+      const slippageMs = Math.max(0, serverArrival - msg.tick.epoch * 1000);
+      const bunchingMs = this.lastTickArrivalWall ? nowWall - this.lastTickArrivalWall : null;
+      this.lastTickArrivalWall = nowWall;
       this.events.onTick?.(digit, quote, msg.tick.epoch, performance.now());
+      this.events.onNetGuard?.(slippageMs, bunchingMs);
     } else if (msg.msg_type === "history" && msg.history) {
       const prices: number[] = msg.history.prices;
       const pip = msg.pip_size ?? 2;
@@ -198,6 +209,7 @@ export class DerivClient {
       const rtt = t1 - t0;
       const serverMs = msg.time * 1000;
       const drift = serverMs - (t0 + rtt / 2);
+      this.driftMs = drift;
       this.events.onTimeSync?.(drift);
     });
   }
