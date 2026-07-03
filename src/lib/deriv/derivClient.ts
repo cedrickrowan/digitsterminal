@@ -30,6 +30,9 @@ export interface DerivEvents {
   onError?: (err: string) => void;
   onAuth?: (info: AuthInfo | null) => void;
   onBalance?: (balance: number, currency: string) => void;
+  // Slippage: local wall-clock vs server tick epoch (drift-corrected), ms.
+  // Bunching: gap since previous tick arrival, ms (null on the first tick after connect).
+  onNetGuard?: (slippageMs: number, bunchingMs: number | null) => void;
 }
 
 export type ContractType =
