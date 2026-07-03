@@ -67,6 +67,11 @@ export default function DigitsApp() {
   const pendingSimRef = useRef<Array<{ id: number; tickIndex: number; predicted: number; entryPrice: number }>>([]);
   const lastSignalTickRef = useRef(-100);
   const renderScheduled = useRef(false);
+  const netGuardRef = useRef<NetGuardState>(createNetGuardState());
+  const [netGuard, setNetGuard] = useState<NetGuardState & { safe: boolean }>(() => ({
+    ...createNetGuardState(),
+    safe: true,
+  }));
   // ticker for countdown updates
   const [tick, setTick] = useState(0);
 
