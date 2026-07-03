@@ -162,7 +162,13 @@ export class DerivClient {
       const sym = msg.tick.symbol ?? this.symbol;
       const digit = lastDigit(quote, pip, sym);
       this.subId = msg.tick.id ?? this.subId;
+      const nowWall = Date.now();
+      const serverArrival = nowWall - this.driftMs;
+      const slippageMs = Math.max(0, serverArrival - msg.tick.epoch * 1000);
+      const bunchingMs = this.lastTickArrivalWall ? nowWall - this.lastTickArrivalWall : null;
+      this.lastTickArrivalWall = nowWall;
       this.events.onTick?.(digit, quote, msg.tick.epoch, performance.now());
+      this.events.onNetGuard?.(slippageMs, bunchingMs);
     } else if (msg.msg_type === "history" && msg.history) {
       const prices: number[] = msg.history.prices;
       const pip = msg.pip_size ?? 2;
