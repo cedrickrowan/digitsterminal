@@ -422,7 +422,7 @@ export default function DigitsApp() {
       </header>
 
       <div className="space-y-3">
-        <NetworkBadge health={health} pingMs={pingMs} driftMs={driftMs} ticks={totalTicksRef.current} stale={stale} />
+        <NetworkBadge health={health} pingMs={pingMs} driftMs={driftMs} ticks={totalTicksRef.current} stale={stale} guard={netGuard} />
         <EnsemblePanel
           ensemble={derived.ens}
           market={cfg.market}
