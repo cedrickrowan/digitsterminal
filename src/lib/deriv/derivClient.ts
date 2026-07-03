@@ -209,6 +209,7 @@ export class DerivClient {
       const rtt = t1 - t0;
       const serverMs = msg.time * 1000;
       const drift = serverMs - (t0 + rtt / 2);
+      this.driftMs = drift;
       this.events.onTimeSync?.(drift);
     });
   }
