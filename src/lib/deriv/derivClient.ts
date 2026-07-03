@@ -70,6 +70,8 @@ export class DerivClient {
   private reconnectAttempt = 0;
   private token: string | null = null;
   private authInfo: AuthInfo | null = null;
+  private driftMs = 0; // server_ms - local_ms (from time sync)
+  private lastTickArrivalWall = 0; // Date.now() at previous tick
 
   constructor(private events: DerivEvents) {}
 
