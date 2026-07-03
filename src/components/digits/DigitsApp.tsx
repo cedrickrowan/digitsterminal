@@ -21,6 +21,7 @@ import {
 } from "@/lib/deriv/stats";
 import { evaluateRules } from "@/lib/deriv/triggers";
 import { beep } from "@/lib/deriv/audio";
+import { createNetGuardState, evaluateNetGuard, type NetGuardState } from "@/lib/deriv/netGuard";
 import { signOut } from "./LoginScreen";
 import { NetworkBadge } from "./NetworkBadge";
 import { Controls } from "./Controls";
