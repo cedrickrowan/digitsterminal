@@ -230,6 +230,10 @@ export default function DigitsApp() {
       },
       onTimeSync: (drift) => setDriftMs(drift),
       onAuth: (info) => setAuth(info),
+      onNetGuard: (slippageMs, bunchingMs) => {
+        const next = evaluateNetGuard(netGuardRef.current, { slippageMs, bunchingMs });
+        setNetGuard(next);
+      },
       onError: (e) => {
         pushSignal({
           id: Date.now() + Math.random(),
