@@ -103,6 +103,10 @@ export default function DigitsApp() {
     const win = buf.slice(-cfgNow.lookback);
     if (win.length < 10) return;
 
+    // Signal blocking only: unsafe net window → don't fire triggers or alerts.
+    // Charts/stats/matrix keep updating in the caller.
+    if (Date.now() < netGuardRef.current.lockedUntil) return;
+
     const hits = evaluateRules({ window: win, cfg: cfgNow });
     if (hits.length === 0) return;
 
