@@ -84,10 +84,12 @@ export default function DigitsApp() {
   const scheduleRender = useCallback(() => {
     if (renderScheduled.current) return;
     renderScheduled.current = true;
-    setTimeout(() => {
+    // rAF keeps ingestion+render decoupled but flushes on the next paint
+    // (~16ms) instead of a fixed 120ms wall — eliminates "TOO LATE" stalls.
+    requestAnimationFrame(() => {
       renderScheduled.current = false;
       forceRender((x) => (x + 1) & 0x3fffffff);
-    }, 120);
+    });
   }, []);
 
   const pushSignal = useCallback((s: Signal) => {
