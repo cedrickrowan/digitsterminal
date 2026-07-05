@@ -47,14 +47,14 @@ function SplitPanelImpl(p: Props) {
     <div className="space-y-2 rounded-lg border border-border bg-card px-3 py-2">
       <div className="text-[10px] uppercase tracking-widest text-cyan">Split analysis</div>
       <Pair leftLabel="EVEN" leftPct={p.pEven} rightLabel="ODD" rightPct={1 - p.pEven} />
-      <Pair leftLabel="UNDER(0-4)" leftPct={1 - p.pHigh} rightLabel="OVER(5-9)" rightPct={p.pHigh} />
+      <Pair leftLabel="LOW(0-4)" leftPct={1 - p.pHigh} rightLabel="HIGH(5-9)" rightPct={p.pHigh} />
       <Pair leftLabel="RISE" leftPct={p.riseUp / total} rightLabel="FALL" rightPct={p.riseDown / total} />
       <div className="flex justify-between border-t border-border pt-2 text-[11px]">
         <span className="text-muted-foreground">
-          Hot (decay): <span className="font-mono font-bold text-cyan">{p.hot}</span> ×{p.hotFreq[p.hot].toFixed(1)}
+          Hot (30): <span className="font-mono font-bold text-cyan">{p.hot}</span> ×{p.hotFreq[p.hot]}
         </span>
         <span className="text-muted-foreground">
-          Cold (decay): <span className="font-mono font-bold text-magenta">{p.cold}</span> ×{p.hotFreq[p.cold].toFixed(1)}
+          Cold (30): <span className="font-mono font-bold text-magenta">{p.cold}</span> ×{p.hotFreq[p.cold]}
         </span>
       </div>
     </div>
