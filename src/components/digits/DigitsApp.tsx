@@ -474,6 +474,12 @@ export default function DigitsApp() {
           );
         })()}
         <DigitGrid freq={derived.freq} total={derived.win.length} predict={cfg.predictDigit} />
+        <ConfluencePanel
+          conf={derived.conf}
+          velocity={derived.velocity}
+          prngZ={derived.prng.z}
+          prngShift={derived.prng.shift}
+        />
         <SplitPanel
           pEven={derived.split.pEven}
           pHigh={derived.split.pHigh}
