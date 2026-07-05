@@ -453,25 +453,39 @@ export function poissonVarianceFilter(
   return { lambdaPerTick, pZero, pGtTwo, multiplier };
 }
 
-// Ensemble: weighted mix of frequency reversion + Markov 1st + Markov 2nd,
-// scaled by the Poisson variance filter as a structural multiplier.
-export function ensemblePredict(window: number[], contractTicks = 4): Ensemble {
+// Ensemble: weighted mix of decay-weighted frequency reversion +
+// non-homogeneous Markov 1st + Markov 2nd, scaled by the Poisson variance
+// filter as a structural multiplier and lifted by the active confluence
+// subgroup.
+export interface EnsembleOpts {
+  velocity?: number;      // 0..1 — tick cadence (fast market → higher)
+  subgroup?: number[];    // confluence subgroup digits
+  lambdaDecay?: number;   // recency decay λ (default 0.15)
+}
+export function ensemblePredict(
+  window: number[],
+  contractTicks = 4,
+  opts: EnsembleOpts = {},
+): Ensemble {
+  const { velocity = 0.5, subgroup, lambdaDecay = 0.15 } = opts;
   const n = window.length;
-  const freq = frequencies(window);
-  const freqRev = freqReversion(freq, n);
-  const mk1m = markov1(window);
+  const decay = decayFrequencies(window, lambdaDecay);
+  const freqRev = freqReversion(decay.freq, decay.effN || n || 1);
+  const mk1m = markov1NonHomo(window, { lambda: lambdaDecay, velocity, subgroup });
   const last = n ? window[n - 1] : 0;
   const prev = n > 1 ? window[n - 2] : last;
   const mk1Row = mk1m[last] && mk1m[last].some((x) => x > 0) ? mk1m[last] : new Array(10).fill(0.1);
   const mk2 = markov2(window).dist(prev, last);
 
   const eps = 1e-3;
+  const inSet = new Set(subgroup ?? []);
   const fused = new Array(10);
   for (let i = 0; i < 10; i++) {
     const lf = Math.log(freqRev[i] + eps);
     const l1 = Math.log(mk1Row[i] + eps);
     const l2 = Math.log(mk2[i] + eps);
-    fused[i] = Math.exp(0.25 * lf + 0.4 * l1 + 0.35 * l2);
+    const lift = inSet.size && inSet.has(i) ? 1.4 : 1;
+    fused[i] = Math.exp(0.25 * lf + 0.4 * l1 + 0.35 * l2) * lift;
   }
 
   const pois = poissonVarianceFilter(window, contractTicks, 50);
@@ -495,3 +509,4 @@ export function ensemblePredict(window: number[], contractTicks = 4): Ensemble {
     },
   };
 }
+
