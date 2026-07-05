@@ -356,6 +356,23 @@ export default function DigitsApp() {
   // suppress unused-tick warning
   void tick;
 
+  // PRNG cycle detector: on a sharp Z-score deviation, flush the short-term
+  // buffer so trend detectors restart from a clean slate.
+  const lastFlushRef = useRef(0);
+  useEffect(() => {
+    if (!derived.prng.shift) return;
+    if (totalTicksRef.current - lastFlushRef.current < 30) return;
+    lastFlushRef.current = totalTicksRef.current;
+    bufRef.current = bufRef.current.slice(-10);
+    pushSignal({
+      id: Date.now() + Math.random(),
+      ts: Date.now(),
+      reason: `prng-shift z=${derived.prng.z.toFixed(2)} · buffer flushed`,
+      predicted: cfgRef.current.predictDigit,
+      mode: cfgRef.current.mode,
+    });
+  }, [derived.prng.shift, derived.prng.z, pushSignal]);
+
   const setPartial = useCallback((patch: Partial<AppConfig>) => {
     setCfg((c) => ({ ...c, ...patch }));
   }, []);
