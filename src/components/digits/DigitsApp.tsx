@@ -77,7 +77,7 @@ export default function DigitsApp() {
 
   // Countdown ticker @ 5fps — light, only updates a single number/bar.
   useEffect(() => {
-    const id = window.setInterval(() => setTick((t) => (t + 1) & 0x3fffffff), 200);
+    const id = window.setInterval(() => setTick((t) => (t + 1) & 0x3fffffff), 100);
     return () => clearInterval(id);
   }, []);
 
