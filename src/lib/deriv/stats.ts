@@ -102,6 +102,149 @@ export function markov1(window: number[]): number[][] {
   return m;
 }
 
+// ---- Non-Homogeneous Markov ------------------------------------------------
+// Standard row weighted by:
+//   • recency (exponential decay λ = 0.15 over transition index)
+//   • velocity — faster tick cadence (smaller ms gap) reduces the self-loop
+//     probability (regime is moving) and lifts off-diagonal mass.
+//   • confluence subgroup — digits inside the active Matrix Filter subgroup
+//     receive a multiplicative lift.
+export interface NonHomoOpts {
+  lambda?: number;        // recency decay per step (default 0.15)
+  velocity?: number;      // 0 (slow) .. 1 (fast). Default 0.5.
+  subgroup?: number[];    // confluence subgroup digits
+  subgroupLift?: number;  // multiplier for in-subgroup digits (default 1.5)
+}
+export function markov1NonHomo(window: number[], opts: NonHomoOpts = {}): number[][] {
+  const { lambda = 0.15, velocity = 0.5, subgroup, subgroupLift = 1.5 } = opts;
+  const m: number[][] = Array.from({ length: 10 }, () => new Array(10).fill(0));
+  const rowTotals = new Array(10).fill(0);
+  const T = Math.max(1, window.length - 1);
+  for (let i = 0; i < T; i++) {
+    const age = T - 1 - i;                   // 0 = most recent transition
+    const w = Math.exp(-lambda * age);
+    m[window[i]][window[i + 1]] += w;
+    rowTotals[window[i]] += w;
+  }
+  // Velocity damping: fast market → reduce self-loop, redistribute
+  const selfLoopScale = 1 - 0.6 * Math.max(0, Math.min(1, velocity));
+  const inSet = new Set(subgroup ?? []);
+  for (let a = 0; a < 10; a++) {
+    if (!rowTotals[a]) { for (let b = 0; b < 10; b++) m[a][b] = 0.1; continue; }
+    let sum = 0;
+    for (let b = 0; b < 10; b++) {
+      m[a][b] = m[a][b] / rowTotals[a];
+      if (b === a) m[a][b] *= selfLoopScale;
+      if (inSet.size && inSet.has(b)) m[a][b] *= subgroupLift;
+      sum += m[a][b];
+    }
+    if (sum > 0) for (let b = 0; b < 10; b++) m[a][b] /= sum;
+  }
+  return m;
+}
+
+// Time-weighted digit frequencies with exponential decay: w_i = e^(-λ * age).
+// Ticks older than ~20 units contribute ≤ e^-3 ≈ 5% of a fresh tick at λ=0.15.
+export function decayFrequencies(window: number[], lambda = 0.15): { freq: number[]; effN: number } {
+  const freq = new Array(10).fill(0);
+  const N = window.length;
+  let effN = 0;
+  for (let i = 0; i < N; i++) {
+    const age = N - 1 - i;
+    const w = Math.exp(-lambda * age);
+    freq[window[i]] += w;
+    effN += w;
+  }
+  return { freq, effN };
+}
+
+// Decay-weighted hot/cold — replacement for the static 30-tick counters.
+export function hotColdDecay(window: number[], lambda = 0.15) {
+  const { freq, effN } = decayFrequencies(window, lambda);
+  let hot = 0, cold = 0;
+  for (let i = 1; i < 10; i++) {
+    if (freq[i] > freq[hot]) hot = i;
+    if (freq[i] < freq[cold]) cold = i;
+  }
+  return { hot, cold, freq, effN };
+}
+
+// ---- Confluence Matrix Filter ----------------------------------------------
+// Cross-references Rise/Fall × Even/Odd × Over/Under (barrier = 5 fixed:
+// Under = 0..4, Over = 5..9) to isolate the target digit subgroup.
+export type Direction = "RISE" | "FALL";
+export type Parity = "EVEN" | "ODD";
+export type Range = "OVER" | "UNDER";
+export interface Confluence {
+  direction: Direction;
+  parity: Parity;
+  range: Range;
+  subgroup: number[];        // digits satisfying the joint criteria
+  strength: number;          // 0..1 — product of the three side confidences
+  labels: [string, string, string];
+}
+export function confluenceMatrix(
+  window: number[],
+  pEven: number,
+  rise: { up: number; down: number },
+  freq: number[],
+  n: number,
+): Confluence {
+  const direction: Direction = rise.up >= rise.down ? "RISE" : "FALL";
+  const parity: Parity = pEven >= 0.5 ? "EVEN" : "ODD";
+  const overCount = n ? (freq[5] + freq[6] + freq[7] + freq[8] + freq[9]) : 0;
+  const pOver = n ? overCount / n : 0.5;
+  const range: Range = pOver >= 0.5 ? "OVER" : "UNDER";
+
+  // Explicit spec: Rise+Even+Over→[6,8], Rise+Odd+Over→[7,9],
+  // Fall+Even+Under→[0,2,4], Fall+Odd+Under→[1,3].
+  // Off-matrix combos fall back to the intersection of the three side sets.
+  const evenSet = [0, 2, 4, 6, 8];
+  const oddSet = [1, 3, 5, 7, 9];
+  const overSet = [5, 6, 7, 8, 9];
+  const underSet = [0, 1, 2, 3, 4];
+  const parSet = parity === "EVEN" ? evenSet : oddSet;
+  const rngSet = range === "OVER" ? overSet : underSet;
+  let subgroup = parSet.filter((d) => rngSet.includes(d));
+  const key = `${direction}+${parity}+${range}`;
+  const table: Record<string, number[]> = {
+    "RISE+EVEN+OVER": [6, 8],
+    "RISE+ODD+OVER": [7, 9],
+    "FALL+EVEN+UNDER": [0, 2, 4],
+    "FALL+ODD+UNDER": [1, 3],
+  };
+  if (table[key]) subgroup = table[key];
+
+  const total = Math.max(1, rise.up + rise.down);
+  const cDir = (direction === "RISE" ? rise.up : rise.down) / total;
+  const cPar = parity === "EVEN" ? pEven : 1 - pEven;
+  const cRng = range === "OVER" ? pOver : 1 - pOver;
+  const strength = cDir * cPar * cRng;
+  return {
+    direction, parity, range, subgroup, strength,
+    labels: [direction, parity, `${range} 5`],
+  };
+}
+
+// ---- PRNG cycle / seed-shift detector --------------------------------------
+// Wald–Wolfowitz runs test on the parity sequence. Z-scores far from 0 imply
+// non-random runs (structural trend) → flush short-term buffers.
+export function prngRunsZ(window: number[]): { z: number; runs: number; expected: number; shift: boolean } {
+  const n = window.length;
+  if (n < 20) return { z: 0, runs: 0, expected: 0, shift: false };
+  let evens = 0, odds = 0, runs = 1;
+  for (let i = 0; i < n; i++) {
+    if (window[i] % 2 === 0) evens++; else odds++;
+    if (i > 0 && (window[i] % 2) !== (window[i - 1] % 2)) runs++;
+  }
+  if (evens === 0 || odds === 0) return { z: 0, runs, expected: 0, shift: false };
+  const mu = (2 * evens * odds) / n + 1;
+  const varR = (2 * evens * odds * (2 * evens * odds - n)) / (n * n * (n - 1));
+  const sigma = Math.sqrt(Math.max(1e-9, varR));
+  const z = (runs - mu) / sigma;
+  return { z, runs, expected: mu, shift: Math.abs(z) > 2.5 };
+}
+
 // 2-step Markov P(next | a, b). Returns a function lookup to avoid 1000-cell allocation cost.
 export function markov2(window: number[]): { dist: (a: number, b: number) => number[]; counts: number } {
   const map = new Map<number, number[]>();
