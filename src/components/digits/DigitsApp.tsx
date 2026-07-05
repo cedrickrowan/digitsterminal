@@ -290,7 +290,7 @@ export default function DigitsApp() {
       : { probs: new Array(10).fill(0), total: 0, counts: [] };
     const mk = markov1(win);
     const split = splitStats(win);
-    const hc = hotCold(buf, 30);
+    const hc = hotColdDecay(buf.slice(-60), 0.15);
     const rf = riseFall(buf, 12);
     const ens = ensemblePredict(win, cfg.duration);
     const bigrams = topNgrams(win, 2, 5);
