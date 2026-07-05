@@ -294,7 +294,16 @@ export default function DigitsApp() {
     const split = splitStats(win);
     const hc = hotColdDecay(buf.slice(-60), 0.15);
     const rf = riseFall(buf, 12);
-    const ens = ensemblePredict(win, cfg.duration);
+    // Velocity from median tick gap: 400ms→1.0, 2000ms→0.0 (linear).
+    const medGap = medianOf(gapsRef.current) || 1500;
+    const velocity = Math.max(0, Math.min(1, (2000 - medGap) / 1600));
+    const conf = confluenceMatrix(win, split.pEven, rf, freq, win.length);
+    const ens = ensemblePredict(win, cfg.duration, {
+      velocity,
+      subgroup: conf.subgroup,
+      lambdaDecay: 0.15,
+    });
+    const prng = prngRunsZ(win);
     const bigrams = topNgrams(win, 2, 5);
     const trigrams = topNgrams(win, 3, 5);
     const chiIndep = chiSquaredIndependence(win).chi;
@@ -318,11 +327,14 @@ export default function DigitsApp() {
       hc,
       rf,
       ens,
+      conf,
+      velocity,
+      prng,
       bigrams,
       trigrams,
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tickKey, cfg.lookback, cfg.predictDigit]);
+  }, [tickKey, cfg.lookback, cfg.predictDigit, cfg.duration]);
 
   // Use null sentinel so digit 0 is never confused with "no data". All downstream
   // checks must use strict null/undefined comparisons (digit !== null && digit !== undefined),
