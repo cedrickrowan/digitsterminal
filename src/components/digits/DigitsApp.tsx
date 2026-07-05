@@ -7,12 +7,14 @@ import {
   chiSquaredIndependence,
   chiSquaredUniform,
   coldProb,
+  confluenceMatrix,
   ensemblePredict,
   entropyZ,
   frequencies,
   gapsSinceLast,
-  hotCold,
+  hotColdDecay,
   markov1,
+  prngRunsZ,
   riseFall,
   shannonEntropy,
   splitStats,
@@ -33,6 +35,7 @@ import { MarkovMatrix } from "./MarkovMatrix";
 import { EnsemblePanel } from "./EnsemblePanel";
 import { SplitPanel } from "./SplitPanel";
 import { PatternsPanel } from "./PatternsPanel";
+import { ConfluencePanel } from "./ConfluencePanel";
 
 const MAX_BUFFER = 500;
 
