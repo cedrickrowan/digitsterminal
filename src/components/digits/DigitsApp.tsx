@@ -7,12 +7,14 @@ import {
   chiSquaredIndependence,
   chiSquaredUniform,
   coldProb,
+  confluenceMatrix,
   ensemblePredict,
   entropyZ,
   frequencies,
   gapsSinceLast,
-  hotCold,
+  hotColdDecay,
   markov1,
+  prngRunsZ,
   riseFall,
   shannonEntropy,
   splitStats,
@@ -33,6 +35,7 @@ import { MarkovMatrix } from "./MarkovMatrix";
 import { EnsemblePanel } from "./EnsemblePanel";
 import { SplitPanel } from "./SplitPanel";
 import { PatternsPanel } from "./PatternsPanel";
+import { ConfluencePanel } from "./ConfluencePanel";
 
 const MAX_BUFFER = 500;
 
@@ -74,17 +77,19 @@ export default function DigitsApp() {
 
   // Countdown ticker @ 5fps — light, only updates a single number/bar.
   useEffect(() => {
-    const id = window.setInterval(() => setTick((t) => (t + 1) & 0x3fffffff), 200);
+    const id = window.setInterval(() => setTick((t) => (t + 1) & 0x3fffffff), 100);
     return () => clearInterval(id);
   }, []);
 
   const scheduleRender = useCallback(() => {
     if (renderScheduled.current) return;
     renderScheduled.current = true;
-    setTimeout(() => {
+    // rAF keeps ingestion+render decoupled but flushes on the next paint
+    // (~16ms) instead of a fixed 120ms wall — eliminates "TOO LATE" stalls.
+    requestAnimationFrame(() => {
       renderScheduled.current = false;
       forceRender((x) => (x + 1) & 0x3fffffff);
-    }, 120);
+    });
   }, []);
 
   const pushSignal = useCallback((s: Signal) => {
@@ -287,9 +292,18 @@ export default function DigitsApp() {
       : { probs: new Array(10).fill(0), total: 0, counts: [] };
     const mk = markov1(win);
     const split = splitStats(win);
-    const hc = hotCold(buf, 30);
+    const hc = hotColdDecay(buf.slice(-60), 0.15);
     const rf = riseFall(buf, 12);
-    const ens = ensemblePredict(win, cfg.duration);
+    // Velocity from median tick gap: 400ms→1.0, 2000ms→0.0 (linear).
+    const medGap = medianOf(gapsRef.current) || 1500;
+    const velocity = Math.max(0, Math.min(1, (2000 - medGap) / 1600));
+    const conf = confluenceMatrix(win, split.pEven, rf, freq, win.length);
+    const ens = ensemblePredict(win, cfg.duration, {
+      velocity,
+      subgroup: conf.subgroup,
+      lambdaDecay: 0.15,
+    });
+    const prng = prngRunsZ(win);
     const bigrams = topNgrams(win, 2, 5);
     const trigrams = topNgrams(win, 3, 5);
     const chiIndep = chiSquaredIndependence(win).chi;
@@ -313,11 +327,14 @@ export default function DigitsApp() {
       hc,
       rf,
       ens,
+      conf,
+      velocity,
+      prng,
       bigrams,
       trigrams,
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tickKey, cfg.lookback, cfg.predictDigit]);
+  }, [tickKey, cfg.lookback, cfg.predictDigit, cfg.duration]);
 
   // Use null sentinel so digit 0 is never confused with "no data". All downstream
   // checks must use strict null/undefined comparisons (digit !== null && digit !== undefined),
@@ -338,6 +355,23 @@ export default function DigitsApp() {
   const purchaseInMs = countdownMs - cfg.latencyOffsetMs;
   // suppress unused-tick warning
   void tick;
+
+  // PRNG cycle detector: on a sharp Z-score deviation, flush the short-term
+  // buffer so trend detectors restart from a clean slate.
+  const lastFlushRef = useRef(0);
+  useEffect(() => {
+    if (!derived.prng.shift) return;
+    if (totalTicksRef.current - lastFlushRef.current < 30) return;
+    lastFlushRef.current = totalTicksRef.current;
+    bufRef.current = bufRef.current.slice(-10);
+    pushSignal({
+      id: Date.now() + Math.random(),
+      ts: Date.now(),
+      reason: `prng-shift z=${derived.prng.z.toFixed(2)} · buffer flushed`,
+      predicted: cfgRef.current.predictDigit,
+      mode: cfgRef.current.mode,
+    });
+  }, [derived.prng.shift, derived.prng.z, pushSignal]);
 
   const setPartial = useCallback((patch: Partial<AppConfig>) => {
     setCfg((c) => ({ ...c, ...patch }));
@@ -440,6 +474,12 @@ export default function DigitsApp() {
           );
         })()}
         <DigitGrid freq={derived.freq} total={derived.win.length} predict={cfg.predictDigit} />
+        <ConfluencePanel
+          conf={derived.conf}
+          velocity={derived.velocity}
+          prngZ={derived.prng.z}
+          prngShift={derived.prng.shift}
+        />
         <SplitPanel
           pEven={derived.split.pEven}
           pHigh={derived.split.pHigh}

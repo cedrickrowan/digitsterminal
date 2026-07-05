@@ -54,7 +54,7 @@ export const DEFAULT_CONFIG: AppConfig = {
   duration: 1,
   stake: 1,
   lookback: 50,
-  latencyOffsetMs: 1000,
+  latencyOffsetMs: 300,
   mode: "simulated",
   market: "matches",
   barrier: 4,
