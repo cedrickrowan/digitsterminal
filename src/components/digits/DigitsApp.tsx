@@ -234,6 +234,9 @@ export default function DigitsApp() {
         totalTicksRef.current = bufRef.current.length;
         lastPriceRef.current = last;
         setLastPrice(last);
+        // Reseed the worker's ring buffer to match the trimmed history.
+        workerRef.current?.postMessage({ type: "reset", lookback: cfgRef.current.lookback });
+        workerRef.current?.postMessage({ type: "init", lookback: cfgRef.current.lookback, seed: clean.slice(-cfgRef.current.lookback) });
         scheduleRender();
       },
       onTick: (digit, quote, _e, arrival) => {
@@ -244,6 +247,25 @@ export default function DigitsApp() {
           const g = gapsRef.current;
           g.push(gap);
           if (g.length > 12) g.shift();
+        }
+        // Mobile browser tab-sleep backlog dropper: if a huge burst of ticks
+        // arrives after ColorOS/iOS wakes the tab, flush and resync on the
+        // newest tick only — never replay a stale stack sequentially.
+        const wokeFromSleep = hiddenSinceRef.current > 0 && document.visibilityState === "visible";
+        const burstDetected = wokeFromSleep && gap > 0 && gap < 40; // <40ms between ticks = queued backlog
+        if (burstDetected) {
+          hiddenSinceRef.current = 0;
+          pushSignal({
+            id: Date.now() + Math.random(),
+            ts: Date.now(),
+            reason: `wake resync · dropped backlog · gap ${Math.round(gap)}ms`,
+            predicted: cfgRef.current.predictDigit,
+            mode: cfgRef.current.mode,
+          });
+          // hard resubscribe so the server sends fresh state instead of us
+          // replaying whatever the socket buffered.
+          clientRef.current?.subscribeTicks(cfgRef.current.symbol, cfgRef.current.lookback);
+          return;
         }
         const isStale = prev !== 0 && gap > cfgRef.current.safeGapMs;
         setStale(isStale);
@@ -259,6 +281,8 @@ export default function DigitsApp() {
         totalTicksRef.current++;
         lastPriceRef.current = quote;
         setLastPrice(quote);
+        // Fan the tick into the reactive stream → Web Worker analysis engine.
+        tickStreamRef.current?.next({ digit, ts: Date.now() });
         resolveSims(digit);
         if (!isStale) evaluateAndMaybeFire();
         scheduleRender();
