@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Subject } from "rxjs";
+import { auditTime } from "rxjs/operators";
 import { DerivClient, type AuthInfo, type ContractType } from "@/lib/deriv/derivClient";
 import { loadConfig, loadToken, saveConfig, saveToken } from "@/lib/deriv/storage";
 import type { AppConfig, NetHealth, Signal } from "@/lib/deriv/types";
@@ -20,6 +22,7 @@ import {
   twoTickFollowups,
 } from "@/lib/deriv/stats";
 import { evaluateRules } from "@/lib/deriv/triggers";
+import type { EngineReport } from "@/lib/deriv/engine";
 import { beep } from "@/lib/deriv/audio";
 import { signOut } from "./LoginScreen";
 import { NetworkBadge } from "./NetworkBadge";
@@ -33,6 +36,7 @@ import { MarkovMatrix } from "./MarkovMatrix";
 import { EnsemblePanel } from "./EnsemblePanel";
 import { SplitPanel } from "./SplitPanel";
 import { PatternsPanel } from "./PatternsPanel";
+import { EngineLog } from "./EngineLog";
 
 const MAX_BUFFER = 500;
 
