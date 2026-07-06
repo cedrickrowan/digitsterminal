@@ -503,9 +503,11 @@ export default function DigitsApp() {
         {(() => {
           const isMatches = cfg.market === "matches";
           const displayDigit = isMatches ? cfg.predictDigit : derived.ens.topDigit;
-          const conf = isMatches
+          const baseConf = isMatches
             ? derived.ens.posterior[cfg.predictDigit] ?? 0
             : derived.ens.confidence;
+          // Entropy-decay boost from the background engine — bounded [0.8, 1.25].
+          const conf = Math.min(1, baseConf * (engineReport?.confidenceAdjust ?? 1));
           const highlight = isMatches && conf >= 0.7;
           return (
             <PredictedDigit
