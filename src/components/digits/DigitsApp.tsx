@@ -88,6 +88,47 @@ export default function DigitsApp() {
     return () => clearInterval(id);
   }, []);
 
+  // Spin up the analysis Web Worker + RxJS tick stream once. The worker owns
+  // the FIFO ring buffer, higher-order Markov, entropy-decay and time-seed
+  // math so the mobile UI thread stays free.
+  useEffect(() => {
+    const worker = new Worker(new URL("../../lib/deriv/analysisWorker.ts", import.meta.url), {
+      type: "module",
+    });
+    workerRef.current = worker;
+    worker.postMessage({ type: "init", lookback: cfgRef.current.lookback, seed: [] });
+    worker.onmessage = (e: MessageEvent<{ type: "report"; report: EngineReport }>) => {
+      if (e.data?.type !== "report") return;
+      const report = e.data.report;
+      setEngineReport(report);
+      setEngineLog((prev) => {
+        const next = prev.length >= 60 ? prev.slice(-59) : prev.slice();
+        next.push(report.log);
+        return next;
+      });
+    };
+
+    const stream = new Subject<{ digit: number; ts: number }>();
+    tickStreamRef.current = stream;
+    // auditTime coalesces bursts so a wake-up backlog can't spam the worker.
+    const sub = stream.pipe(auditTime(0)).subscribe(({ digit, ts }) => {
+      worker.postMessage({ type: "tick", digit, ts, cfg: cfgRef.current });
+    });
+    return () => {
+      sub.unsubscribe();
+      stream.complete();
+      worker.terminate();
+      workerRef.current = null;
+      tickStreamRef.current = null;
+    };
+  }, []);
+
+  // Notify the worker when the user changes lookback.
+  useEffect(() => {
+    workerRef.current?.postMessage({ type: "lookback", lookback: cfg.lookback });
+  }, [cfg.lookback]);
+
+
   const scheduleRender = useCallback(() => {
     if (renderScheduled.current) return;
     renderScheduled.current = true;
