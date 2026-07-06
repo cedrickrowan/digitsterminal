@@ -324,7 +324,12 @@ export default function DigitsApp() {
 
   useEffect(() => {
     const onVis = () => {
-      if (document.visibilityState === "visible" && !clientRef.current) handleConnect();
+      if (document.visibilityState === "hidden") {
+        hiddenSinceRef.current = performance.now();
+      } else if (document.visibilityState === "visible") {
+        // Keep marker set; onTick will use it to detect the wake-burst.
+        if (!clientRef.current) handleConnect();
+      }
     };
     document.addEventListener("visibilitychange", onVis);
     return () => document.removeEventListener("visibilitychange", onVis);
