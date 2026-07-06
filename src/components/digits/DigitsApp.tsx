@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Subject } from "rxjs";
+import { auditTime } from "rxjs/operators";
 import { DerivClient, type AuthInfo, type ContractType } from "@/lib/deriv/derivClient";
 import { loadConfig, loadToken, saveConfig, saveToken } from "@/lib/deriv/storage";
 import type { AppConfig, NetHealth, Signal } from "@/lib/deriv/types";
@@ -20,6 +22,7 @@ import {
   twoTickFollowups,
 } from "@/lib/deriv/stats";
 import { evaluateRules } from "@/lib/deriv/triggers";
+import type { EngineReport } from "@/lib/deriv/engine";
 import { beep } from "@/lib/deriv/audio";
 import { signOut } from "./LoginScreen";
 import { NetworkBadge } from "./NetworkBadge";
@@ -33,6 +36,7 @@ import { MarkovMatrix } from "./MarkovMatrix";
 import { EnsemblePanel } from "./EnsemblePanel";
 import { SplitPanel } from "./SplitPanel";
 import { PatternsPanel } from "./PatternsPanel";
+import { EngineLog } from "./EngineLog";
 
 const MAX_BUFFER = 500;
 
@@ -66,6 +70,12 @@ export default function DigitsApp() {
   const pendingSimRef = useRef<Array<{ id: number; tickIndex: number; predicted: number; entryPrice: number }>>([]);
   const lastSignalTickRef = useRef(-100);
   const renderScheduled = useRef(false);
+  // Background analysis engine (Web Worker) + reactive tick stream
+  const workerRef = useRef<Worker | null>(null);
+  const tickStreamRef = useRef<Subject<{ digit: number; ts: number }> | null>(null);
+  const hiddenSinceRef = useRef<number>(0);
+  const [engineReport, setEngineReport] = useState<EngineReport | null>(null);
+  const [engineLog, setEngineLog] = useState<string[]>([]);
   // ticker for countdown updates
   const [tick, setTick] = useState(0);
 
@@ -77,6 +87,47 @@ export default function DigitsApp() {
     const id = window.setInterval(() => setTick((t) => (t + 1) & 0x3fffffff), 200);
     return () => clearInterval(id);
   }, []);
+
+  // Spin up the analysis Web Worker + RxJS tick stream once. The worker owns
+  // the FIFO ring buffer, higher-order Markov, entropy-decay and time-seed
+  // math so the mobile UI thread stays free.
+  useEffect(() => {
+    const worker = new Worker(new URL("../../lib/deriv/analysisWorker.ts", import.meta.url), {
+      type: "module",
+    });
+    workerRef.current = worker;
+    worker.postMessage({ type: "init", lookback: cfgRef.current.lookback, seed: [] });
+    worker.onmessage = (e: MessageEvent<{ type: "report"; report: EngineReport }>) => {
+      if (e.data?.type !== "report") return;
+      const report = e.data.report;
+      setEngineReport(report);
+      setEngineLog((prev) => {
+        const next = prev.length >= 60 ? prev.slice(-59) : prev.slice();
+        next.push(report.log);
+        return next;
+      });
+    };
+
+    const stream = new Subject<{ digit: number; ts: number }>();
+    tickStreamRef.current = stream;
+    // auditTime coalesces bursts so a wake-up backlog can't spam the worker.
+    const sub = stream.pipe(auditTime(0)).subscribe(({ digit, ts }) => {
+      worker.postMessage({ type: "tick", digit, ts, cfg: cfgRef.current });
+    });
+    return () => {
+      sub.unsubscribe();
+      stream.complete();
+      worker.terminate();
+      workerRef.current = null;
+      tickStreamRef.current = null;
+    };
+  }, []);
+
+  // Notify the worker when the user changes lookback.
+  useEffect(() => {
+    workerRef.current?.postMessage({ type: "lookback", lookback: cfg.lookback });
+  }, [cfg.lookback]);
+
 
   const scheduleRender = useCallback(() => {
     if (renderScheduled.current) return;
@@ -183,6 +234,9 @@ export default function DigitsApp() {
         totalTicksRef.current = bufRef.current.length;
         lastPriceRef.current = last;
         setLastPrice(last);
+        // Reseed the worker's ring buffer to match the trimmed history.
+        workerRef.current?.postMessage({ type: "reset", lookback: cfgRef.current.lookback });
+        workerRef.current?.postMessage({ type: "init", lookback: cfgRef.current.lookback, seed: clean.slice(-cfgRef.current.lookback) });
         scheduleRender();
       },
       onTick: (digit, quote, _e, arrival) => {
@@ -193,6 +247,25 @@ export default function DigitsApp() {
           const g = gapsRef.current;
           g.push(gap);
           if (g.length > 12) g.shift();
+        }
+        // Mobile browser tab-sleep backlog dropper: if a huge burst of ticks
+        // arrives after ColorOS/iOS wakes the tab, flush and resync on the
+        // newest tick only — never replay a stale stack sequentially.
+        const wokeFromSleep = hiddenSinceRef.current > 0 && document.visibilityState === "visible";
+        const burstDetected = wokeFromSleep && gap > 0 && gap < 40; // <40ms between ticks = queued backlog
+        if (burstDetected) {
+          hiddenSinceRef.current = 0;
+          pushSignal({
+            id: Date.now() + Math.random(),
+            ts: Date.now(),
+            reason: `wake resync · dropped backlog · gap ${Math.round(gap)}ms`,
+            predicted: cfgRef.current.predictDigit,
+            mode: cfgRef.current.mode,
+          });
+          // hard resubscribe so the server sends fresh state instead of us
+          // replaying whatever the socket buffered.
+          clientRef.current?.subscribeTicks(cfgRef.current.symbol, cfgRef.current.lookback);
+          return;
         }
         const isStale = prev !== 0 && gap > cfgRef.current.safeGapMs;
         setStale(isStale);
@@ -208,6 +281,8 @@ export default function DigitsApp() {
         totalTicksRef.current++;
         lastPriceRef.current = quote;
         setLastPrice(quote);
+        // Fan the tick into the reactive stream → Web Worker analysis engine.
+        tickStreamRef.current?.next({ digit, ts: Date.now() });
         resolveSims(digit);
         if (!isStale) evaluateAndMaybeFire();
         scheduleRender();
@@ -249,7 +324,12 @@ export default function DigitsApp() {
 
   useEffect(() => {
     const onVis = () => {
-      if (document.visibilityState === "visible" && !clientRef.current) handleConnect();
+      if (document.visibilityState === "hidden") {
+        hiddenSinceRef.current = performance.now();
+      } else if (document.visibilityState === "visible") {
+        // Keep marker set; onTick will use it to detect the wake-burst.
+        if (!clientRef.current) handleConnect();
+      }
     };
     document.addEventListener("visibilitychange", onVis);
     return () => document.removeEventListener("visibilitychange", onVis);
@@ -423,9 +503,11 @@ export default function DigitsApp() {
         {(() => {
           const isMatches = cfg.market === "matches";
           const displayDigit = isMatches ? cfg.predictDigit : derived.ens.topDigit;
-          const conf = isMatches
+          const baseConf = isMatches
             ? derived.ens.posterior[cfg.predictDigit] ?? 0
             : derived.ens.confidence;
+          // Entropy-decay boost from the background engine — bounded [0.8, 1.25].
+          const conf = Math.min(1, baseConf * (engineReport?.confidenceAdjust ?? 1));
           const highlight = isMatches && conf >= 0.7;
           return (
             <PredictedDigit
@@ -482,6 +564,14 @@ export default function DigitsApp() {
           onToggleArm={() => setArmed((a) => !a)}
         />
         <SignalsLog signals={signals} />
+        <EngineLog
+          entries={engineLog}
+          coreSpeedMs={engineReport?.coreSpeedMs ?? 0}
+          intervalMs={engineReport?.intervalMs ?? 0}
+          intervalStdMs={engineReport?.intervalStdMs ?? 0}
+          entropyDecay={engineReport?.entropyDecay ?? 0}
+          bitmask={engineReport?.bitmask ?? 0}
+        />
         <footer className="pb-6 text-center text-[10px] text-muted-foreground">
           Public app_id 1089 · analysis only · not financial advice
         </footer>
