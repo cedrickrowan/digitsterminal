@@ -564,6 +564,14 @@ export default function DigitsApp() {
           onToggleArm={() => setArmed((a) => !a)}
         />
         <SignalsLog signals={signals} />
+        <EngineLog
+          entries={engineLog}
+          coreSpeedMs={engineReport?.coreSpeedMs ?? 0}
+          intervalMs={engineReport?.intervalMs ?? 0}
+          intervalStdMs={engineReport?.intervalStdMs ?? 0}
+          entropyDecay={engineReport?.entropyDecay ?? 0}
+          bitmask={engineReport?.bitmask ?? 0}
+        />
         <footer className="pb-6 text-center text-[10px] text-muted-foreground">
           Public app_id 1089 · analysis only · not financial advice
         </footer>
