@@ -70,6 +70,12 @@ export default function DigitsApp() {
   const pendingSimRef = useRef<Array<{ id: number; tickIndex: number; predicted: number; entryPrice: number }>>([]);
   const lastSignalTickRef = useRef(-100);
   const renderScheduled = useRef(false);
+  // Background analysis engine (Web Worker) + reactive tick stream
+  const workerRef = useRef<Worker | null>(null);
+  const tickStreamRef = useRef<Subject<{ digit: number; ts: number }> | null>(null);
+  const hiddenSinceRef = useRef<number>(0);
+  const [engineReport, setEngineReport] = useState<EngineReport | null>(null);
+  const [engineLog, setEngineLog] = useState<string[]>([]);
   // ticker for countdown updates
   const [tick, setTick] = useState(0);
 
