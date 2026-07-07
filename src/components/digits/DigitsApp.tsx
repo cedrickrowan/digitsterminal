@@ -581,7 +581,7 @@ export default function DigitsApp() {
           riseDown={derived.rf.down}
         />
         <RecentTicks digits={buf} />
-        <MarkovMatrix matrix={derived.mk} lastDigit={lastDigit} predict={derived.ens.topDigit} />
+        <MarkovMatrix matrix={derived.mk} lastDigit={lastDigit} predict={context.topDigit} />
         <PatternsPanel
           bigrams={derived.bigrams}
           trigrams={derived.trigrams}
