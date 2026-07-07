@@ -72,6 +72,8 @@ export default function DigitsApp() {
   const lastPriceRef = useRef<number>(0);
   const pingMedianRef = useRef<number[]>([]);
   const gapsRef = useRef<number[]>([]); // inter-tick gaps for interval estimate
+  const priceSeriesRef = useRef<number[]>([]); // last-20 spot prices for EMA filter
+  const priceDeltasRef = useRef<number[]>([]); // last-30 |Δprice| for volatility
   const clientRef = useRef<DerivClient | null>(null);
   const cfgRef = useRef(cfg);
   const armedRef = useRef(armed);
