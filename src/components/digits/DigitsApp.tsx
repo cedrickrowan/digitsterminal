@@ -23,6 +23,14 @@ import {
 } from "@/lib/deriv/stats";
 import { evaluateRules } from "@/lib/deriv/triggers";
 import type { EngineReport } from "@/lib/deriv/engine";
+import {
+  applyContextWeights,
+  buildSignalRouter,
+  hmmState,
+  poissonClusterWeights,
+  priceEma,
+  volatilityState,
+} from "@/lib/deriv/marketContext";
 import { beep } from "@/lib/deriv/audio";
 import { signOut } from "./LoginScreen";
 import { NetworkBadge } from "./NetworkBadge";
