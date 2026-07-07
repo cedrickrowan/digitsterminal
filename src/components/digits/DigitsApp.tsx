@@ -291,6 +291,16 @@ export default function DigitsApp() {
         totalTicksRef.current++;
         lastPriceRef.current = quote;
         setLastPrice(quote);
+        // Price EMA + Δ volatility feed (bounded rolling arrays).
+        {
+          const ps = priceSeriesRef.current;
+          const prevPrice = ps.length ? ps[ps.length - 1] : quote;
+          ps.push(quote);
+          if (ps.length > 20) ps.splice(0, ps.length - 20);
+          const dl = priceDeltasRef.current;
+          dl.push(Math.abs(quote - prevPrice));
+          if (dl.length > 30) dl.splice(0, dl.length - 30);
+        }
         // Fan the tick into the reactive stream → Web Worker analysis engine.
         tickStreamRef.current?.next({ digit, ts: Date.now() });
         resolveSims(digit);
