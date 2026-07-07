@@ -23,6 +23,14 @@ import {
 } from "@/lib/deriv/stats";
 import { evaluateRules } from "@/lib/deriv/triggers";
 import type { EngineReport } from "@/lib/deriv/engine";
+import {
+  applyContextWeights,
+  buildSignalRouter,
+  hmmState,
+  poissonClusterWeights,
+  priceEma,
+  volatilityState,
+} from "@/lib/deriv/marketContext";
 import { beep } from "@/lib/deriv/audio";
 import { signOut } from "./LoginScreen";
 import { NetworkBadge } from "./NetworkBadge";
@@ -64,6 +72,8 @@ export default function DigitsApp() {
   const lastPriceRef = useRef<number>(0);
   const pingMedianRef = useRef<number[]>([]);
   const gapsRef = useRef<number[]>([]); // inter-tick gaps for interval estimate
+  const priceSeriesRef = useRef<number[]>([]); // last-20 spot prices for EMA filter
+  const priceDeltasRef = useRef<number[]>([]); // last-30 |Δprice| for volatility
   const clientRef = useRef<DerivClient | null>(null);
   const cfgRef = useRef(cfg);
   const armedRef = useRef(armed);
@@ -281,6 +291,16 @@ export default function DigitsApp() {
         totalTicksRef.current++;
         lastPriceRef.current = quote;
         setLastPrice(quote);
+        // Price EMA + Δ volatility feed (bounded rolling arrays).
+        {
+          const ps = priceSeriesRef.current;
+          const prevPrice = ps.length ? ps[ps.length - 1] : quote;
+          ps.push(quote);
+          if (ps.length > 20) ps.splice(0, ps.length - 20);
+          const dl = priceDeltasRef.current;
+          dl.push(Math.abs(quote - prevPrice));
+          if (dl.length > 30) dl.splice(0, dl.length - 30);
+        }
         // Fan the tick into the reactive stream → Web Worker analysis engine.
         tickStreamRef.current?.next({ digit, ts: Date.now() });
         resolveSims(digit);
@@ -399,6 +419,35 @@ export default function DigitsApp() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tickKey, cfg.lookback, cfg.predictDigit]);
 
+  // Background market-context layer — EMA direction, tick-Δ volatility,
+  // 3-state HMM regime, Poisson cluster weights, and a consolidated signal
+  // router payload. Feeds only the prediction math; UI is unchanged.
+  const context = useMemo(() => {
+    const p = priceSeriesRef.current;
+    const d = priceDeltasRef.current;
+    const ema = priceEma(p);
+    const vol = volatilityState(d);
+    const hmm = hmmState(buf);
+    const poissonW = poissonClusterWeights(buf);
+    const weighted = applyContextWeights(derived.ens.posterior, {
+      direction: ema.direction,
+      volatility: vol.state,
+      hmm: hmm.state,
+      poissonWeights: poissonW,
+    });
+    let topDigit = 0;
+    for (let i = 1; i < 10; i++) if (weighted[i] > weighted[topDigit]) topDigit = i;
+    const router = buildSignalRouter(weighted, derived.split.pEven, {
+      up: derived.rf.up,
+      down: derived.rf.down,
+    });
+    return { ema, vol, hmm, weighted, topDigit, router };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tickKey, derived]);
+  // Router payload is kept as a live diagnostic even though the UI shell
+  // does not surface it — downstream consumers (worker, logs) read it.
+  void context.router;
+
   // Use null sentinel so digit 0 is never confused with "no data". All downstream
   // checks must use strict null/undefined comparisons (digit !== null && digit !== undefined),
   // never truthy checks like `if (lastDigit)` which would drop a legitimate 0.
@@ -502,10 +551,10 @@ export default function DigitsApp() {
         />
         {(() => {
           const isMatches = cfg.market === "matches";
-          const displayDigit = isMatches ? cfg.predictDigit : derived.ens.topDigit;
+          const displayDigit = isMatches ? cfg.predictDigit : context.topDigit;
           const baseConf = isMatches
-            ? derived.ens.posterior[cfg.predictDigit] ?? 0
-            : derived.ens.confidence;
+            ? context.weighted[cfg.predictDigit] ?? 0
+            : context.weighted[context.topDigit] ?? 0;
           // Entropy-decay boost from the background engine — bounded [0.8, 1.25].
           const conf = Math.min(1, baseConf * (engineReport?.confidenceAdjust ?? 1));
           const highlight = isMatches && conf >= 0.7;
@@ -532,7 +581,7 @@ export default function DigitsApp() {
           riseDown={derived.rf.down}
         />
         <RecentTicks digits={buf} />
-        <MarkovMatrix matrix={derived.mk} lastDigit={lastDigit} predict={derived.ens.topDigit} />
+        <MarkovMatrix matrix={derived.mk} lastDigit={lastDigit} predict={context.topDigit} />
         <PatternsPanel
           bigrams={derived.bigrams}
           trigrams={derived.trigrams}
