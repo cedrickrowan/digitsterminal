@@ -419,6 +419,35 @@ export default function DigitsApp() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tickKey, cfg.lookback, cfg.predictDigit]);
 
+  // Background market-context layer — EMA direction, tick-Δ volatility,
+  // 3-state HMM regime, Poisson cluster weights, and a consolidated signal
+  // router payload. Feeds only the prediction math; UI is unchanged.
+  const context = useMemo(() => {
+    const p = priceSeriesRef.current;
+    const d = priceDeltasRef.current;
+    const ema = priceEma(p);
+    const vol = volatilityState(d);
+    const hmm = hmmState(buf);
+    const poissonW = poissonClusterWeights(buf);
+    const weighted = applyContextWeights(derived.ens.posterior, {
+      direction: ema.direction,
+      volatility: vol.state,
+      hmm: hmm.state,
+      poissonWeights: poissonW,
+    });
+    let topDigit = 0;
+    for (let i = 1; i < 10; i++) if (weighted[i] > weighted[topDigit]) topDigit = i;
+    const router = buildSignalRouter(weighted, derived.split.pEven, {
+      up: derived.rf.up,
+      down: derived.rf.down,
+    });
+    return { ema, vol, hmm, weighted, topDigit, router };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tickKey, derived]);
+  // Router payload is kept as a live diagnostic even though the UI shell
+  // does not surface it — downstream consumers (worker, logs) read it.
+  void context.router;
+
   // Use null sentinel so digit 0 is never confused with "no data". All downstream
   // checks must use strict null/undefined comparisons (digit !== null && digit !== undefined),
   // never truthy checks like `if (lastDigit)` which would drop a legitimate 0.
