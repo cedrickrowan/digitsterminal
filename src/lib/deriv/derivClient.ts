@@ -94,7 +94,9 @@ export class DerivClient {
       this.subscribeTicks(this.symbol);
       this.syncTime();
       if (this.token) this.authorizeInternal();
-      this.timeTimer = window.setInterval(() => this.syncTime(), 30_000);
+      // 5s cadence for both clock-drift and ping heartbeats keeps the
+      // execution-time formula (nextTick − ping − drift − lag) always fresh.
+      this.timeTimer = window.setInterval(() => this.syncTime(), 5_000);
       this.pingTimer = window.setInterval(() => this.ping(), 5_000);
       this.watchdog = window.setInterval(() => {
         if (performance.now() - this.lastMsgAt > 20_000) {
