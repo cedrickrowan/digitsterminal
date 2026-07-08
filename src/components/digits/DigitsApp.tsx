@@ -200,7 +200,7 @@ export default function DigitsApp() {
       const sinceLast = lastArrivalRef.current ? now - lastArrivalRef.current : 0;
       const nextTickIn = Math.max(0, interval - sinceLast);
       const ping = median;
-      const drift = Math.abs(driftMs);
+      const drift = Math.abs(driftMsRef.current);
       const lag = cfgNow.latencyOffsetMs;
       const target = now + Math.max(0, nextTickIn - ping - drift - lag);
       nextFireAtRef.current = target;
