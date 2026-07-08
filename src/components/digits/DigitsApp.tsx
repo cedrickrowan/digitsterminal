@@ -96,6 +96,7 @@ export default function DigitsApp() {
   const coalesceScheduledRef = useRef(false);
   // ticker for countdown updates
   const [tick, setTick] = useState(0);
+  const driftMsRef = useRef(0);
 
   useEffect(() => { cfgRef.current = cfg; saveConfig(cfg); }, [cfg]);
   useEffect(() => { armedRef.current = armed; }, [armed]);
