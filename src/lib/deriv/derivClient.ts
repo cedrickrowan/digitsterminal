@@ -200,20 +200,24 @@ export class DerivClient {
   }
 
   syncTime() {
-    const t0 = Date.now();
+    const t0 = performance.now();
+    const wall0 = Date.now();
     this.send({ time: 1 }, (msg) => {
-      const t1 = Date.now();
+      const t1 = performance.now();
       const rtt = t1 - t0;
       const serverMs = msg.time * 1000;
-      const drift = serverMs - (t0 + rtt / 2);
-      this.events.onTimeSync?.(drift);
+      const drift = serverMs - (wall0 + rtt / 2);
+      this.driftEma = this.driftEma === 0 ? drift : this.driftEma + DerivClient.DRIFT_ALPHA * (drift - this.driftEma);
+      this.events.onTimeSync?.(this.driftEma);
     });
   }
 
   ping() {
     const t0 = performance.now();
     this.send({ ping: 1 }, () => {
-      this.events.onPing?.(performance.now() - t0);
+      const rtt = performance.now() - t0;
+      this.pingEma = this.pingEma === 0 ? rtt : this.pingEma + DerivClient.PING_ALPHA * (rtt - this.pingEma);
+      this.events.onPing?.(this.pingEma);
     });
   }
 
