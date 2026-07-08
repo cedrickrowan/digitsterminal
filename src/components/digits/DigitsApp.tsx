@@ -668,6 +668,23 @@ export default function DigitsApp() {
           entropyDecay={engineReport?.entropyDecay ?? 0}
           bitmask={engineReport?.bitmask ?? 0}
         />
+        <div className="rounded-md border border-border bg-card px-3 py-2 text-[11px]">
+          <div className="mb-1 flex items-center justify-between">
+            <span className="font-semibold">Execution Diagnostics</span>
+            <span className="rounded border border-input px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
+              trigger = nextTick − ping − drift − lag({cfg.latencyOffsetMs}ms)
+            </span>
+          </div>
+          <div className="max-h-32 overflow-auto rounded bg-background/60 p-1 font-mono text-[10px] leading-tight">
+            {execDiag.length === 0 ? (
+              <div className="text-muted-foreground">No scheduled fires yet…</div>
+            ) : (
+              execDiag.slice(-30).reverse().map((e, i) => (
+                <div key={i} className="whitespace-pre-wrap text-muted-foreground">{e}</div>
+              ))
+            )}
+          </div>
+        </div>
         <footer className="pb-6 text-center text-[10px] text-muted-foreground">
           Public app_id 1089 · analysis only · not financial advice
         </footer>
