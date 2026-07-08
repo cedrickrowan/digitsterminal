@@ -86,6 +86,14 @@ export default function DigitsApp() {
   const hiddenSinceRef = useRef<number>(0);
   const [engineReport, setEngineReport] = useState<EngineReport | null>(null);
   const [engineLog, setEngineLog] = useState<string[]>([]);
+  // Execution diagnostics — post-tick timing variance vs the scheduled fire.
+  const [execDiag, setExecDiag] = useState<string[]>([]);
+  const nextFireAtRef = useRef<number>(0); // performance.now() target for next scheduled fire
+  const fireTimerRef = useRef<number | null>(null);
+  // LIFO tick coalescer — if multiple tick packets are queued in the same
+  // task, only the newest wins. Older packets are discarded before analysis.
+  const pendingTickRef = useRef<{ digit: number; quote: number; arrival: number; epoch: number } | null>(null);
+  const coalesceScheduledRef = useRef(false);
   // ticker for countdown updates
   const [tick, setTick] = useState(0);
 
