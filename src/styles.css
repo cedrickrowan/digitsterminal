@@ -165,6 +165,12 @@
     font-family: var(--font-mono);
     font-feature-settings: "tnum" 1;
   }
+
+  /* Eliminate mobile Chrome's 300ms tap delay on every interactive control
+     so signal/arm/mode buttons fire the exact ms the user touches. */
+  button, [role="button"], input, select, textarea, label {
+    touch-action: manipulation;
+  }
 }
 
 @keyframes neon-pulse {
