@@ -309,13 +309,28 @@ export default function DigitsApp() {
           dl.push(Math.abs(quote - prevPrice));
           if (dl.length > 30) dl.splice(0, dl.length - 30);
         }
-        // Fan the tick into the reactive stream → Web Worker analysis engine.
-        tickStreamRef.current?.next({ digit, ts: Date.now() });
-        resolveSims(digit);
-        if (!isStale) evaluateAndMaybeFire();
-        scheduleRender();
+        // LIFO coalescer — if the main thread was busy and multiple ticks
+        // stacked up in the task queue, only the newest packet drives
+        // downstream analysis. Buffer/history still records every digit.
+        pendingTickRef.current = { digit, quote, arrival, epoch: 0 };
+        if (!coalesceScheduledRef.current) {
+          coalesceScheduledRef.current = true;
+          queueMicrotask(() => {
+            coalesceScheduledRef.current = false;
+            const latest = pendingTickRef.current;
+            pendingTickRef.current = null;
+            if (!latest) return;
+            // Fan the newest tick into the worker analysis engine.
+            tickStreamRef.current?.next({ digit: latest.digit, ts: performance.now() });
+            resolveSims(latest.digit);
+            if (!isStale) evaluateAndMaybeFire();
+            scheduleRender();
+          });
+        }
       },
       onPing: (rtt) => {
+        // rtt is already EMA-smoothed by the client; still keep a short
+        // median as a secondary sanity filter for the safety guard.
         const arr = pingMedianRef.current;
         arr.push(rtt);
         if (arr.length > 10) arr.shift();
