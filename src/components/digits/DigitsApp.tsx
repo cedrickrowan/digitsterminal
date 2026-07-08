@@ -360,7 +360,7 @@ export default function DigitsApp() {
         if (arr.length > 10) arr.shift();
         setPingMs(medianOf(arr));
       },
-      onTimeSync: (drift) => setDriftMs(drift),
+      onTimeSync: (drift) => { driftMsRef.current = drift; setDriftMs(drift); },
       onAuth: (info) => setAuth(info),
       onError: (e) => {
         pushSignal({
