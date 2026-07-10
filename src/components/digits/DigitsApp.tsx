@@ -585,6 +585,42 @@ export default function DigitsApp() {
         </div>
       </header>
 
+      <div className="mb-3 flex gap-1 rounded-md border border-border bg-card p-1 text-[11px]">
+        <button
+          type="button"
+          onClick={() => setView("terminal")}
+          className={`flex-1 rounded px-3 py-1.5 font-mono ${view === "terminal" ? "bg-cyan/15 text-cyan" : "text-muted-foreground"}`}
+          style={{ touchAction: "manipulation" }}
+        >
+          LIVE TERMINAL
+        </button>
+        <button
+          type="button"
+          onClick={() => setView("prng")}
+          className={`flex-1 rounded px-3 py-1.5 font-mono ${view === "prng" ? "bg-cyan/15 text-cyan" : "text-muted-foreground"}`}
+          style={{ touchAction: "manipulation" }}
+        >
+          PRNG SIMULATOR
+        </button>
+      </div>
+
+      {view === "prng" ? (
+        <PrngSimulator
+          onFeedDigits={(digits) => {
+            // Pipe deterministic PRNG digits into the existing analysis lane so
+            // Markov / entropy / ensemble modules can dissect them alongside live ticks.
+            bufRef.current = digits.slice(-MAX_BUFFER);
+            totalTicksRef.current = bufRef.current.length;
+            workerRef.current?.postMessage({ type: "reset", lookback: cfgRef.current.lookback });
+            workerRef.current?.postMessage({
+              type: "init",
+              lookback: cfgRef.current.lookback,
+              seed: bufRef.current.slice(-cfgRef.current.lookback),
+            });
+            scheduleRender();
+          }}
+        />
+      ) : (
       <div className="space-y-3">
         <NetworkBadge health={health} pingMs={pingMs} driftMs={driftMs} ticks={totalTicksRef.current} stale={stale} />
         <EnsemblePanel
