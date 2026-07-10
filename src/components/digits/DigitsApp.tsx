@@ -45,6 +45,7 @@ import { EnsemblePanel } from "./EnsemblePanel";
 import { SplitPanel } from "./SplitPanel";
 import { PatternsPanel } from "./PatternsPanel";
 import { EngineLog } from "./EngineLog";
+import PrngSimulator from "../prng/PrngSimulator";
 
 const MAX_BUFFER = 500;
 
@@ -65,6 +66,7 @@ export default function DigitsApp() {
   const [auth, setAuth] = useState<AuthInfo | null>(null);
   const [buyBusy, setBuyBusy] = useState(false);
   const [lastBuyResult, setLastBuyResult] = useState<string>("");
+  const [view, setView] = useState<"terminal" | "prng">("terminal");
 
   const bufRef = useRef<number[]>([]);
   const lastArrivalRef = useRef<number>(0);
