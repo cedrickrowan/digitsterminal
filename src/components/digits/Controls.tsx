@@ -74,17 +74,18 @@ function ControlsImpl({ cfg, onChange, connected, onConnect, onDisconnect, armed
           <select
             className="rounded border border-input bg-background px-2 py-1.5 font-mono"
             value={cfg.lookback}
-            onChange={(e) => onChange({ lookback: Number(e.target.value) as 25 | 50 | 100 })}
+            onChange={(e) => onChange({ lookback: Number(e.target.value) })}
           >
-            <option value={25}>25</option>
-            <option value={50}>50</option>
-            <option value={100}>100</option>
+            {LOOKBACK_OPTIONS.map((n) => (
+              <option key={n} value={n}>{n}</option>
+            ))}
           </select>
         </label>
         <label className="flex flex-col gap-1">
           <span className="text-muted-foreground">
             {cfg.market === "overunder" ? "Barrier (0-8)" : "Predict digit"}
           </span>
+
           {cfg.market === "overunder" ? (
             <input
               type="number" min={0} max={8}
