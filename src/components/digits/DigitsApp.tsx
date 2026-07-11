@@ -620,25 +620,40 @@ export default function DigitsApp() {
         />
         {(() => {
           const isMatches = cfg.market === "matches";
-          const displayDigit = isMatches ? cfg.predictDigit : context.topDigit;
+          const isDiffers = cfg.market === "differs";
+          const displayDigit = isMatches
+            ? cfg.predictDigit
+            : isDiffers
+              ? context.differDigit
+              : context.topDigit;
           const baseConf = isMatches
             ? context.weighted[cfg.predictDigit] ?? 0
-            : context.weighted[context.topDigit] ?? 0;
-          // Entropy-decay boost from the background engine — bounded [0.8, 1.25].
-          const conf = Math.min(1, baseConf * (engineReport?.confidenceAdjust ?? 1));
-          const highlight = isMatches && conf >= 0.7;
+            : isDiffers
+              ? 1 - (context.weighted[context.differDigit] ?? 0.1) * 9
+              : context.weighted[context.topDigit] ?? 0;
+          const conf = Math.max(0, Math.min(1, baseConf * (engineReport?.confidenceAdjust ?? 1)));
+          const highlight = (isMatches || isDiffers) && conf >= 0.7;
           return (
-            <PredictedDigit
-              digit={displayDigit}
-              entryPrice={openEntry?.price ?? null}
-              lastPrice={lastPrice}
-              matched={matched}
-              armed={armed}
-              confidence={conf}
-              highlight={highlight}
-            />
+            <>
+              <PredictedDigit
+                digit={displayDigit}
+                entryPrice={openEntry?.price ?? null}
+                lastPrice={lastPrice}
+                matched={matched}
+                armed={armed}
+                confidence={conf}
+                highlight={highlight}
+              />
+              <div className="flex items-center justify-between rounded-md border border-border bg-card px-3 py-2 text-[11px]">
+                <span className="text-muted-foreground">Digit to DIFFER (avoid)</span>
+                <span className="rounded border border-magenta bg-magenta/10 px-2 py-0.5 font-mono text-magenta">
+                  {context.differDigit} · {((context.weighted[context.differDigit] ?? 0) * 100).toFixed(1)}%
+                </span>
+              </div>
+            </>
           );
         })()}
+
         <DigitGrid freq={derived.freq} total={derived.win.length} predict={cfg.predictDigit} />
         <SplitPanel
           pEven={derived.split.pEven}
