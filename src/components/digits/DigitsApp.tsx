@@ -697,6 +697,12 @@ export default function DigitsApp() {
           onToggleArm={() => setArmed((a) => !a)}
         />
         <SignalsLog signals={signals} />
+        <SkillsPanel
+          skills={context.skills}
+          combined={context.weighted}
+          differDigit={context.differDigit}
+        />
+
         <EngineLog
           entries={engineLog}
           coreSpeedMs={engineReport?.coreSpeedMs ?? 0}
