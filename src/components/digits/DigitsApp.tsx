@@ -695,8 +695,8 @@ export default function DigitsApp() {
           Public app_id 1089 · analysis only · not financial advice
         </footer>
       </div>
-      )}
     </div>
+
   );
 }
 
