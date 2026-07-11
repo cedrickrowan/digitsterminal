@@ -1,6 +1,6 @@
 export type Mode = "alert" | "simulated" | "live";
 export type NetHealth = "green" | "yellow" | "red";
-export type Market = "matches" | "overunder" | "evenodd" | "risefall";
+export type Market = "matches" | "differs" | "overunder" | "evenodd" | "risefall";
 
 export interface RuleToggles {
   streak: boolean;
@@ -10,6 +10,7 @@ export interface RuleToggles {
   cold: boolean;
   deviation: boolean;
   ensemble: boolean;
+  differs: boolean;
 }
 
 export interface AppConfig {
@@ -17,20 +18,21 @@ export interface AppConfig {
   predictDigit: number;
   duration: number;
   stake: number;
-  lookback: 25 | 50 | 100;
+  lookback: number;
   latencyOffsetMs: number;
   mode: Mode;
   market: Market;
-  barrier: number; // for over/under
+  barrier: number;
   triggerStreak: number;
   triggerProbBelow: number;
   triggerMarkovAbove: number;
   triggerSequenceAbove: number;
   triggerColdProbBelow: number;
   triggerDeviationPct: number;
-  triggerEnsembleAbove: number; // confidence %
-  safePingMs: number; // execution safety: max ping
-  safeGapMs: number; // execution safety: max inter-tick gap
+  triggerEnsembleAbove: number;
+  triggerDiffersBelow: number; // weighted prob % below which differs fires
+  safePingMs: number;
+  safeGapMs: number;
   rules: RuleToggles;
 }
 
@@ -40,7 +42,7 @@ export interface Signal {
   reason: string;
   predicted: number;
   market?: Market;
-  side?: string; // "OVER 5" | "EVEN" | "RISE" etc.
+  side?: string;
   entryPrice?: number;
   entryTick?: number;
   resolvedDigit?: number;
@@ -53,7 +55,7 @@ export const DEFAULT_CONFIG: AppConfig = {
   predictDigit: 5,
   duration: 1,
   stake: 1,
-  lookback: 50,
+  lookback: 100,
   latencyOffsetMs: 1000,
   mode: "simulated",
   market: "matches",
@@ -65,6 +67,7 @@ export const DEFAULT_CONFIG: AppConfig = {
   triggerColdProbBelow: 10,
   triggerDeviationPct: 4,
   triggerEnsembleAbove: 22,
+  triggerDiffersBelow: 5,
   safePingMs: 500,
   safeGapMs: 800,
   rules: {
@@ -75,8 +78,11 @@ export const DEFAULT_CONFIG: AppConfig = {
     cold: false,
     deviation: false,
     ensemble: true,
+    differs: false,
   },
 };
+
+export const LOOKBACK_OPTIONS = [25, 50, 100, 250, 500, 1000] as const;
 
 export const SYMBOLS = [
   { value: "R_10", label: "Volatility 10" },
