@@ -45,9 +45,11 @@ import { EnsemblePanel } from "./EnsemblePanel";
 import { SplitPanel } from "./SplitPanel";
 import { PatternsPanel } from "./PatternsPanel";
 import { EngineLog } from "./EngineLog";
-import PrngSimulator from "../prng/PrngSimulator";
+import { SkillsPanel } from "./SkillsPanel";
+import { computeSkills } from "@/lib/deriv/skills";
 
-const MAX_BUFFER = 500;
+const MAX_BUFFER = 1200;
+
 
 export default function DigitsApp() {
   const [cfg, setCfg] = useState<AppConfig>(() => loadConfig());
@@ -66,7 +68,8 @@ export default function DigitsApp() {
   const [auth, setAuth] = useState<AuthInfo | null>(null);
   const [buyBusy, setBuyBusy] = useState(false);
   const [lastBuyResult, setLastBuyResult] = useState<string>("");
-  const [view, setView] = useState<"terminal" | "prng">("terminal");
+
+
 
   const bufRef = useRef<number[]>([]);
   const lastArrivalRef = useRef<number>(0);
@@ -484,15 +487,31 @@ export default function DigitsApp() {
       hmm: hmm.state,
       poissonWeights: poissonW,
     });
+    // Fuse in the 27-skill meta engine — multiplicative blend on top of
+    // the market-context weighting. Skills are pure/O(n) and safe for 1000
+    // tick lookbacks. Combined vector re-normalized so it stays a posterior.
+    const jitter = medianOf(gapsRef.current);
+    const skillsRes = computeSkills(buf.slice(-Math.min(500, buf.length)), {
+      pingMs,
+      jitterMs: jitter,
+      driftMs: driftMsRef.current,
+    });
+    const fused = new Array(10);
+    let sum = 0;
+    for (let i = 0; i < 10; i++) { fused[i] = weighted[i] * skillsRes.combinedWeights[i]; sum += fused[i]; }
+    if (sum > 0) for (let i = 0; i < 10; i++) fused[i] /= sum;
     let topDigit = 0;
-    for (let i = 1; i < 10; i++) if (weighted[i] > weighted[topDigit]) topDigit = i;
-    const router = buildSignalRouter(weighted, derived.split.pEven, {
+    for (let i = 1; i < 10; i++) if (fused[i] > fused[topDigit]) topDigit = i;
+    let differDigit = 0;
+    for (let i = 1; i < 10; i++) if (fused[i] < fused[differDigit]) differDigit = i;
+    const router = buildSignalRouter(fused, derived.split.pEven, {
       up: derived.rf.up,
       down: derived.rf.down,
     });
-    return { ema, vol, hmm, weighted, topDigit, router };
+    return { ema, vol, hmm, weighted: fused, topDigit, differDigit, router, skills: skillsRes.skills };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tickKey, derived]);
+  }, [tickKey, derived, pingMs]);
+
   // Router payload is kept as a live diagnostic even though the UI shell
   // does not surface it — downstream consumers (worker, logs) read it.
   void context.router;
@@ -585,43 +604,8 @@ export default function DigitsApp() {
         </div>
       </header>
 
-      <div className="mb-3 flex gap-1 rounded-md border border-border bg-card p-1 text-[11px]">
-        <button
-          type="button"
-          onClick={() => setView("terminal")}
-          className={`flex-1 rounded px-3 py-1.5 font-mono ${view === "terminal" ? "bg-cyan/15 text-cyan" : "text-muted-foreground"}`}
-          style={{ touchAction: "manipulation" }}
-        >
-          LIVE TERMINAL
-        </button>
-        <button
-          type="button"
-          onClick={() => setView("prng")}
-          className={`flex-1 rounded px-3 py-1.5 font-mono ${view === "prng" ? "bg-cyan/15 text-cyan" : "text-muted-foreground"}`}
-          style={{ touchAction: "manipulation" }}
-        >
-          PRNG SIMULATOR
-        </button>
-      </div>
-
-      {view === "prng" ? (
-        <PrngSimulator
-          onFeedDigits={(digits) => {
-            // Pipe deterministic PRNG digits into the existing analysis lane so
-            // Markov / entropy / ensemble modules can dissect them alongside live ticks.
-            bufRef.current = digits.slice(-MAX_BUFFER);
-            totalTicksRef.current = bufRef.current.length;
-            workerRef.current?.postMessage({ type: "reset", lookback: cfgRef.current.lookback });
-            workerRef.current?.postMessage({
-              type: "init",
-              lookback: cfgRef.current.lookback,
-              seed: bufRef.current.slice(-cfgRef.current.lookback),
-            });
-            scheduleRender();
-          }}
-        />
-      ) : (
       <div className="space-y-3">
+
         <NetworkBadge health={health} pingMs={pingMs} driftMs={driftMs} ticks={totalTicksRef.current} stale={stale} />
         <EnsemblePanel
           ensemble={derived.ens}
@@ -636,25 +620,40 @@ export default function DigitsApp() {
         />
         {(() => {
           const isMatches = cfg.market === "matches";
-          const displayDigit = isMatches ? cfg.predictDigit : context.topDigit;
+          const isDiffers = cfg.market === "differs";
+          const displayDigit = isMatches
+            ? cfg.predictDigit
+            : isDiffers
+              ? context.differDigit
+              : context.topDigit;
           const baseConf = isMatches
             ? context.weighted[cfg.predictDigit] ?? 0
-            : context.weighted[context.topDigit] ?? 0;
-          // Entropy-decay boost from the background engine — bounded [0.8, 1.25].
-          const conf = Math.min(1, baseConf * (engineReport?.confidenceAdjust ?? 1));
-          const highlight = isMatches && conf >= 0.7;
+            : isDiffers
+              ? 1 - (context.weighted[context.differDigit] ?? 0.1) * 9
+              : context.weighted[context.topDigit] ?? 0;
+          const conf = Math.max(0, Math.min(1, baseConf * (engineReport?.confidenceAdjust ?? 1)));
+          const highlight = (isMatches || isDiffers) && conf >= 0.7;
           return (
-            <PredictedDigit
-              digit={displayDigit}
-              entryPrice={openEntry?.price ?? null}
-              lastPrice={lastPrice}
-              matched={matched}
-              armed={armed}
-              confidence={conf}
-              highlight={highlight}
-            />
+            <>
+              <PredictedDigit
+                digit={displayDigit}
+                entryPrice={openEntry?.price ?? null}
+                lastPrice={lastPrice}
+                matched={matched}
+                armed={armed}
+                confidence={conf}
+                highlight={highlight}
+              />
+              <div className="flex items-center justify-between rounded-md border border-border bg-card px-3 py-2 text-[11px]">
+                <span className="text-muted-foreground">Digit to DIFFER (avoid)</span>
+                <span className="rounded border border-magenta bg-magenta/10 px-2 py-0.5 font-mono text-magenta">
+                  {context.differDigit} · {((context.weighted[context.differDigit] ?? 0) * 100).toFixed(1)}%
+                </span>
+              </div>
+            </>
           );
         })()}
+
         <DigitGrid freq={derived.freq} total={derived.win.length} predict={cfg.predictDigit} />
         <SplitPanel
           pEven={derived.split.pEven}
@@ -698,6 +697,12 @@ export default function DigitsApp() {
           onToggleArm={() => setArmed((a) => !a)}
         />
         <SignalsLog signals={signals} />
+        <SkillsPanel
+          skills={context.skills}
+          combined={context.weighted}
+          differDigit={context.differDigit}
+        />
+
         <EngineLog
           entries={engineLog}
           coreSpeedMs={engineReport?.coreSpeedMs ?? 0}
@@ -727,8 +732,8 @@ export default function DigitsApp() {
           Public app_id 1089 · analysis only · not financial advice
         </footer>
       </div>
-      )}
     </div>
+
   );
 }
 
