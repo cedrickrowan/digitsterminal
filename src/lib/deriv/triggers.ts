@@ -82,5 +82,15 @@ export function evaluateRules({ window, cfg }: RuleContext): RuleHit[] {
     }
   }
 
+  if (cfg.rules.differs) {
+    // Differs fires when chosen digit's Bayesian-smoothed frequency is very low
+    // → high probability the next tick DIFFERS from it.
+    const alphaSmoothed = (freq[cfg.predictDigit] + 1) / (n + 10);
+    if (alphaSmoothed * 100 < cfg.triggerDiffersBelow) {
+      hits.push({ rule: "differs", detail: `p=${(alphaSmoothed * 100).toFixed(1)}%` });
+    }
+  }
+
   return hits;
 }
+
