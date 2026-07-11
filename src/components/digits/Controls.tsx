@@ -1,6 +1,7 @@
 import { memo } from "react";
 import type { AppConfig, Market, Mode, RuleToggles } from "@/lib/deriv/types";
-import { SYMBOLS } from "@/lib/deriv/types";
+import { SYMBOLS, LOOKBACK_OPTIONS } from "@/lib/deriv/types";
+
 
 interface Props {
   cfg: AppConfig;
