@@ -16,6 +16,7 @@ interface Props {
 const RULE_META: { key: keyof RuleToggles; label: string; field?: keyof AppConfig; suffix?: string }[] = [
   { key: "ensemble", label: "Ensemble% >", field: "triggerEnsembleAbove", suffix: "%" },
   { key: "markov", label: "Markov% >", field: "triggerMarkovAbove", suffix: "%" },
+  { key: "differs", label: "Differs% <", field: "triggerDiffersBelow", suffix: "%" },
   { key: "streak", label: "Streak ≥", field: "triggerStreak" },
   { key: "prob", label: "Freq% <", field: "triggerProbBelow", suffix: "%" },
   { key: "sequence", label: "2-tick% >", field: "triggerSequenceAbove", suffix: "%" },
@@ -25,10 +26,12 @@ const RULE_META: { key: keyof RuleToggles; label: string; field?: keyof AppConfi
 
 const MARKETS: { key: Market; label: string }[] = [
   { key: "matches", label: "Matches" },
+  { key: "differs", label: "Differs" },
   { key: "overunder", label: "Over/Under" },
   { key: "evenodd", label: "Even/Odd" },
   { key: "risefall", label: "Rise/Fall" },
 ];
+
 
 function ControlsImpl({ cfg, onChange, connected, onConnect, onDisconnect, armed, onToggleArm }: Props) {
   const setRule = (k: keyof RuleToggles, v: boolean) =>
