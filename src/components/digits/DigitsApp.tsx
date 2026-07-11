@@ -45,9 +45,11 @@ import { EnsemblePanel } from "./EnsemblePanel";
 import { SplitPanel } from "./SplitPanel";
 import { PatternsPanel } from "./PatternsPanel";
 import { EngineLog } from "./EngineLog";
-import PrngSimulator from "../prng/PrngSimulator";
+import { SkillsPanel } from "./SkillsPanel";
+import { computeSkills } from "@/lib/deriv/skills";
 
-const MAX_BUFFER = 500;
+const MAX_BUFFER = 1200;
+
 
 export default function DigitsApp() {
   const [cfg, setCfg] = useState<AppConfig>(() => loadConfig());
