@@ -487,15 +487,31 @@ export default function DigitsApp() {
       hmm: hmm.state,
       poissonWeights: poissonW,
     });
+    // Fuse in the 27-skill meta engine — multiplicative blend on top of
+    // the market-context weighting. Skills are pure/O(n) and safe for 1000
+    // tick lookbacks. Combined vector re-normalized so it stays a posterior.
+    const jitter = medianOf(gapsRef.current);
+    const skillsRes = computeSkills(buf.slice(-Math.min(500, buf.length)), {
+      pingMs,
+      jitterMs: jitter,
+      driftMs: driftMsRef.current,
+    });
+    const fused = new Array(10);
+    let sum = 0;
+    for (let i = 0; i < 10; i++) { fused[i] = weighted[i] * skillsRes.combinedWeights[i]; sum += fused[i]; }
+    if (sum > 0) for (let i = 0; i < 10; i++) fused[i] /= sum;
     let topDigit = 0;
-    for (let i = 1; i < 10; i++) if (weighted[i] > weighted[topDigit]) topDigit = i;
-    const router = buildSignalRouter(weighted, derived.split.pEven, {
+    for (let i = 1; i < 10; i++) if (fused[i] > fused[topDigit]) topDigit = i;
+    let differDigit = 0;
+    for (let i = 1; i < 10; i++) if (fused[i] < fused[differDigit]) differDigit = i;
+    const router = buildSignalRouter(fused, derived.split.pEven, {
       up: derived.rf.up,
       down: derived.rf.down,
     });
-    return { ema, vol, hmm, weighted, topDigit, router };
+    return { ema, vol, hmm, weighted: fused, topDigit, differDigit, router, skills: skillsRes.skills };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tickKey, derived]);
+  }, [tickKey, derived, pingMs]);
+
   // Router payload is kept as a live diagnostic even though the UI shell
   // does not surface it — downstream consumers (worker, logs) read it.
   void context.router;
