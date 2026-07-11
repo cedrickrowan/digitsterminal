@@ -68,7 +68,8 @@ export default function DigitsApp() {
   const [auth, setAuth] = useState<AuthInfo | null>(null);
   const [buyBusy, setBuyBusy] = useState(false);
   const [lastBuyResult, setLastBuyResult] = useState<string>("");
-  const [view, setView] = useState<"terminal" | "prng">("terminal");
+
+
 
   const bufRef = useRef<number[]>([]);
   const lastArrivalRef = useRef<number>(0);
