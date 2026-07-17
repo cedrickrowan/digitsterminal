@@ -1,7 +1,6 @@
 import { memo } from "react";
 import type { AppConfig, Market, Mode, RuleToggles } from "@/lib/deriv/types";
-import { SYMBOLS, LOOKBACK_OPTIONS } from "@/lib/deriv/types";
-
+import { SYMBOLS } from "@/lib/deriv/types";
 
 interface Props {
   cfg: AppConfig;
@@ -16,7 +15,6 @@ interface Props {
 const RULE_META: { key: keyof RuleToggles; label: string; field?: keyof AppConfig; suffix?: string }[] = [
   { key: "ensemble", label: "Ensemble% >", field: "triggerEnsembleAbove", suffix: "%" },
   { key: "markov", label: "Markov% >", field: "triggerMarkovAbove", suffix: "%" },
-  { key: "differs", label: "Differs% <", field: "triggerDiffersBelow", suffix: "%" },
   { key: "streak", label: "Streak ≥", field: "triggerStreak" },
   { key: "prob", label: "Freq% <", field: "triggerProbBelow", suffix: "%" },
   { key: "sequence", label: "2-tick% >", field: "triggerSequenceAbove", suffix: "%" },
@@ -26,12 +24,10 @@ const RULE_META: { key: keyof RuleToggles; label: string; field?: keyof AppConfi
 
 const MARKETS: { key: Market; label: string }[] = [
   { key: "matches", label: "Matches" },
-  { key: "differs", label: "Differs" },
   { key: "overunder", label: "Over/Under" },
   { key: "evenodd", label: "Even/Odd" },
   { key: "risefall", label: "Rise/Fall" },
 ];
-
 
 function ControlsImpl({ cfg, onChange, connected, onConnect, onDisconnect, armed, onToggleArm }: Props) {
   const setRule = (k: keyof RuleToggles, v: boolean) =>
@@ -74,18 +70,17 @@ function ControlsImpl({ cfg, onChange, connected, onConnect, onDisconnect, armed
           <select
             className="rounded border border-input bg-background px-2 py-1.5 font-mono"
             value={cfg.lookback}
-            onChange={(e) => onChange({ lookback: Number(e.target.value) })}
+            onChange={(e) => onChange({ lookback: Number(e.target.value) as 25 | 50 | 100 })}
           >
-            {LOOKBACK_OPTIONS.map((n) => (
-              <option key={n} value={n}>{n}</option>
-            ))}
+            <option value={25}>25</option>
+            <option value={50}>50</option>
+            <option value={100}>100</option>
           </select>
         </label>
         <label className="flex flex-col gap-1">
           <span className="text-muted-foreground">
             {cfg.market === "overunder" ? "Barrier (0-8)" : "Predict digit"}
           </span>
-
           {cfg.market === "overunder" ? (
             <input
               type="number" min={0} max={8}
