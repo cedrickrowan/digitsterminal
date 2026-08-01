@@ -31,7 +31,9 @@ import {
   priceEma,
   volatilityState,
 } from "@/lib/deriv/marketContext";
+import { fusePosteriors, runSuperQuantAnalysis } from "@/lib/deriv/superQuant";
 import { beep } from "@/lib/deriv/audio";
+
 import { signOut } from "./LoginScreen";
 import { NetworkBadge } from "./NetworkBadge";
 import { Controls } from "./Controls";
