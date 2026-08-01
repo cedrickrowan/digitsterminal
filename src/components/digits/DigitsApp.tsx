@@ -556,8 +556,14 @@ export default function DigitsApp() {
   const handleBuy = useCallback(
     async (contractType: ContractType, barrier?: number) => {
       if (!clientRef.current || !auth) return;
+      // Hard latency gate: never send an order above 400ms round-trip.
+      if (!(pingMs > 0 && pingMs <= 400)) {
+        setLastBuyResult(`✗ blocked · ping ${pingMs.toFixed(0)}ms > 400ms gate`);
+        return;
+      }
       setBuyBusy(true);
       setLastBuyResult("Sending order…");
+
       const res = await clientRef.current.buy({
         contractType,
         symbol: cfg.symbol,
