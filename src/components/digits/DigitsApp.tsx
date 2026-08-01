@@ -468,6 +468,14 @@ export default function DigitsApp() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tickKey, cfg.lookback, cfg.predictDigit]);
 
+  // SUPER QUANT CORE — Lyapunov / Hurst / Markov / Fourier / KS / Poisson.
+  // Replaces the legacy digit prediction as the primary predictive layer.
+  const quant = useMemo(
+    () => runSuperQuantAnalysis(buf, priceDeltasRef.current, cfg.duration),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [tickKey, cfg.duration],
+  );
+
   // Background market-context layer — EMA direction, tick-Δ volatility,
   // 3-state HMM regime, Poisson cluster weights, and a consolidated signal
   // router payload. Feeds only the prediction math; UI is unchanged.
@@ -478,7 +486,10 @@ export default function DigitsApp() {
     const vol = volatilityState(d);
     const hmm = hmmState(buf);
     const poissonW = poissonClusterWeights(buf);
-    const weighted = applyContextWeights(derived.ens.posterior, {
+    // SuperQuant is the primary model (70%); the legacy ensemble is retained
+    // only as a stabilizing prior (30%) via a geometric opinion pool.
+    const fused = fusePosteriors(derived.ens.posterior, quant.posterior, 0.7);
+    const weighted = applyContextWeights(fused, {
       direction: ema.direction,
       volatility: vol.state,
       hmm: hmm.state,
@@ -492,10 +503,11 @@ export default function DigitsApp() {
     });
     return { ema, vol, hmm, weighted, topDigit, router };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tickKey, derived]);
+  }, [tickKey, derived, quant]);
   // Router payload is kept as a live diagnostic even though the UI shell
   // does not surface it — downstream consumers (worker, logs) read it.
   void context.router;
+
 
   // Use null sentinel so digit 0 is never confused with "no data". All downstream
   // checks must use strict null/undefined comparisons (digit !== null && digit !== undefined),
