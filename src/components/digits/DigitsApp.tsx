@@ -192,7 +192,10 @@ export default function DigitsApp() {
 
     const median = medianOf(pingMedianRef.current);
     const lastGap = lastArrivalRef.current ? performance.now() - lastArrivalRef.current : 0;
-    const networkUnsafe = median > cfgNow.safePingMs || lastGap > cfgNow.safeGapMs;
+    // Hard 400ms ping gate + configured thresholds.
+    const networkUnsafe =
+      median > 400 || median > cfgNow.safePingMs || lastGap > cfgNow.safeGapMs;
+
 
     if (cfgNow.mode === "alert") {
       // Precision execution scheduler: aim the audible fire at
