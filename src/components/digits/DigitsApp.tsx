@@ -518,9 +518,14 @@ export default function DigitsApp() {
   const health: NetHealth =
     pingMs === 0 ? "yellow" : pingMs > cfg.safePingMs ? "red" : pingMs > 250 ? "yellow" : "green";
 
-  // Execution safety guard
+  // Execution safety guard — hard 400ms latency ceiling for any trading
+  // action, on top of the user-configured safe-ping threshold.
+  const PING_GATE_MS = 400;
   const lastGapNow = lastArrivalRef.current ? performance.now() - lastArrivalRef.current : 0;
-  const safe = pingMs > 0 && pingMs <= cfg.safePingMs && lastGapNow <= cfg.safeGapMs;
+  const pingGateOpen = pingMs > 0 && pingMs <= PING_GATE_MS;
+  const safe =
+    pingGateOpen && pingMs <= cfg.safePingMs && lastGapNow <= cfg.safeGapMs;
+
 
   // Expected next-tick countdown (median inter-tick gap minus elapsed)
   const tickInterval = medianOf(gapsRef.current) || 2000;
