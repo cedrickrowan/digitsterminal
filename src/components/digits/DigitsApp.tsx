@@ -581,7 +581,7 @@ export default function DigitsApp() {
         setLastBuyResult(`✗ ${res.error}`);
       }
     },
-    [auth, cfg.symbol, cfg.stake, cfg.duration],
+    [auth, cfg.symbol, cfg.stake, cfg.duration, pingMs],
   );
 
   return (
