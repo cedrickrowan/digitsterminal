@@ -624,6 +624,46 @@ export default function DigitsApp() {
           countdownMs={countdownMs}
           purchaseInMs={purchaseInMs}
         />
+        <div className="rounded-md border border-border bg-card px-3 py-2 text-[11px]">
+          <div className="mb-1 flex items-center justify-between">
+            <span className="font-semibold">Super Quant Core</span>
+            <span
+              className={`rounded border px-1.5 py-0.5 font-mono text-[10px] ${
+                quant.calcMs <= 2 ? "border-cyan text-cyan" : "border-warning text-warning"
+              }`}
+            >
+              calc {quant.calcMs.toFixed(2)}ms
+            </span>
+          </div>
+          <div className="grid grid-cols-3 gap-1 font-mono text-[10px] text-muted-foreground">
+            <span>λ {quant.diagnostics.lyapunov.toFixed(2)}</span>
+            <span>H {quant.diagnostics.hurst.toFixed(2)}</span>
+            <span>FFT {quant.diagnostics.harmonic.toFixed(3)}</span>
+            <span>KS {quant.diagnostics.ksDivergence.toFixed(3)}</span>
+            <span>ρ {quant.diagnostics.autocorr.toFixed(2)}</span>
+            <span>χ² {quant.diagnostics.chi2.toFixed(1)}</span>
+          </div>
+          <div className="mt-1 flex flex-wrap items-center gap-1 font-mono text-[10px]">
+            <span className={quant.diagnostics.ordered ? "text-success" : "text-muted-foreground"}>ORDERED</span>
+            <span className={quant.diagnostics.persistent ? "text-success" : "text-muted-foreground"}>PERSIST</span>
+            <span className={quant.diagnostics.synchronized ? "text-success" : "text-muted-foreground"}>SYNC</span>
+            <span className={quant.diagnostics.anomalous ? "text-warning" : "text-muted-foreground"}>ANOM</span>
+            <span className="ml-auto">
+              target <span className="font-bold text-cyan">{quant.topDigit}</span> ·{" "}
+              {quant.topScore.toFixed(1)}
+            </span>
+          </div>
+          <div
+            className={`mt-1 rounded border px-1.5 py-0.5 text-center font-mono text-[10px] ${
+              pingGateOpen ? "border-success text-success" : "border-danger text-danger"
+            }`}
+          >
+            {pingGateOpen
+              ? `EXECUTION GATE OPEN · ping ${pingMs.toFixed(0)}ms ≤ 400ms`
+              : `EXECUTION LOCKED · ping ${pingMs.toFixed(0)}ms > 400ms`}
+          </div>
+        </div>
+
         {(() => {
           const isMatches = cfg.market === "matches";
           const displayDigit = isMatches ? cfg.predictDigit : context.topDigit;
