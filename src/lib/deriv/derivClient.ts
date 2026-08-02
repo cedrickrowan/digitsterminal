@@ -75,6 +75,8 @@ export class DerivClient {
   private reconnectAttempt = 0;
   private token: string | null = null;
   private authInfo: AuthInfo | null = null;
+  private available = new Set<string>();
+
   // EMA-smoothed ping/drift — dampens mobile-network latency spikes so the
   // execution scheduler doesn't chase every jitter blip.
   private pingEma = 0;
