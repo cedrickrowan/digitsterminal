@@ -99,9 +99,14 @@ export class DerivClient {
       this.reconnectAttempt = 0;
       this.lastMsgAt = performance.now();
       this.events.onOpen?.();
-      this.subscribeTicks(this.symbol);
+      // Discover the symbols this connection is actually allowed to stream
+      // BEFORE subscribing — prevents "Symbol X is invalid" on restricted
+      // regions/app ids and keeps the picker in sync with the server.
+      this.fetchActiveSymbols(() => this.subscribeTicks(this.symbol));
       this.syncTime();
+      this.ping();
       if (this.token) this.authorizeInternal();
+
       // 5s cadence for both clock-drift and ping heartbeats keeps the
       // execution-time formula (nextTick − ping − drift − lag) always fresh.
       this.timeTimer = window.setInterval(() => this.syncTime(), 5_000);
