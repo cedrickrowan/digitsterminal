@@ -169,6 +169,22 @@ export default function DigitsApp() {
     const win = buf.slice(-cfgNow.lookback);
     if (win.length < 10) return;
 
+    // HARD SIGNAL GATE — above 500ms round-trip the tool emits nothing at all.
+    const median = medianOf(pingMedianRef.current);
+    if (median > PING_GATE_MS) {
+      if (totalTicksRef.current - lastBlockedTickRef.current >= 10) {
+        lastBlockedTickRef.current = totalTicksRef.current;
+        pushSignal({
+          id: Date.now() + Math.random(),
+          ts: Date.now(),
+          reason: `signals suppressed · ping ${median.toFixed(0)}ms > ${PING_GATE_MS}ms`,
+          predicted: cfgNow.predictDigit,
+          mode: cfgNow.mode,
+        });
+      }
+      return;
+    }
+
     const hits = evaluateRules({ window: win, cfg: cfgNow });
     if (hits.length === 0) return;
 
@@ -190,11 +206,10 @@ export default function DigitsApp() {
       return;
     }
 
-    const median = medianOf(pingMedianRef.current);
     const lastGap = lastArrivalRef.current ? performance.now() - lastArrivalRef.current : 0;
-    // Hard 400ms ping gate + configured thresholds.
+    // Hard 500ms ping gate + configured thresholds.
     const networkUnsafe =
-      median > 400 || median > cfgNow.safePingMs || lastGap > cfgNow.safeGapMs;
+      median > PING_GATE_MS || median > cfgNow.safePingMs || lastGap > cfgNow.safeGapMs;
 
 
     if (cfgNow.mode === "alert") {
