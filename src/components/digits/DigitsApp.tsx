@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Subject } from "rxjs";
 import { auditTime } from "rxjs/operators";
-import { DerivClient, type AuthInfo, type ContractType } from "@/lib/deriv/derivClient";
+import { DerivClient, type AuthInfo, type ContractType, type SymbolInfo } from "@/lib/deriv/derivClient";
 import { loadConfig, loadToken, saveConfig, saveToken } from "@/lib/deriv/storage";
 import type { AppConfig, NetHealth, Signal } from "@/lib/deriv/types";
 import {
@@ -49,6 +49,11 @@ import { PatternsPanel } from "./PatternsPanel";
 import { EngineLog } from "./EngineLog";
 
 const MAX_BUFFER = 500;
+// Hard network ceiling: above this round-trip the terminal emits no signals
+// and refuses to send orders.
+const PING_GATE_MS = 500;
+// Entries must land inside a 2s window — never earlier, never later.
+const ENTRY_WINDOW_MS = 2000;
 
 export default function DigitsApp() {
   const [cfg, setCfg] = useState<AppConfig>(() => loadConfig());
@@ -67,6 +72,8 @@ export default function DigitsApp() {
   const [auth, setAuth] = useState<AuthInfo | null>(null);
   const [buyBusy, setBuyBusy] = useState(false);
   const [lastBuyResult, setLastBuyResult] = useState<string>("");
+  // Symbols the server actually allows on this connection.
+  const [symbols, setSymbols] = useState<SymbolInfo[]>([]);
 
   const bufRef = useRef<number[]>([]);
   const lastArrivalRef = useRef<number>(0);
@@ -81,6 +88,7 @@ export default function DigitsApp() {
   const armedRef = useRef(armed);
   const pendingSimRef = useRef<Array<{ id: number; tickIndex: number; predicted: number; entryPrice: number }>>([]);
   const lastSignalTickRef = useRef(-100);
+  const lastBlockedTickRef = useRef(-100);
   const renderScheduled = useRef(false);
   // Background analysis engine (Web Worker) + reactive tick stream
   const workerRef = useRef<Worker | null>(null);
@@ -169,6 +177,22 @@ export default function DigitsApp() {
     const win = buf.slice(-cfgNow.lookback);
     if (win.length < 10) return;
 
+    // HARD SIGNAL GATE — above 500ms round-trip the tool emits nothing at all.
+    const median = medianOf(pingMedianRef.current);
+    if (median > PING_GATE_MS) {
+      if (totalTicksRef.current - lastBlockedTickRef.current >= 10) {
+        lastBlockedTickRef.current = totalTicksRef.current;
+        pushSignal({
+          id: Date.now() + Math.random(),
+          ts: Date.now(),
+          reason: `signals suppressed · ping ${median.toFixed(0)}ms > ${PING_GATE_MS}ms`,
+          predicted: cfgNow.predictDigit,
+          mode: cfgNow.mode,
+        });
+      }
+      return;
+    }
+
     const hits = evaluateRules({ window: win, cfg: cfgNow });
     if (hits.length === 0) return;
 
@@ -190,11 +214,10 @@ export default function DigitsApp() {
       return;
     }
 
-    const median = medianOf(pingMedianRef.current);
     const lastGap = lastArrivalRef.current ? performance.now() - lastArrivalRef.current : 0;
-    // Hard 400ms ping gate + configured thresholds.
+    // Hard 500ms ping gate + configured thresholds.
     const networkUnsafe =
-      median > 400 || median > cfgNow.safePingMs || lastGap > cfgNow.safeGapMs;
+      median > PING_GATE_MS || median > cfgNow.safePingMs || lastGap > cfgNow.safeGapMs;
 
 
     if (cfgNow.mode === "alert") {
@@ -208,7 +231,11 @@ export default function DigitsApp() {
       const ping = median;
       const drift = Math.abs(driftMsRef.current);
       const lag = cfgNow.latencyOffsetMs;
-      const target = now + Math.max(0, nextTickIn - ping - drift - lag);
+      // Latency-compensated delay, then clamped into the strict 2s entry
+      // window so the purchase can never land early or late.
+      const raw = nextTickIn - ping - drift - lag;
+      const delay = Math.min(ENTRY_WINDOW_MS, Math.max(0, raw));
+      const target = now + delay;
       nextFireAtRef.current = target;
       if (fireTimerRef.current !== null) clearTimeout(fireTimerRef.current);
       fireTimerRef.current = window.setTimeout(() => {
@@ -218,12 +245,12 @@ export default function DigitsApp() {
         setFlash(true);
         setTimeout(() => setFlash(false), 180);
         setExecDiag((prev) => {
-          const line = `fire · Δ${variance >= 0 ? "+" : ""}${variance.toFixed(1)}ms · ping ${ping.toFixed(0)} · drift ${drift.toFixed(0)} · lag ${lag}`;
+          const line = `fire · in ${delay.toFixed(0)}ms · Δ${variance >= 0 ? "+" : ""}${variance.toFixed(1)}ms · ping ${ping.toFixed(0)} · drift ${drift.toFixed(0)} · lag ${lag}`;
           const next = prev.length >= 30 ? prev.slice(-29) : prev.slice();
           next.push(line);
           return next;
         });
-      }, Math.max(0, target - now));
+      }, delay);
       pushSignal(sig);
       return;
     }
@@ -366,6 +393,15 @@ export default function DigitsApp() {
         setPingMs(medianOf(arr));
       },
       onTimeSync: (drift) => { driftMsRef.current = drift; setDriftMs(drift); },
+      onSymbols: (list) => {
+        setSymbols(list);
+        // If the configured symbol isn't tradable on this connection, snap to
+        // the first live one so the feed always starts.
+        if (list.length > 0 && !list.some((s) => s.symbol === cfgRef.current.symbol)) {
+          const first = list.find((s) => s.open) ?? list[0];
+          setCfg((c) => ({ ...c, symbol: first.symbol }));
+        }
+      },
       onAuth: (info) => setAuth(info),
       onError: (e) => {
         pushSignal({
@@ -416,6 +452,9 @@ export default function DigitsApp() {
     gapsRef.current = [];
     setOpenEntry(null);
     setMatched(false);
+    // Never subscribe to a symbol the server hasn't advertised — that is what
+    // produced "Symbol X is invalid" and left the terminal with no ticks.
+    if (!clientRef.current.hasSymbol(cfg.symbol)) return;
     clientRef.current.subscribeTicks(cfg.symbol, 100);
   }, [cfg.symbol, connected]);
 
@@ -521,9 +560,9 @@ export default function DigitsApp() {
   const health: NetHealth =
     pingMs === 0 ? "yellow" : pingMs > cfg.safePingMs ? "red" : pingMs > 250 ? "yellow" : "green";
 
-  // Execution safety guard — hard 400ms latency ceiling for any trading
+  // Execution safety guard — hard 500ms latency ceiling for any trading
   // action, on top of the user-configured safe-ping threshold.
-  const PING_GATE_MS = 400;
+
   const lastGapNow = lastArrivalRef.current ? performance.now() - lastArrivalRef.current : 0;
   const pingGateOpen = pingMs > 0 && pingMs <= PING_GATE_MS;
   const safe =
@@ -556,9 +595,9 @@ export default function DigitsApp() {
   const handleBuy = useCallback(
     async (contractType: ContractType, barrier?: number) => {
       if (!clientRef.current || !auth) return;
-      // Hard latency gate: never send an order above 400ms round-trip.
-      if (!(pingMs > 0 && pingMs <= 400)) {
-        setLastBuyResult(`✗ blocked · ping ${pingMs.toFixed(0)}ms > 400ms gate`);
+      // Hard latency gate: never send an order above 500ms round-trip.
+      if (!(pingMs > 0 && pingMs <= PING_GATE_MS)) {
+        setLastBuyResult(`✗ blocked · ping ${pingMs.toFixed(0)}ms > ${PING_GATE_MS}ms gate`);
         return;
       }
       setBuyBusy(true);
@@ -612,6 +651,29 @@ export default function DigitsApp() {
       </header>
 
       <div className="space-y-3">
+        {connected && symbols.length === 0 && (
+          <div className="rounded-md border border-warning/50 bg-warning/10 px-3 py-2 text-[11px] text-warning">
+            No synthetic symbols are available to this connection (region or
+            account restriction). Sign in with a Deriv API token to unlock the
+            volatility feeds.
+            <div className="mt-2 flex gap-2">
+              <input
+                type="password"
+                value={token}
+                onChange={(e) => setToken(e.target.value)}
+                placeholder="Deriv API token"
+                className="h-9 flex-1 rounded border border-input bg-background px-2 font-mono text-[11px] text-foreground"
+              />
+              <button
+                type="button"
+                onClick={applyToken}
+                className="h-9 rounded border border-cyan px-3 font-mono text-[11px] uppercase text-cyan"
+              >
+                Unlock
+              </button>
+            </div>
+          </div>
+        )}
         <NetworkBadge health={health} pingMs={pingMs} driftMs={driftMs} ticks={totalTicksRef.current} stale={stale} />
         <EnsemblePanel
           ensemble={derived.ens}
@@ -659,8 +721,8 @@ export default function DigitsApp() {
             }`}
           >
             {pingGateOpen
-              ? `EXECUTION GATE OPEN · ping ${pingMs.toFixed(0)}ms ≤ 400ms`
-              : `EXECUTION LOCKED · ping ${pingMs.toFixed(0)}ms > 400ms`}
+              ? `EXECUTION GATE OPEN · ping ${pingMs.toFixed(0)}ms ≤ ${PING_GATE_MS}ms · entry window ${ENTRY_WINDOW_MS / 1000}s`
+              : `SIGNALS LOCKED · ping ${pingMs.toFixed(0)}ms > ${PING_GATE_MS}ms`}
           </div>
         </div>
 
@@ -724,6 +786,7 @@ export default function DigitsApp() {
           connected={connected}
           onConnect={handleConnect}
           onDisconnect={handleDisconnect}
+          symbols={symbols}
           armed={armed}
           onToggleArm={() => setArmed((a) => !a)}
         />

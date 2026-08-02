@@ -30,6 +30,14 @@ export interface DerivEvents {
   onError?: (err: string) => void;
   onAuth?: (info: AuthInfo | null) => void;
   onBalance?: (balance: number, currency: string) => void;
+  onSymbols?: (list: SymbolInfo[]) => void;
+}
+
+export interface SymbolInfo {
+  symbol: string;
+  label: string;
+  decimals: number;
+  open: boolean;
 }
 
 export type ContractType =
@@ -67,6 +75,8 @@ export class DerivClient {
   private reconnectAttempt = 0;
   private token: string | null = null;
   private authInfo: AuthInfo | null = null;
+  private available = new Set<string>();
+
   // EMA-smoothed ping/drift — dampens mobile-network latency spikes so the
   // execution scheduler doesn't chase every jitter blip.
   private pingEma = 0;
@@ -91,9 +101,14 @@ export class DerivClient {
       this.reconnectAttempt = 0;
       this.lastMsgAt = performance.now();
       this.events.onOpen?.();
-      this.subscribeTicks(this.symbol);
+      // Discover the symbols this connection is actually allowed to stream
+      // BEFORE subscribing — prevents "Symbol X is invalid" on restricted
+      // regions/app ids and keeps the picker in sync with the server.
+      this.fetchActiveSymbols(() => this.subscribeTicks(this.symbol));
       this.syncTime();
+      this.ping();
       if (this.token) this.authorizeInternal();
+
       // 5s cadence for both clock-drift and ping heartbeats keeps the
       // execution-time formula (nextTick − ping − drift − lag) always fresh.
       this.timeTimer = window.setInterval(() => this.syncTime(), 5_000);
@@ -184,6 +199,34 @@ export class DerivClient {
     }
   }
 
+  /**
+   * Ask the server which synthetic symbols this connection can stream.
+   * The result drives the symbol picker, so the app never subscribes to a
+   * symbol the server would reject. Falls back to the static list only if
+   * the server returns nothing at all.
+   */
+  fetchActiveSymbols(done?: () => void) {
+    this.send({ active_symbols: "brief", product_type: "basic" }, (msg) => {
+      const raw: any[] = Array.isArray(msg.active_symbols) ? msg.active_symbols : [];
+      const list: SymbolInfo[] = raw
+        .filter((s) => s.market === "synthetic_index" || /^(R_|1HZ)/.test(s.symbol))
+        .map((s) => ({
+          symbol: s.symbol as string,
+          label: (s.display_name as string) ?? s.symbol,
+          decimals: pipToDecimals(Number(s.pip)),
+          open: s.exchange_is_open !== 0,
+        }));
+      this.available = new Set(list.map((s) => s.symbol));
+      for (const s of list) DECIMALS_BY_SYMBOL.set(s.symbol, s.decimals);
+      this.events.onSymbols?.(list);
+      done?.();
+    });
+  }
+
+  hasSymbol(symbol: string) {
+    return this.available.size === 0 || this.available.has(symbol);
+  }
+
   subscribeTicks(symbol: string, count = 100) {
     this.symbol = symbol;
     if (this.subId) {
@@ -248,6 +291,9 @@ export class DerivClient {
         fullname: a.fullname,
       };
       this.events.onAuth?.(this.authInfo);
+      // Authorizing can unlock symbols that are hidden for the current
+      // region/IP, so re-discover and resubscribe.
+      this.fetchActiveSymbols(() => this.subscribeTicks(this.symbol));
       // subscribe to live balance
       this.send({ balance: 1, subscribe: 1 }, (m) => {
         if (m.balance?.id) this.balSubId = m.balance.id;
@@ -296,12 +342,23 @@ export class DerivClient {
   }
 }
 
+// Server-reported decimal places, filled from active_symbols `pip`. This is
+// authoritative — the static table below is only a cold-start fallback.
+const DECIMALS_BY_SYMBOL = new Map<string, number>();
+
+function pipToDecimals(pip: number): number {
+  if (!Number.isFinite(pip) || pip <= 0) return 2;
+  return Math.max(0, Math.min(8, Math.round(-Math.log10(pip))));
+}
+
 // Strict per-symbol decimal places. Prevents JS from dropping trailing zeros
 // on prices like 1245.30 (which would otherwise parse as 1245.3).
 // 4 decimals: R_50, R_75
 // 3 decimals: R_10, R_25
 // 2 decimals: R_100 and ALL 1s indices (1HZ*V)
 export function decimalsForSymbol(symbol: string): number {
+  const fromServer = DECIMALS_BY_SYMBOL.get(symbol);
+  if (fromServer !== undefined) return fromServer;
   switch (symbol) {
     case "R_50":
     case "R_75":
