@@ -291,6 +291,9 @@ export class DerivClient {
         fullname: a.fullname,
       };
       this.events.onAuth?.(this.authInfo);
+      // Authorizing can unlock symbols that are hidden for the current
+      // region/IP, so re-discover and resubscribe.
+      this.fetchActiveSymbols(() => this.subscribeTicks(this.symbol));
       // subscribe to live balance
       this.send({ balance: 1, subscribe: 1 }, (m) => {
         if (m.balance?.id) this.balSubId = m.balance.id;
