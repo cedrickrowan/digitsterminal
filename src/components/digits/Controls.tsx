@@ -1,6 +1,7 @@
 import { memo } from "react";
 import type { AppConfig, Market, Mode, RuleToggles } from "@/lib/deriv/types";
 import { SYMBOLS } from "@/lib/deriv/types";
+import type { SymbolInfo } from "@/lib/deriv/derivClient";
 
 interface Props {
   cfg: AppConfig;
@@ -10,6 +11,7 @@ interface Props {
   onDisconnect: () => void;
   armed: boolean;
   onToggleArm: () => void;
+  symbols?: SymbolInfo[];
 }
 
 const RULE_META: { key: keyof RuleToggles; label: string; field?: keyof AppConfig; suffix?: string }[] = [
@@ -29,7 +31,13 @@ const MARKETS: { key: Market; label: string }[] = [
   { key: "risefall", label: "Rise/Fall" },
 ];
 
-function ControlsImpl({ cfg, onChange, connected, onConnect, onDisconnect, armed, onToggleArm }: Props) {
+function ControlsImpl({ cfg, onChange, connected, onConnect, onDisconnect, armed, onToggleArm, symbols }: Props) {
+  // Prefer the live server-provided symbol list; fall back to the static one
+  // only before the first active_symbols response arrives.
+  const options =
+    symbols && symbols.length > 0
+      ? symbols.map((s) => ({ value: s.symbol, label: s.open ? s.label : `${s.label} (closed)` }))
+      : SYMBOLS;
   const setRule = (k: keyof RuleToggles, v: boolean) =>
     onChange({ rules: { ...cfg.rules, [k]: v } });
 
@@ -60,7 +68,7 @@ function ControlsImpl({ cfg, onChange, connected, onConnect, onDisconnect, armed
             value={cfg.symbol}
             onChange={(e) => onChange({ symbol: e.target.value })}
           >
-            {SYMBOLS.map((s) => (
+            {options.map((s) => (
               <option key={s.value} value={s.value}>{s.label}</option>
             ))}
           </select>

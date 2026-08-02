@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Subject } from "rxjs";
 import { auditTime } from "rxjs/operators";
-import { DerivClient, type AuthInfo, type ContractType } from "@/lib/deriv/derivClient";
+import { DerivClient, type AuthInfo, type ContractType, type SymbolInfo } from "@/lib/deriv/derivClient";
 import { loadConfig, loadToken, saveConfig, saveToken } from "@/lib/deriv/storage";
 import type { AppConfig, NetHealth, Signal } from "@/lib/deriv/types";
 import {
@@ -72,6 +72,8 @@ export default function DigitsApp() {
   const [auth, setAuth] = useState<AuthInfo | null>(null);
   const [buyBusy, setBuyBusy] = useState(false);
   const [lastBuyResult, setLastBuyResult] = useState<string>("");
+  // Symbols the server actually allows on this connection.
+  const [symbols, setSymbols] = useState<SymbolInfo[]>([]);
 
   const bufRef = useRef<number[]>([]);
   const lastArrivalRef = useRef<number>(0);
@@ -391,6 +393,15 @@ export default function DigitsApp() {
         setPingMs(medianOf(arr));
       },
       onTimeSync: (drift) => { driftMsRef.current = drift; setDriftMs(drift); },
+      onSymbols: (list) => {
+        setSymbols(list);
+        // If the configured symbol isn't tradable on this connection, snap to
+        // the first live one so the feed always starts.
+        if (list.length > 0 && !list.some((s) => s.symbol === cfgRef.current.symbol)) {
+          const first = list.find((s) => s.open) ?? list[0];
+          setCfg((c) => ({ ...c, symbol: first.symbol }));
+        }
+      },
       onAuth: (info) => setAuth(info),
       onError: (e) => {
         pushSignal({
