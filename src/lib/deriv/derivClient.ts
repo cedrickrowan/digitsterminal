@@ -197,6 +197,34 @@ export class DerivClient {
     }
   }
 
+  /**
+   * Ask the server which synthetic symbols this connection can stream.
+   * The result drives the symbol picker, so the app never subscribes to a
+   * symbol the server would reject. Falls back to the static list only if
+   * the server returns nothing at all.
+   */
+  fetchActiveSymbols(done?: () => void) {
+    this.send({ active_symbols: "brief", product_type: "basic" }, (msg) => {
+      const raw: any[] = Array.isArray(msg.active_symbols) ? msg.active_symbols : [];
+      const list: SymbolInfo[] = raw
+        .filter((s) => s.market === "synthetic_index" || /^(R_|1HZ)/.test(s.symbol))
+        .map((s) => ({
+          symbol: s.symbol as string,
+          label: (s.display_name as string) ?? s.symbol,
+          decimals: pipToDecimals(Number(s.pip)),
+          open: s.exchange_is_open !== 0,
+        }));
+      this.available = new Set(list.map((s) => s.symbol));
+      for (const s of list) DECIMALS_BY_SYMBOL.set(s.symbol, s.decimals);
+      this.events.onSymbols?.(list);
+      done?.();
+    });
+  }
+
+  hasSymbol(symbol: string) {
+    return this.available.size === 0 || this.available.has(symbol);
+  }
+
   subscribeTicks(symbol: string, count = 100) {
     this.symbol = symbol;
     if (this.subId) {
