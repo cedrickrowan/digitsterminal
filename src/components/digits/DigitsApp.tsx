@@ -49,6 +49,11 @@ import { PatternsPanel } from "./PatternsPanel";
 import { EngineLog } from "./EngineLog";
 
 const MAX_BUFFER = 500;
+// Hard network ceiling: above this round-trip the terminal emits no signals
+// and refuses to send orders.
+const PING_GATE_MS = 500;
+// Entries must land inside a 2s window — never earlier, never later.
+const ENTRY_WINDOW_MS = 2000;
 
 export default function DigitsApp() {
   const [cfg, setCfg] = useState<AppConfig>(() => loadConfig());
