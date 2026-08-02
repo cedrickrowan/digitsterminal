@@ -581,9 +581,9 @@ export default function DigitsApp() {
   const handleBuy = useCallback(
     async (contractType: ContractType, barrier?: number) => {
       if (!clientRef.current || !auth) return;
-      // Hard latency gate: never send an order above 400ms round-trip.
-      if (!(pingMs > 0 && pingMs <= 400)) {
-        setLastBuyResult(`✗ blocked · ping ${pingMs.toFixed(0)}ms > 400ms gate`);
+      // Hard latency gate: never send an order above 500ms round-trip.
+      if (!(pingMs > 0 && pingMs <= PING_GATE_MS)) {
+        setLastBuyResult(`✗ blocked · ping ${pingMs.toFixed(0)}ms > ${PING_GATE_MS}ms gate`);
         return;
       }
       setBuyBusy(true);
@@ -684,8 +684,8 @@ export default function DigitsApp() {
             }`}
           >
             {pingGateOpen
-              ? `EXECUTION GATE OPEN · ping ${pingMs.toFixed(0)}ms ≤ 400ms`
-              : `EXECUTION LOCKED · ping ${pingMs.toFixed(0)}ms > 400ms`}
+              ? `EXECUTION GATE OPEN · ping ${pingMs.toFixed(0)}ms ≤ ${PING_GATE_MS}ms · entry window ${ENTRY_WINDOW_MS / 1000}s`
+              : `SIGNALS LOCKED · ping ${pingMs.toFixed(0)}ms > ${PING_GATE_MS}ms`}
           </div>
         </div>
 
