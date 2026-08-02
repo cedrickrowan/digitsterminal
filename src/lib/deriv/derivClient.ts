@@ -339,12 +339,23 @@ export class DerivClient {
   }
 }
 
+// Server-reported decimal places, filled from active_symbols `pip`. This is
+// authoritative — the static table below is only a cold-start fallback.
+const DECIMALS_BY_SYMBOL = new Map<string, number>();
+
+function pipToDecimals(pip: number): number {
+  if (!Number.isFinite(pip) || pip <= 0) return 2;
+  return Math.max(0, Math.min(8, Math.round(-Math.log10(pip))));
+}
+
 // Strict per-symbol decimal places. Prevents JS from dropping trailing zeros
 // on prices like 1245.30 (which would otherwise parse as 1245.3).
 // 4 decimals: R_50, R_75
 // 3 decimals: R_10, R_25
 // 2 decimals: R_100 and ALL 1s indices (1HZ*V)
 export function decimalsForSymbol(symbol: string): number {
+  const fromServer = DECIMALS_BY_SYMBOL.get(symbol);
+  if (fromServer !== undefined) return fromServer;
   switch (symbol) {
     case "R_50":
     case "R_75":
