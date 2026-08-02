@@ -656,6 +656,22 @@ export default function DigitsApp() {
             No synthetic symbols are available to this connection (region or
             account restriction). Sign in with a Deriv API token to unlock the
             volatility feeds.
+            <div className="mt-2 flex gap-2">
+              <input
+                type="password"
+                value={token}
+                onChange={(e) => setToken(e.target.value)}
+                placeholder="Deriv API token"
+                className="h-9 flex-1 rounded border border-input bg-background px-2 font-mono text-[11px] text-foreground"
+              />
+              <button
+                type="button"
+                onClick={applyToken}
+                className="h-9 rounded border border-cyan px-3 font-mono text-[11px] uppercase text-cyan"
+              >
+                Unlock
+              </button>
+            </div>
           </div>
         )}
         <NetworkBadge health={health} pingMs={pingMs} driftMs={driftMs} ticks={totalTicksRef.current} stale={stale} />
