@@ -229,7 +229,11 @@ export default function DigitsApp() {
       const ping = median;
       const drift = Math.abs(driftMsRef.current);
       const lag = cfgNow.latencyOffsetMs;
-      const target = now + Math.max(0, nextTickIn - ping - drift - lag);
+      // Latency-compensated delay, then clamped into the strict 2s entry
+      // window so the purchase can never land early or late.
+      const raw = nextTickIn - ping - drift - lag;
+      const delay = Math.min(ENTRY_WINDOW_MS, Math.max(0, raw));
+      const target = now + delay;
       nextFireAtRef.current = target;
       if (fireTimerRef.current !== null) clearTimeout(fireTimerRef.current);
       fireTimerRef.current = window.setTimeout(() => {
@@ -239,12 +243,12 @@ export default function DigitsApp() {
         setFlash(true);
         setTimeout(() => setFlash(false), 180);
         setExecDiag((prev) => {
-          const line = `fire · Δ${variance >= 0 ? "+" : ""}${variance.toFixed(1)}ms · ping ${ping.toFixed(0)} · drift ${drift.toFixed(0)} · lag ${lag}`;
+          const line = `fire · in ${delay.toFixed(0)}ms · Δ${variance >= 0 ? "+" : ""}${variance.toFixed(1)}ms · ping ${ping.toFixed(0)} · drift ${drift.toFixed(0)} · lag ${lag}`;
           const next = prev.length >= 30 ? prev.slice(-29) : prev.slice();
           next.push(line);
           return next;
         });
-      }, Math.max(0, target - now));
+      }, delay);
       pushSignal(sig);
       return;
     }
