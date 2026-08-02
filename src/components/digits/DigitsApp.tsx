@@ -452,6 +452,9 @@ export default function DigitsApp() {
     gapsRef.current = [];
     setOpenEntry(null);
     setMatched(false);
+    // Never subscribe to a symbol the server hasn't advertised — that is what
+    // produced "Symbol X is invalid" and left the terminal with no ticks.
+    if (!clientRef.current.hasSymbol(cfg.symbol)) return;
     clientRef.current.subscribeTicks(cfg.symbol, 100);
   }, [cfg.symbol, connected]);
 
@@ -648,6 +651,13 @@ export default function DigitsApp() {
       </header>
 
       <div className="space-y-3">
+        {connected && symbols.length === 0 && (
+          <div className="rounded-md border border-warning/50 bg-warning/10 px-3 py-2 text-[11px] text-warning">
+            No synthetic symbols are available to this connection (region or
+            account restriction). Sign in with a Deriv API token to unlock the
+            volatility feeds.
+          </div>
+        )}
         <NetworkBadge health={health} pingMs={pingMs} driftMs={driftMs} ticks={totalTicksRef.current} stale={stale} />
         <EnsemblePanel
           ensemble={derived.ens}
@@ -760,6 +770,7 @@ export default function DigitsApp() {
           connected={connected}
           onConnect={handleConnect}
           onDisconnect={handleDisconnect}
+          symbols={symbols}
           armed={armed}
           onToggleArm={() => setArmed((a) => !a)}
         />
