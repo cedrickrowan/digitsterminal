@@ -2,7 +2,6 @@ import { memo } from "react";
 import type { AppConfig, Market, Mode, RuleToggles } from "@/lib/deriv/types";
 import { SYMBOLS } from "@/lib/deriv/types";
 import type { SymbolInfo } from "@/lib/deriv/derivClient";
-import type { SymbolInfo } from "@/lib/deriv/derivClient";
 
 interface Props {
   cfg: AppConfig;
