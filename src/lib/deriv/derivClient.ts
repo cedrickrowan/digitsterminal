@@ -30,6 +30,14 @@ export interface DerivEvents {
   onError?: (err: string) => void;
   onAuth?: (info: AuthInfo | null) => void;
   onBalance?: (balance: number, currency: string) => void;
+  onSymbols?: (list: SymbolInfo[]) => void;
+}
+
+export interface SymbolInfo {
+  symbol: string;
+  label: string;
+  decimals: number;
+  open: boolean;
 }
 
 export type ContractType =
