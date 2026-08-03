@@ -402,7 +402,6 @@ export default function DigitsApp() {
           setCfg((c) => ({ ...c, symbol: first.symbol }));
         }
       },
-      onAuth: (info) => setAuth(info),
       onError: (e) => {
         pushSignal({
           id: Date.now() + Math.random(),
@@ -415,8 +414,7 @@ export default function DigitsApp() {
     });
     clientRef.current = client;
     client.connect();
-    if (token) client.setToken(token);
-  }, [evaluateAndMaybeFire, pushSignal, resolveSims, scheduleRender, token]);
+  }, [evaluateAndMaybeFire, pushSignal, resolveSims, scheduleRender]);
 
   const handleDisconnect = useCallback(() => {
     clientRef.current?.disconnect();
