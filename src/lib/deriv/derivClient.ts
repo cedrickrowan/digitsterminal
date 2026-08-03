@@ -227,8 +227,14 @@ export class DerivClient {
           open: s.exchange_is_open !== 0,
         }));
       if (list.length === 0) {
-        // Public feed didn't advertise anything (region/brief quirk): fall back
-        // to the known-valid volatility set so the terminal always streams.
+        // This host advertised nothing usable — rotate to the next public
+        // endpoint a few times before settling on the static fallback list.
+        if (this.rotations < DerivClient.ENDPOINTS.length) {
+          this.rotations++;
+          this.endpointIdx++;
+          try { this.ws?.close(); } catch { /* ignore */ }
+          return;
+        }
         list = FALLBACK_SYMBOLS.map((s) => ({
           symbol: s.value,
           label: s.label,
@@ -237,6 +243,7 @@ export class DerivClient {
         }));
         this.available = new Set();
       } else {
+        this.rotations = 0;
         this.available = new Set(list.map((s) => s.symbol));
       }
       for (const s of list) DECIMALS_BY_SYMBOL.set(s.symbol, s.decimals);
