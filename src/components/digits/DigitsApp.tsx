@@ -68,10 +68,7 @@ export default function DigitsApp() {
   const [openEntry, setOpenEntry] = useState<{ price: number; tick: number } | null>(null);
   const [matched, setMatched] = useState(false);
   const [, forceRender] = useState(0);
-  const [token, setToken] = useState<string>(() => loadToken());
-  const [auth, setAuth] = useState<AuthInfo | null>(null);
-  const [buyBusy, setBuyBusy] = useState(false);
-  const [lastBuyResult, setLastBuyResult] = useState<string>("");
+  // Public-feed only: no API token, no authorization, no order placement.
   // Symbols the server actually allows on this connection.
   const [symbols, setSymbols] = useState<SymbolInfo[]>([]);
 
