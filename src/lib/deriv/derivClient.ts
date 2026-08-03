@@ -85,11 +85,22 @@ export class DerivClient {
   private static readonly PING_ALPHA = 0.25;
   private static readonly DRIFT_ALPHA = 0.2;
 
+  // Public Deriv endpoints. If one host advertises no synthetic symbols
+  // (region/edge quirk), we rotate to the next one instead of stalling.
+  private static readonly ENDPOINTS = [
+    "wss://ws.derivws.com/websockets/v3?app_id=1089",
+    "wss://blue.derivws.com/websockets/v3?app_id=1089",
+    "wss://green.derivws.com/websockets/v3?app_id=1089",
+    "wss://ws.binaryws.com/websockets/v3?app_id=1089",
+  ];
+  private endpointIdx = 0;
+  private rotations = 0;
+
   constructor(private events: DerivEvents) {}
 
   connect() {
     this.closed = false;
-    const url = "wss://ws.derivws.com/websockets/v3?app_id=1089";
+    const url = DerivClient.ENDPOINTS[this.endpointIdx % DerivClient.ENDPOINTS.length];
     let ws: WebSocket;
     try {
       ws = new WebSocket(url);
