@@ -1,6 +1,7 @@
 // Deriv WebSocket client tuned for mobile/high-latency networks.
 // Public app_id 1089 for ticks. Optional API token enables authorize + buy.
 
+import { SYMBOLS as FALLBACK_SYMBOLS } from "./types";
 type Listener = (msg: any) => void;
 
 export interface AuthInfo {
