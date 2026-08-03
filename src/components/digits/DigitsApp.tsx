@@ -580,48 +580,8 @@ export default function DigitsApp() {
     setCfg((c) => ({ ...c, ...patch }));
   }, []);
 
-  const applyToken = useCallback(() => {
-    saveToken(token);
-    clientRef.current?.setToken(token);
-  }, [token]);
 
-  const clearToken = useCallback(() => {
-    setToken("");
-    saveToken("");
-    clientRef.current?.setToken(null);
-    setAuth(null);
-  }, []);
 
-  const handleBuy = useCallback(
-    async (contractType: ContractType, barrier?: number) => {
-      if (!clientRef.current || !auth) return;
-      // Hard latency gate: never send an order above 500ms round-trip.
-      if (!(pingMs > 0 && pingMs <= PING_GATE_MS)) {
-        setLastBuyResult(`✗ blocked · ping ${pingMs.toFixed(0)}ms > ${PING_GATE_MS}ms gate`);
-        return;
-      }
-      setBuyBusy(true);
-      setLastBuyResult("Sending order…");
-
-      const res = await clientRef.current.buy({
-        contractType,
-        symbol: cfg.symbol,
-        stake: cfg.stake,
-        durationTicks: cfg.duration,
-        barrier,
-        currency: auth.currency,
-      });
-      setBuyBusy(false);
-      if (res.ok) {
-        setLastBuyResult(
-          `✓ ${contractType}${barrier !== undefined ? " " + barrier : ""} · stake ${res.buyPrice?.toFixed(2)} · payout ${res.payout?.toFixed(2)}`,
-        );
-      } else {
-        setLastBuyResult(`✗ ${res.error}`);
-      }
-    },
-    [auth, cfg.symbol, cfg.stake, cfg.duration, pingMs],
-  );
 
   return (
     <div className={`min-h-screen p-3 text-foreground ${flash ? "ring-4 ring-magenta" : ""}`}>
