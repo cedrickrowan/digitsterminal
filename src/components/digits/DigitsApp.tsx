@@ -508,7 +508,7 @@ export default function DigitsApp() {
       trigrams,
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tickKey, cfg.lookback, cfg.predictDigit]);
+  }, [tickKey, cfg.lookback, cfg.predictDigit, cfg.duration, cfg.market, cfg.barrier]);
 
   // SUPER QUANT CORE — Lyapunov / Hurst / Markov / Fourier / KS / Poisson.
   // Replaces the legacy digit prediction as the primary predictive layer.
