@@ -203,8 +203,6 @@ export class DerivClient {
    * Ask the server which synthetic symbols this connection can stream.
    * Falls back to the known-valid volatility set when the server sends none.
    */
-   * the server returns nothing at all.
-   */
   fetchActiveSymbols(done?: () => void) {
     this.send({ active_symbols: "brief", product_type: "basic" }, (msg) => {
       const raw: any[] = Array.isArray(msg.active_symbols) ? msg.active_symbols : [];
