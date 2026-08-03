@@ -201,8 +201,8 @@ export class DerivClient {
 
   /**
    * Ask the server which synthetic symbols this connection can stream.
-   * The result drives the symbol picker, so the app never subscribes to a
-   * symbol the server would reject. Falls back to the static list only if
+   * Falls back to the known-valid volatility set when the server sends none.
+   */
    * the server returns nothing at all.
    */
   fetchActiveSymbols(done?: () => void) {
