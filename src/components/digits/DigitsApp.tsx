@@ -31,9 +31,7 @@ import {
   priceEma,
   volatilityState,
 } from "@/lib/deriv/marketContext";
-import { fusePosteriors, runSuperQuantAnalysis } from "@/lib/deriv/superQuant";
 import { beep } from "@/lib/deriv/audio";
-
 import { signOut } from "./LoginScreen";
 import { NetworkBadge } from "./NetworkBadge";
 import { Controls } from "./Controls";
@@ -192,10 +190,7 @@ export default function DigitsApp() {
 
     const median = medianOf(pingMedianRef.current);
     const lastGap = lastArrivalRef.current ? performance.now() - lastArrivalRef.current : 0;
-    // Hard 400ms ping gate + configured thresholds.
-    const networkUnsafe =
-      median > 400 || median > cfgNow.safePingMs || lastGap > cfgNow.safeGapMs;
-
+    const networkUnsafe = median > cfgNow.safePingMs || lastGap > cfgNow.safeGapMs;
 
     if (cfgNow.mode === "alert") {
       // Precision execution scheduler: aim the audible fire at
@@ -471,14 +466,6 @@ export default function DigitsApp() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tickKey, cfg.lookback, cfg.predictDigit]);
 
-  // SUPER QUANT CORE — Lyapunov / Hurst / Markov / Fourier / KS / Poisson.
-  // Replaces the legacy digit prediction as the primary predictive layer.
-  const quant = useMemo(
-    () => runSuperQuantAnalysis(buf, priceDeltasRef.current, cfg.duration),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [tickKey, cfg.duration],
-  );
-
   // Background market-context layer — EMA direction, tick-Δ volatility,
   // 3-state HMM regime, Poisson cluster weights, and a consolidated signal
   // router payload. Feeds only the prediction math; UI is unchanged.
@@ -489,10 +476,7 @@ export default function DigitsApp() {
     const vol = volatilityState(d);
     const hmm = hmmState(buf);
     const poissonW = poissonClusterWeights(buf);
-    // SuperQuant is the primary model (70%); the legacy ensemble is retained
-    // only as a stabilizing prior (30%) via a geometric opinion pool.
-    const fused = fusePosteriors(derived.ens.posterior, quant.posterior, 0.7);
-    const weighted = applyContextWeights(fused, {
+    const weighted = applyContextWeights(derived.ens.posterior, {
       direction: ema.direction,
       volatility: vol.state,
       hmm: hmm.state,
@@ -506,11 +490,10 @@ export default function DigitsApp() {
     });
     return { ema, vol, hmm, weighted, topDigit, router };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tickKey, derived, quant]);
+  }, [tickKey, derived]);
   // Router payload is kept as a live diagnostic even though the UI shell
   // does not surface it — downstream consumers (worker, logs) read it.
   void context.router;
-
 
   // Use null sentinel so digit 0 is never confused with "no data". All downstream
   // checks must use strict null/undefined comparisons (digit !== null && digit !== undefined),
@@ -521,14 +504,9 @@ export default function DigitsApp() {
   const health: NetHealth =
     pingMs === 0 ? "yellow" : pingMs > cfg.safePingMs ? "red" : pingMs > 250 ? "yellow" : "green";
 
-  // Execution safety guard — hard 400ms latency ceiling for any trading
-  // action, on top of the user-configured safe-ping threshold.
-  const PING_GATE_MS = 400;
+  // Execution safety guard
   const lastGapNow = lastArrivalRef.current ? performance.now() - lastArrivalRef.current : 0;
-  const pingGateOpen = pingMs > 0 && pingMs <= PING_GATE_MS;
-  const safe =
-    pingGateOpen && pingMs <= cfg.safePingMs && lastGapNow <= cfg.safeGapMs;
-
+  const safe = pingMs > 0 && pingMs <= cfg.safePingMs && lastGapNow <= cfg.safeGapMs;
 
   // Expected next-tick countdown (median inter-tick gap minus elapsed)
   const tickInterval = medianOf(gapsRef.current) || 2000;
@@ -556,14 +534,8 @@ export default function DigitsApp() {
   const handleBuy = useCallback(
     async (contractType: ContractType, barrier?: number) => {
       if (!clientRef.current || !auth) return;
-      // Hard latency gate: never send an order above 400ms round-trip.
-      if (!(pingMs > 0 && pingMs <= 400)) {
-        setLastBuyResult(`✗ blocked · ping ${pingMs.toFixed(0)}ms > 400ms gate`);
-        return;
-      }
       setBuyBusy(true);
       setLastBuyResult("Sending order…");
-
       const res = await clientRef.current.buy({
         contractType,
         symbol: cfg.symbol,
@@ -581,7 +553,7 @@ export default function DigitsApp() {
         setLastBuyResult(`✗ ${res.error}`);
       }
     },
-    [auth, cfg.symbol, cfg.stake, cfg.duration, pingMs],
+    [auth, cfg.symbol, cfg.stake, cfg.duration],
   );
 
   return (
@@ -624,46 +596,6 @@ export default function DigitsApp() {
           countdownMs={countdownMs}
           purchaseInMs={purchaseInMs}
         />
-        <div className="rounded-md border border-border bg-card px-3 py-2 text-[11px]">
-          <div className="mb-1 flex items-center justify-between">
-            <span className="font-semibold">Super Quant Core</span>
-            <span
-              className={`rounded border px-1.5 py-0.5 font-mono text-[10px] ${
-                quant.calcMs <= 2 ? "border-cyan text-cyan" : "border-warning text-warning"
-              }`}
-            >
-              calc {quant.calcMs.toFixed(2)}ms
-            </span>
-          </div>
-          <div className="grid grid-cols-3 gap-1 font-mono text-[10px] text-muted-foreground">
-            <span>λ {quant.diagnostics.lyapunov.toFixed(2)}</span>
-            <span>H {quant.diagnostics.hurst.toFixed(2)}</span>
-            <span>FFT {quant.diagnostics.harmonic.toFixed(3)}</span>
-            <span>KS {quant.diagnostics.ksDivergence.toFixed(3)}</span>
-            <span>ρ {quant.diagnostics.autocorr.toFixed(2)}</span>
-            <span>χ² {quant.diagnostics.chi2.toFixed(1)}</span>
-          </div>
-          <div className="mt-1 flex flex-wrap items-center gap-1 font-mono text-[10px]">
-            <span className={quant.diagnostics.ordered ? "text-success" : "text-muted-foreground"}>ORDERED</span>
-            <span className={quant.diagnostics.persistent ? "text-success" : "text-muted-foreground"}>PERSIST</span>
-            <span className={quant.diagnostics.synchronized ? "text-success" : "text-muted-foreground"}>SYNC</span>
-            <span className={quant.diagnostics.anomalous ? "text-warning" : "text-muted-foreground"}>ANOM</span>
-            <span className="ml-auto">
-              target <span className="font-bold text-cyan">{quant.topDigit}</span> ·{" "}
-              {quant.topScore.toFixed(1)}
-            </span>
-          </div>
-          <div
-            className={`mt-1 rounded border px-1.5 py-0.5 text-center font-mono text-[10px] ${
-              pingGateOpen ? "border-success text-success" : "border-danger text-danger"
-            }`}
-          >
-            {pingGateOpen
-              ? `EXECUTION GATE OPEN · ping ${pingMs.toFixed(0)}ms ≤ 400ms`
-              : `EXECUTION LOCKED · ping ${pingMs.toFixed(0)}ms > 400ms`}
-          </div>
-        </div>
-
         {(() => {
           const isMatches = cfg.market === "matches";
           const displayDigit = isMatches ? cfg.predictDigit : context.topDigit;
