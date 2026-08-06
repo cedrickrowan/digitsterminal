@@ -31,7 +31,13 @@ import {
   priceEma,
   volatilityState,
 } from "@/lib/deriv/marketContext";
+import {
+  assetTypeOf,
+  fusePreArrival,
+  runPreArrivalAnalysis,
+} from "@/lib/deriv/preArrival";
 import { beep } from "@/lib/deriv/audio";
+
 import { signOut } from "./LoginScreen";
 import { NetworkBadge } from "./NetworkBadge";
 import { Controls } from "./Controls";
