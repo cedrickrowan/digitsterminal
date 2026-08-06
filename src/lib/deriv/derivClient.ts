@@ -168,7 +168,7 @@ export class DerivClient {
       this.events.onTick?.(digit, quote, msg.tick.epoch, performance.now());
     } else if (msg.msg_type === "history" && msg.history) {
       const prices: number[] = msg.history.prices;
-      const pip = msg.pip_size ?? 2;
+      const pip = msg.pip_size ?? this.pipSize;
       this.pipSize = pip;
       const sym = msg.echo_req?.ticks_history ?? this.symbol;
       const digits = prices.map((p) => lastDigit(p, pip, sym));
