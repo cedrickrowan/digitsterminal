@@ -320,7 +320,11 @@ export default function DigitsApp() {
           clientRef.current?.subscribeTicks(cfgRef.current.symbol, cfgRef.current.lookback);
           return;
         }
-        const isStale = prev !== 0 && gap > cfgRef.current.safeGapMs;
+        const staleBudget = Math.max(
+          cfgRef.current.safeGapMs,
+          (medianOf(gapsRef.current) || 0) * 1.6,
+        );
+        const isStale = prev !== 0 && gap > staleBudget;
         setStale(isStale);
         // Strict validity check — digit === 0 is valid and must pass through.
         const validDigit = digit !== null && digit !== undefined && digit >= 0 && digit <= 9;
