@@ -296,36 +296,29 @@ export class DerivClient {
   }
 }
 
-// Strict per-symbol decimal places. Prevents JS from dropping trailing zeros
-// on prices like 1245.30 (which would otherwise parse as 1245.3).
-// 4 decimals: R_50, R_75
-// 3 decimals: R_10, R_25
-// 2 decimals: R_100 and ALL 1s indices (1HZ*V)
+// Decimal places come from Deriv's live `pip_size` per symbol (authoritative).
+// This static map is only a fallback before the first message arrives.
+const FALLBACK_DECIMALS: Record<string, number> = {
+  R_10: 3, R_25: 3, R_50: 4, R_75: 4, R_100: 2,
+  "1HZ10V": 2, "1HZ15V": 3, "1HZ25V": 2, "1HZ30V": 3, "1HZ50V": 2,
+  "1HZ75V": 2, "1HZ90V": 3, "1HZ100V": 2, "1HZ150V": 2, "1HZ250V": 5,
+};
+
 export function decimalsForSymbol(symbol: string): number {
-  switch (symbol) {
-    case "R_50":
-    case "R_75":
-      return 4;
-    case "R_10":
-    case "R_25":
-      return 3;
-    case "R_100":
-      return 2;
-    default:
-      // All 1HZ*V (1s) indices use 2 decimals
-      if (/^1HZ\d+V$/.test(symbol)) return 2;
-      return 2;
-  }
+  return FALLBACK_DECIMALS[symbol] ?? 2;
 }
 
 function lastDigit(price: number, pip: number, symbol?: string): number {
-  const decimals = symbol ? decimalsForSymbol(symbol) : pip;
+  // Prefer the pip_size reported by Deriv for this exact symbol.
+  const decimals =
+    Number.isInteger(pip) && pip >= 0 && pip <= 8
+      ? pip
+      : decimalsForSymbol(symbol ?? "");
   // toFixed preserves trailing zeros so "1245.30" stays "1245.30" → last char "0"
   const s = price.toFixed(decimals);
   const ch = s.charAt(s.length - 1);
   const d = parseInt(ch, 10);
-  // Strict validation: 0 is a fully valid digit. Only flag truly invalid parses (NaN, out of 0-9).
-  // Use Number.isInteger + range check rather than truthy `if (d)` which would wrongly skip 0.
+  // Strict validation: 0 is a fully valid digit. Only flag truly invalid parses.
   if (!Number.isInteger(d) || d < 0 || d > 9) {
     // eslint-disable-next-line no-console
     console.warn("[lastDigit] invalid parse", { price, decimals, formatted: s, ch });
