@@ -139,28 +139,35 @@ export class DerivClient {
     if (this.timeTimer) clearInterval(this.timeTimer);
     if (this.pingTimer) clearInterval(this.pingTimer);
     if (this.watchdog) clearInterval(this.watchdog);
+    if (this.pollTimer) clearInterval(this.pollTimer);
     this.timeTimer = null;
     this.pingTimer = null;
     this.watchdog = null;
+    this.pollTimer = null;
   }
 
-  private send(payload: any, cb?: Listener) {
-    if (!this.ws || this.ws.readyState !== 1) return;
+  private send(payload: any, cb?: Listener): number {
+    if (!this.ws || this.ws.readyState !== 1) return -1;
     const id = this.reqId++;
     if (cb) this.pending.set(id, cb);
     this.ws.send(JSON.stringify({ ...payload, req_id: id }));
+    return id;
   }
+
+  private pollReqIds = new Set<number>();
 
   private handle(raw: string) {
     let msg: any;
     try { msg = JSON.parse(raw); } catch { return; }
+    const isPoll = msg.req_id ? this.pollReqIds.delete(msg.req_id) : false;
     if (msg.req_id && this.pending.has(msg.req_id)) {
       const cb = this.pending.get(msg.req_id)!;
       this.pending.delete(msg.req_id);
       cb(msg);
     }
     if (msg.error) {
-      this.events.onError?.(msg.error.message || "deriv error");
+      // Subscription rejections are handled by the fallback path, not surfaced.
+      if (!isPoll) this.events.onError?.(msg.error.message || "deriv error");
       return;
     }
     if (msg.msg_type === "tick" && msg.tick) {
@@ -170,12 +177,25 @@ export class DerivClient {
       const sym = msg.tick.symbol ?? this.symbol;
       const digit = lastDigit(quote, pip, sym);
       this.subId = msg.tick.id ?? this.subId;
+      this.lastEpoch = Math.max(this.lastEpoch, msg.tick.epoch ?? 0);
       this.events.onTick?.(digit, quote, msg.tick.epoch, performance.now());
     } else if (msg.msg_type === "history" && msg.history) {
       const prices: number[] = msg.history.prices;
+      const times: number[] = msg.history.times ?? [];
       const pip = msg.pip_size ?? this.pipSize;
       this.pipSize = pip;
       const sym = msg.echo_req?.ticks_history ?? this.symbol;
+      if (isPoll) {
+        // Polled refresh — emit only ticks newer than the last one seen.
+        for (let i = 0; i < prices.length; i++) {
+          const epoch = times[i] ?? 0;
+          if (epoch <= this.lastEpoch) continue;
+          this.lastEpoch = epoch;
+          this.events.onTick?.(lastDigit(prices[i], pip, sym), prices[i], epoch, performance.now());
+        }
+        return;
+      }
+      this.lastEpoch = times.length ? times[times.length - 1] : this.lastEpoch;
       const digits = prices.map((p) => lastDigit(p, pip, sym));
       this.events.onHistory?.(digits, prices[prices.length - 1] ?? 0);
     } else if (msg.msg_type === "balance" && msg.balance) {
@@ -193,17 +213,36 @@ export class DerivClient {
     this.symbol = symbol;
     // Reset to the per-symbol fallback until Deriv reports pip_size for it.
     this.pipSize = decimalsForSymbol(symbol);
+    this.lastEpoch = 0;
+    this.stopPolling();
     if (this.subId) {
       this.send({ forget: this.subId });
       this.subId = null;
     }
-    this.send({
-      ticks_history: symbol,
-      end: "latest",
-      count,
-      style: "ticks",
-      subscribe: 1,
+    // 1) Seed history WITHOUT `subscribe` — always accepted.
+    this.send({ ticks_history: symbol, end: "latest", count, style: "ticks" });
+    // 2) Try the live stream. If Deriv rejects the subscription (region /
+    //    app_id restrictions return "Symbol X is invalid"), poll instead.
+    this.send({ ticks: symbol, subscribe: 1 }, (msg) => {
+      if (msg?.error) this.startPolling(symbol);
     });
+  }
+
+  private stopPolling() {
+    if (this.pollTimer) clearInterval(this.pollTimer);
+    this.pollTimer = null;
+    this.pollReqIds.clear();
+  }
+
+  private startPolling(symbol: string) {
+    this.stopPolling();
+    const tick = () => {
+      if (this.symbol !== symbol) return;
+      const id = this.send({ ticks_history: symbol, end: "latest", count: 5, style: "ticks" });
+      if (id > 0) this.pollReqIds.add(id);
+    };
+    tick();
+    this.pollTimer = window.setInterval(tick, 900);
   }
 
   syncTime() {
