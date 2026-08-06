@@ -31,7 +31,13 @@ import {
   priceEma,
   volatilityState,
 } from "@/lib/deriv/marketContext";
+import {
+  assetTypeOf,
+  fusePreArrival,
+  runPreArrivalAnalysis,
+} from "@/lib/deriv/preArrival";
 import { beep } from "@/lib/deriv/audio";
+
 import { signOut } from "./LoginScreen";
 import { NetworkBadge } from "./NetworkBadge";
 import { Controls } from "./Controls";
@@ -45,6 +51,8 @@ import { EnsemblePanel } from "./EnsemblePanel";
 import { SplitPanel } from "./SplitPanel";
 import { PatternsPanel } from "./PatternsPanel";
 import { EngineLog } from "./EngineLog";
+import { PreArrivalPanel } from "./PreArrivalPanel";
+
 
 const MAX_BUFFER = 500;
 
@@ -476,21 +484,29 @@ export default function DigitsApp() {
     const vol = volatilityState(d);
     const hmm = hmmState(buf);
     const poissonW = poissonClusterWeights(buf);
-    const weighted = applyContextWeights(derived.ens.posterior, {
+    const ctxWeighted = applyContextWeights(derived.ens.posterior, {
       direction: ema.direction,
       volatility: vol.state,
       hmm: hmm.state,
       poissonWeights: poissonW,
     });
+    // Zero-lag pre-arrival layer: 3rd-order Markov tensor, Lyapunov, Hurst,
+    // Fourier harmonics, KS bias and AR-Poisson intensity — fused into the
+    // posterior with micro-fatigue muting.
+    const pre = runPreArrivalAnalysis(buf, d, assetTypeOf(cfgRef.current.symbol));
+    const weighted = pre.physics.ready
+      ? fusePreArrival(ctxWeighted, pre.forecasts)
+      : ctxWeighted;
     let topDigit = 0;
     for (let i = 1; i < 10; i++) if (weighted[i] > weighted[topDigit]) topDigit = i;
     const router = buildSignalRouter(weighted, derived.split.pEven, {
       up: derived.rf.up,
       down: derived.rf.down,
     });
-    return { ema, vol, hmm, weighted, topDigit, router };
+    return { ema, vol, hmm, weighted, topDigit, router, pre };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tickKey, derived]);
+  }, [tickKey, derived, cfg.symbol]);
+
   // Router payload is kept as a live diagnostic even though the UI shell
   // does not surface it — downstream consumers (worker, logs) read it.
   void context.router;
@@ -617,7 +633,13 @@ export default function DigitsApp() {
             />
           );
         })()}
+        <PreArrivalPanel
+          forecasts={context.pre.forecasts}
+          physics={context.pre.physics}
+          topDigit={context.pre.topDigit}
+        />
         <DigitGrid freq={derived.freq} total={derived.win.length} predict={cfg.predictDigit} />
+
         <SplitPanel
           pEven={derived.split.pEven}
           pHigh={derived.split.pHigh}
