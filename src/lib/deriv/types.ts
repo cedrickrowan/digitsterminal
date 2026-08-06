@@ -78,6 +78,7 @@ export const DEFAULT_CONFIG: AppConfig = {
   },
 };
 
+// Verified live against Deriv (app_id 1089). 1HZ200V / 1HZ300V are not offered.
 export const SYMBOLS = [
   { value: "R_10", label: "Volatility 10" },
   { value: "R_25", label: "Volatility 25" },
@@ -85,12 +86,13 @@ export const SYMBOLS = [
   { value: "R_75", label: "Volatility 75" },
   { value: "R_100", label: "Volatility 100" },
   { value: "1HZ10V", label: "Volatility 10 (1s)" },
+  { value: "1HZ15V", label: "Volatility 15 (1s)" },
   { value: "1HZ25V", label: "Volatility 25 (1s)" },
+  { value: "1HZ30V", label: "Volatility 30 (1s)" },
   { value: "1HZ50V", label: "Volatility 50 (1s)" },
   { value: "1HZ75V", label: "Volatility 75 (1s)" },
+  { value: "1HZ90V", label: "Volatility 90 (1s)" },
   { value: "1HZ100V", label: "Volatility 100 (1s)" },
   { value: "1HZ150V", label: "Volatility 150 (1s)" },
-  { value: "1HZ200V", label: "Volatility 200 (1s)" },
   { value: "1HZ250V", label: "Volatility 250 (1s)" },
-  { value: "1HZ300V", label: "Volatility 300 (1s)" },
 ];

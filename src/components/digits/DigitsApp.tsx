@@ -198,7 +198,10 @@ export default function DigitsApp() {
 
     const median = medianOf(pingMedianRef.current);
     const lastGap = lastArrivalRef.current ? performance.now() - lastArrivalRef.current : 0;
-    const networkUnsafe = median > cfgNow.safePingMs || lastGap > cfgNow.safeGapMs;
+    // Slow feeds (2s indices, polled fallback) legitimately exceed the raw
+    // 800ms guard — scale the gap budget to the observed tick cadence.
+    const gapBudget = Math.max(cfgNow.safeGapMs, (medianOf(gapsRef.current) || 0) * 1.6);
+    const networkUnsafe = median > cfgNow.safePingMs || lastGap > gapBudget;
 
     if (cfgNow.mode === "alert") {
       // Precision execution scheduler: aim the audible fire at
@@ -317,7 +320,11 @@ export default function DigitsApp() {
           clientRef.current?.subscribeTicks(cfgRef.current.symbol, cfgRef.current.lookback);
           return;
         }
-        const isStale = prev !== 0 && gap > cfgRef.current.safeGapMs;
+        const staleBudget = Math.max(
+          cfgRef.current.safeGapMs,
+          (medianOf(gapsRef.current) || 0) * 1.6,
+        );
+        const isStale = prev !== 0 && gap > staleBudget;
         setStale(isStale);
         // Strict validity check — digit === 0 is valid and must pass through.
         const validDigit = digit !== null && digit !== undefined && digit >= 0 && digit <= 9;
@@ -522,7 +529,8 @@ export default function DigitsApp() {
 
   // Execution safety guard
   const lastGapNow = lastArrivalRef.current ? performance.now() - lastArrivalRef.current : 0;
-  const safe = pingMs > 0 && pingMs <= cfg.safePingMs && lastGapNow <= cfg.safeGapMs;
+  const gapBudgetNow = Math.max(cfg.safeGapMs, (medianOf(gapsRef.current) || 0) * 1.6);
+  const safe = pingMs > 0 && pingMs <= cfg.safePingMs && lastGapNow <= gapBudgetNow;
 
   // Expected next-tick countdown (median inter-tick gap minus elapsed)
   const tickInterval = medianOf(gapsRef.current) || 2000;

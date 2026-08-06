@@ -71,6 +71,11 @@ export class DerivClient {
   // execution scheduler doesn't chase every jitter blip.
   private pingEma = 0;
   private driftEma = 0;
+  // Streaming fallback: some regions/app_ids reject `subscribe:1` with
+  // "Symbol X is invalid" while plain ticks_history still works. In that case
+  // we poll history instead of streaming, so the terminal never goes blank.
+  private pollTimer: number | null = null;
+  private lastEpoch = 0;
   private static readonly PING_ALPHA = 0.25;
   private static readonly DRIFT_ALPHA = 0.2;
 
@@ -134,28 +139,35 @@ export class DerivClient {
     if (this.timeTimer) clearInterval(this.timeTimer);
     if (this.pingTimer) clearInterval(this.pingTimer);
     if (this.watchdog) clearInterval(this.watchdog);
+    if (this.pollTimer) clearInterval(this.pollTimer);
     this.timeTimer = null;
     this.pingTimer = null;
     this.watchdog = null;
+    this.pollTimer = null;
   }
 
-  private send(payload: any, cb?: Listener) {
-    if (!this.ws || this.ws.readyState !== 1) return;
+  private send(payload: any, cb?: Listener): number {
+    if (!this.ws || this.ws.readyState !== 1) return -1;
     const id = this.reqId++;
     if (cb) this.pending.set(id, cb);
     this.ws.send(JSON.stringify({ ...payload, req_id: id }));
+    return id;
   }
+
+  private pollReqIds = new Set<number>();
 
   private handle(raw: string) {
     let msg: any;
     try { msg = JSON.parse(raw); } catch { return; }
+    const isPoll = msg.req_id ? this.pollReqIds.delete(msg.req_id) : false;
     if (msg.req_id && this.pending.has(msg.req_id)) {
       const cb = this.pending.get(msg.req_id)!;
       this.pending.delete(msg.req_id);
       cb(msg);
     }
     if (msg.error) {
-      this.events.onError?.(msg.error.message || "deriv error");
+      // Subscription rejections are handled by the fallback path, not surfaced.
+      if (!isPoll) this.events.onError?.(msg.error.message || "deriv error");
       return;
     }
     if (msg.msg_type === "tick" && msg.tick) {
@@ -165,12 +177,25 @@ export class DerivClient {
       const sym = msg.tick.symbol ?? this.symbol;
       const digit = lastDigit(quote, pip, sym);
       this.subId = msg.tick.id ?? this.subId;
+      this.lastEpoch = Math.max(this.lastEpoch, msg.tick.epoch ?? 0);
       this.events.onTick?.(digit, quote, msg.tick.epoch, performance.now());
     } else if (msg.msg_type === "history" && msg.history) {
       const prices: number[] = msg.history.prices;
-      const pip = msg.pip_size ?? 2;
+      const times: number[] = msg.history.times ?? [];
+      const pip = msg.pip_size ?? this.pipSize;
       this.pipSize = pip;
       const sym = msg.echo_req?.ticks_history ?? this.symbol;
+      if (isPoll) {
+        // Polled refresh — emit only ticks newer than the last one seen.
+        for (let i = 0; i < prices.length; i++) {
+          const epoch = times[i] ?? 0;
+          if (epoch <= this.lastEpoch) continue;
+          this.lastEpoch = epoch;
+          this.events.onTick?.(lastDigit(prices[i], pip, sym), prices[i], epoch, performance.now());
+        }
+        return;
+      }
+      this.lastEpoch = times.length ? times[times.length - 1] : this.lastEpoch;
       const digits = prices.map((p) => lastDigit(p, pip, sym));
       this.events.onHistory?.(digits, prices[prices.length - 1] ?? 0);
     } else if (msg.msg_type === "balance" && msg.balance) {
@@ -186,17 +211,38 @@ export class DerivClient {
 
   subscribeTicks(symbol: string, count = 100) {
     this.symbol = symbol;
+    // Reset to the per-symbol fallback until Deriv reports pip_size for it.
+    this.pipSize = decimalsForSymbol(symbol);
+    this.lastEpoch = 0;
+    this.stopPolling();
     if (this.subId) {
       this.send({ forget: this.subId });
       this.subId = null;
     }
-    this.send({
-      ticks_history: symbol,
-      end: "latest",
-      count,
-      style: "ticks",
-      subscribe: 1,
+    // 1) Seed history WITHOUT `subscribe` — always accepted.
+    this.send({ ticks_history: symbol, end: "latest", count, style: "ticks" });
+    // 2) Try the live stream. If Deriv rejects the subscription (region /
+    //    app_id restrictions return "Symbol X is invalid"), poll instead.
+    this.send({ ticks: symbol, subscribe: 1 }, (msg) => {
+      if (msg?.error) this.startPolling(symbol);
     });
+  }
+
+  private stopPolling() {
+    if (this.pollTimer) clearInterval(this.pollTimer);
+    this.pollTimer = null;
+    this.pollReqIds.clear();
+  }
+
+  private startPolling(symbol: string) {
+    this.stopPolling();
+    const tick = () => {
+      if (this.symbol !== symbol) return;
+      const id = this.send({ ticks_history: symbol, end: "latest", count: 5, style: "ticks" });
+      if (id > 0) this.pollReqIds.add(id);
+    };
+    tick();
+    this.pollTimer = window.setInterval(tick, 900);
   }
 
   syncTime() {
@@ -296,36 +342,29 @@ export class DerivClient {
   }
 }
 
-// Strict per-symbol decimal places. Prevents JS from dropping trailing zeros
-// on prices like 1245.30 (which would otherwise parse as 1245.3).
-// 4 decimals: R_50, R_75
-// 3 decimals: R_10, R_25
-// 2 decimals: R_100 and ALL 1s indices (1HZ*V)
+// Decimal places come from Deriv's live `pip_size` per symbol (authoritative).
+// This static map is only a fallback before the first message arrives.
+const FALLBACK_DECIMALS: Record<string, number> = {
+  R_10: 3, R_25: 3, R_50: 4, R_75: 4, R_100: 2,
+  "1HZ10V": 2, "1HZ15V": 3, "1HZ25V": 2, "1HZ30V": 3, "1HZ50V": 2,
+  "1HZ75V": 2, "1HZ90V": 3, "1HZ100V": 2, "1HZ150V": 2, "1HZ250V": 5,
+};
+
 export function decimalsForSymbol(symbol: string): number {
-  switch (symbol) {
-    case "R_50":
-    case "R_75":
-      return 4;
-    case "R_10":
-    case "R_25":
-      return 3;
-    case "R_100":
-      return 2;
-    default:
-      // All 1HZ*V (1s) indices use 2 decimals
-      if (/^1HZ\d+V$/.test(symbol)) return 2;
-      return 2;
-  }
+  return FALLBACK_DECIMALS[symbol] ?? 2;
 }
 
 function lastDigit(price: number, pip: number, symbol?: string): number {
-  const decimals = symbol ? decimalsForSymbol(symbol) : pip;
+  // Prefer the pip_size reported by Deriv for this exact symbol.
+  const decimals =
+    Number.isInteger(pip) && pip >= 0 && pip <= 8
+      ? pip
+      : decimalsForSymbol(symbol ?? "");
   // toFixed preserves trailing zeros so "1245.30" stays "1245.30" → last char "0"
   const s = price.toFixed(decimals);
   const ch = s.charAt(s.length - 1);
   const d = parseInt(ch, 10);
-  // Strict validation: 0 is a fully valid digit. Only flag truly invalid parses (NaN, out of 0-9).
-  // Use Number.isInteger + range check rather than truthy `if (d)` which would wrongly skip 0.
+  // Strict validation: 0 is a fully valid digit. Only flag truly invalid parses.
   if (!Number.isInteger(d) || d < 0 || d > 9) {
     // eslint-disable-next-line no-console
     console.warn("[lastDigit] invalid parse", { price, decimals, formatted: s, ch });
