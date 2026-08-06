@@ -186,6 +186,8 @@ export class DerivClient {
 
   subscribeTicks(symbol: string, count = 100) {
     this.symbol = symbol;
+    // Reset to the per-symbol fallback until Deriv reports pip_size for it.
+    this.pipSize = decimalsForSymbol(symbol);
     if (this.subId) {
       this.send({ forget: this.subId });
       this.subId = null;
