@@ -198,7 +198,10 @@ export default function DigitsApp() {
 
     const median = medianOf(pingMedianRef.current);
     const lastGap = lastArrivalRef.current ? performance.now() - lastArrivalRef.current : 0;
-    const networkUnsafe = median > cfgNow.safePingMs || lastGap > cfgNow.safeGapMs;
+    // Slow feeds (2s indices, polled fallback) legitimately exceed the raw
+    // 800ms guard — scale the gap budget to the observed tick cadence.
+    const gapBudget = Math.max(cfgNow.safeGapMs, (medianOf(gapsRef.current) || 0) * 1.6);
+    const networkUnsafe = median > cfgNow.safePingMs || lastGap > gapBudget;
 
     if (cfgNow.mode === "alert") {
       // Precision execution scheduler: aim the audible fire at
