@@ -633,7 +633,13 @@ export default function DigitsApp() {
             />
           );
         })()}
+        <PreArrivalPanel
+          forecasts={context.pre.forecasts}
+          physics={context.pre.physics}
+          topDigit={context.pre.topDigit}
+        />
         <DigitGrid freq={derived.freq} total={derived.win.length} predict={cfg.predictDigit} />
+
         <SplitPanel
           pEven={derived.split.pEven}
           pHigh={derived.split.pHigh}
