@@ -71,6 +71,11 @@ export class DerivClient {
   // execution scheduler doesn't chase every jitter blip.
   private pingEma = 0;
   private driftEma = 0;
+  // Streaming fallback: some regions/app_ids reject `subscribe:1` with
+  // "Symbol X is invalid" while plain ticks_history still works. In that case
+  // we poll history instead of streaming, so the terminal never goes blank.
+  private pollTimer: number | null = null;
+  private lastEpoch = 0;
   private static readonly PING_ALPHA = 0.25;
   private static readonly DRIFT_ALPHA = 0.2;
 
