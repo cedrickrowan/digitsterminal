@@ -1,7 +1,6 @@
 // Deriv WebSocket client tuned for mobile/high-latency networks.
 // Public app_id 1089 for ticks. Optional API token enables authorize + buy.
 
-import { SYMBOLS as FALLBACK_SYMBOLS } from "./types";
 type Listener = (msg: any) => void;
 
 export interface AuthInfo {
@@ -85,22 +84,11 @@ export class DerivClient {
   private static readonly PING_ALPHA = 0.25;
   private static readonly DRIFT_ALPHA = 0.2;
 
-  // Public Deriv endpoints. If one host advertises no synthetic symbols
-  // (region/edge quirk), we rotate to the next one instead of stalling.
-  private static readonly ENDPOINTS = [
-    "wss://ws.derivws.com/websockets/v3?app_id=1089",
-    "wss://blue.derivws.com/websockets/v3?app_id=1089",
-    "wss://green.derivws.com/websockets/v3?app_id=1089",
-    "wss://ws.binaryws.com/websockets/v3?app_id=1089",
-  ];
-  private endpointIdx = 0;
-  private rotations = 0;
-
   constructor(private events: DerivEvents) {}
 
   connect() {
     this.closed = false;
-    const url = DerivClient.ENDPOINTS[this.endpointIdx % DerivClient.ENDPOINTS.length];
+    const url = "wss://ws.derivws.com/websockets/v3?app_id=1089";
     let ws: WebSocket;
     try {
       ws = new WebSocket(url);
@@ -213,12 +201,14 @@ export class DerivClient {
 
   /**
    * Ask the server which synthetic symbols this connection can stream.
-   * Falls back to the known-valid volatility set when the server sends none.
+   * The result drives the symbol picker, so the app never subscribes to a
+   * symbol the server would reject. Falls back to the static list only if
+   * the server returns nothing at all.
    */
   fetchActiveSymbols(done?: () => void) {
     this.send({ active_symbols: "brief", product_type: "basic" }, (msg) => {
       const raw: any[] = Array.isArray(msg.active_symbols) ? msg.active_symbols : [];
-      let list: SymbolInfo[] = raw
+      const list: SymbolInfo[] = raw
         .filter((s) => s.market === "synthetic_index" || /^(R_|1HZ)/.test(s.symbol))
         .map((s) => ({
           symbol: s.symbol as string,
@@ -226,26 +216,7 @@ export class DerivClient {
           decimals: pipToDecimals(Number(s.pip)),
           open: s.exchange_is_open !== 0,
         }));
-      if (list.length === 0) {
-        // This host advertised nothing usable — rotate to the next public
-        // endpoint a few times before settling on the static fallback list.
-        if (this.rotations < DerivClient.ENDPOINTS.length) {
-          this.rotations++;
-          this.endpointIdx++;
-          try { this.ws?.close(); } catch { /* ignore */ }
-          return;
-        }
-        list = FALLBACK_SYMBOLS.map((s) => ({
-          symbol: s.value,
-          label: s.label,
-          decimals: decimalsForSymbol(s.value),
-          open: true,
-        }));
-        this.available = new Set();
-      } else {
-        this.rotations = 0;
-        this.available = new Set(list.map((s) => s.symbol));
-      }
+      this.available = new Set(list.map((s) => s.symbol));
       for (const s of list) DECIMALS_BY_SYMBOL.set(s.symbol, s.decimals);
       this.events.onSymbols?.(list);
       done?.();

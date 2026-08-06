@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Subject } from "rxjs";
 import { auditTime } from "rxjs/operators";
-import { DerivClient, type SymbolInfo } from "@/lib/deriv/derivClient";
-import { loadConfig, saveConfig } from "@/lib/deriv/storage";
+import { DerivClient, type AuthInfo, type ContractType, type SymbolInfo } from "@/lib/deriv/derivClient";
+import { loadConfig, loadToken, saveConfig, saveToken } from "@/lib/deriv/storage";
 import type { AppConfig, NetHealth, Signal } from "@/lib/deriv/types";
 import {
   biasIndex,
@@ -68,7 +68,10 @@ export default function DigitsApp() {
   const [openEntry, setOpenEntry] = useState<{ price: number; tick: number } | null>(null);
   const [matched, setMatched] = useState(false);
   const [, forceRender] = useState(0);
-  // Public-feed only: no API token, no authorization, no order placement.
+  const [token, setToken] = useState<string>(() => loadToken());
+  const [auth, setAuth] = useState<AuthInfo | null>(null);
+  const [buyBusy, setBuyBusy] = useState(false);
+  const [lastBuyResult, setLastBuyResult] = useState<string>("");
   // Symbols the server actually allows on this connection.
   const [symbols, setSymbols] = useState<SymbolInfo[]>([]);
 
@@ -399,6 +402,7 @@ export default function DigitsApp() {
           setCfg((c) => ({ ...c, symbol: first.symbol }));
         }
       },
+      onAuth: (info) => setAuth(info),
       onError: (e) => {
         pushSignal({
           id: Date.now() + Math.random(),
@@ -411,7 +415,8 @@ export default function DigitsApp() {
     });
     clientRef.current = client;
     client.connect();
-  }, [evaluateAndMaybeFire, pushSignal, resolveSims, scheduleRender]);
+    if (token) client.setToken(token);
+  }, [evaluateAndMaybeFire, pushSignal, resolveSims, scheduleRender, token]);
 
   const handleDisconnect = useCallback(() => {
     clientRef.current?.disconnect();
@@ -503,7 +508,7 @@ export default function DigitsApp() {
       trigrams,
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tickKey, cfg.lookback, cfg.predictDigit, cfg.duration, cfg.market, cfg.barrier]);
+  }, [tickKey, cfg.lookback, cfg.predictDigit]);
 
   // SUPER QUANT CORE — Lyapunov / Hurst / Markov / Fourier / KS / Poisson.
   // Replaces the legacy digit prediction as the primary predictive layer.
@@ -575,8 +580,48 @@ export default function DigitsApp() {
     setCfg((c) => ({ ...c, ...patch }));
   }, []);
 
+  const applyToken = useCallback(() => {
+    saveToken(token);
+    clientRef.current?.setToken(token);
+  }, [token]);
 
+  const clearToken = useCallback(() => {
+    setToken("");
+    saveToken("");
+    clientRef.current?.setToken(null);
+    setAuth(null);
+  }, []);
 
+  const handleBuy = useCallback(
+    async (contractType: ContractType, barrier?: number) => {
+      if (!clientRef.current || !auth) return;
+      // Hard latency gate: never send an order above 500ms round-trip.
+      if (!(pingMs > 0 && pingMs <= PING_GATE_MS)) {
+        setLastBuyResult(`✗ blocked · ping ${pingMs.toFixed(0)}ms > ${PING_GATE_MS}ms gate`);
+        return;
+      }
+      setBuyBusy(true);
+      setLastBuyResult("Sending order…");
+
+      const res = await clientRef.current.buy({
+        contractType,
+        symbol: cfg.symbol,
+        stake: cfg.stake,
+        durationTicks: cfg.duration,
+        barrier,
+        currency: auth.currency,
+      });
+      setBuyBusy(false);
+      if (res.ok) {
+        setLastBuyResult(
+          `✓ ${contractType}${barrier !== undefined ? " " + barrier : ""} · stake ${res.buyPrice?.toFixed(2)} · payout ${res.payout?.toFixed(2)}`,
+        );
+      } else {
+        setLastBuyResult(`✗ ${res.error}`);
+      }
+    },
+    [auth, cfg.symbol, cfg.stake, cfg.duration, pingMs],
+  );
 
   return (
     <div className={`min-h-screen p-3 text-foreground ${flash ? "ring-4 ring-magenta" : ""}`}>
@@ -608,10 +653,27 @@ export default function DigitsApp() {
       <div className="space-y-3">
         {connected && symbols.length === 0 && (
           <div className="rounded-md border border-warning/50 bg-warning/10 px-3 py-2 text-[11px] text-warning">
-            Waiting for the public Deriv feed to advertise synthetic symbols…
+            No synthetic symbols are available to this connection (region or
+            account restriction). Sign in with a Deriv API token to unlock the
+            volatility feeds.
+            <div className="mt-2 flex gap-2">
+              <input
+                type="password"
+                value={token}
+                onChange={(e) => setToken(e.target.value)}
+                placeholder="Deriv API token"
+                className="h-9 flex-1 rounded border border-input bg-background px-2 font-mono text-[11px] text-foreground"
+              />
+              <button
+                type="button"
+                onClick={applyToken}
+                className="h-9 rounded border border-cyan px-3 font-mono text-[11px] uppercase text-cyan"
+              >
+                Unlock
+              </button>
+            </div>
           </div>
         )}
-
         <NetworkBadge health={health} pingMs={pingMs} driftMs={driftMs} ticks={totalTicksRef.current} stale={stale} />
         <EnsemblePanel
           ensemble={derived.ens}
