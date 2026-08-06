@@ -51,6 +51,8 @@ import { EnsemblePanel } from "./EnsemblePanel";
 import { SplitPanel } from "./SplitPanel";
 import { PatternsPanel } from "./PatternsPanel";
 import { EngineLog } from "./EngineLog";
+import { PreArrivalPanel } from "./PreArrivalPanel";
+
 
 const MAX_BUFFER = 500;
 
