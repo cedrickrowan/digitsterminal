@@ -529,7 +529,8 @@ export default function DigitsApp() {
 
   // Execution safety guard
   const lastGapNow = lastArrivalRef.current ? performance.now() - lastArrivalRef.current : 0;
-  const safe = pingMs > 0 && pingMs <= cfg.safePingMs && lastGapNow <= cfg.safeGapMs;
+  const gapBudgetNow = Math.max(cfg.safeGapMs, (medianOf(gapsRef.current) || 0) * 1.6);
+  const safe = pingMs > 0 && pingMs <= cfg.safePingMs && lastGapNow <= gapBudgetNow;
 
   // Expected next-tick countdown (median inter-tick gap minus elapsed)
   const tickInterval = medianOf(gapsRef.current) || 2000;
