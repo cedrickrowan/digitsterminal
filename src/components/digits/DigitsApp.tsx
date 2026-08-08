@@ -458,20 +458,18 @@ export default function DigitsApp() {
     return () => document.removeEventListener("visibilitychange", onVis);
   }, [handleConnect]);
 
+  // Symbol switch: wipe every statistic so the new volatility is analysed
+  // from a completely fresh state (no cross-instrument contamination).
   useEffect(() => {
     if (!connected || !clientRef.current) return;
-    bufRef.current = [];
-    lastArrivalRef.current = 0;
-    totalTicksRef.current = 0;
-    pendingSimRef.current = [];
-    gapsRef.current = [];
-    setOpenEntry(null);
-    setMatched(false);
+    resetAnalysis();
     clientRef.current.subscribeTicks(cfg.symbol, 100);
-  }, [cfg.symbol, connected]);
+  }, [cfg.symbol, connected, resetAnalysis]);
 
   const tickKey = totalTicksRef.current;
-  const buf = bufRef.current;
+  // Snapshot the circular byte buffer once per throttled render pass.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const buf = useMemo(() => bufRef.current!.toArray(), [tickKey]);
 
   const derived = useMemo(() => {
     const win = buf.slice(-cfg.lookback);
