@@ -22,7 +22,7 @@ import {
   topNgrams,
   twoTickFollowups,
 } from "@/lib/deriv/stats";
-import { evaluateRules } from "@/lib/deriv/triggers";
+import { allRulesAgree, enabledRuleCount, evaluateRules } from "@/lib/deriv/triggers";
 import type { EngineReport } from "@/lib/deriv/engine";
 import {
   applyContextWeights,
@@ -75,14 +75,22 @@ export default function DigitsApp() {
   const [buyBusy, setBuyBusy] = useState(false);
   const [lastBuyResult, setLastBuyResult] = useState<string>("");
 
-  const bufRef = useRef<number[]>([]);
+  // ---- Persistent circular byte buffers (never touched by React renders) ----
+  const bufRef = useRef<DigitRing | null>(null);
+  if (!bufRef.current) bufRef.current = new DigitRing(MAX_BUFFER);
+  const gapsRef = useRef<FloatRing | null>(null);
+  if (!gapsRef.current) gapsRef.current = new FloatRing(16);
+  const priceSeriesRef = useRef<FloatRing | null>(null);
+  if (!priceSeriesRef.current) priceSeriesRef.current = new FloatRing(20);
+  const priceDeltasRef = useRef<FloatRing | null>(null);
+  if (!priceDeltasRef.current) priceDeltasRef.current = new FloatRing(64);
+
   const lastArrivalRef = useRef<number>(0);
   const totalTicksRef = useRef(0);
   const lastPriceRef = useRef<number>(0);
   const pingMedianRef = useRef<number[]>([]);
-  const gapsRef = useRef<number[]>([]); // inter-tick gaps for interval estimate
-  const priceSeriesRef = useRef<number[]>([]); // last-20 spot prices for EMA filter
-  const priceDeltasRef = useRef<number[]>([]); // last-30 |Δprice| for volatility
+  const confRef = useRef(0);
+  const healthRef = useRef<NetHealth>("yellow");
   const clientRef = useRef<DerivClient | null>(null);
   const cfgRef = useRef(cfg);
   const armedRef = useRef(armed);
