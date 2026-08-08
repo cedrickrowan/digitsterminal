@@ -319,11 +319,19 @@ export default function DigitsApp() {
     const client = new DerivClient({
       onOpen: () => setConnected(true),
       onClose: () => setConnected(false),
-      onHistory: (digits, last) => {
+      onStatus: (state, attempt, detail) => {
+        setConnState(state);
+        setConnDetail(detail ? `${detail}` : attempt > 0 ? `attempt ${attempt}` : "");
+      },
+      onHistory: (digits, last, sym) => {
+        // Isolation guard: ignore history for any symbol that is no longer selected.
+        if (sym !== cfgRef.current.symbol) return;
         // Strict filter: keep every digit 0-9 (including 0). Drop only sentinel -1 (parse failure).
         const clean = digits.filter((d) => d !== null && d !== undefined && d >= 0 && d <= 9);
-        bufRef.current = clean.slice(-MAX_BUFFER);
-        totalTicksRef.current = bufRef.current.length;
+        const ring = bufRef.current!;
+        ring.reset();
+        ring.pushMany(clean.slice(-MAX_BUFFER));
+        totalTicksRef.current = ring.length;
         lastPriceRef.current = last;
         setLastPrice(last);
         // Reseed the worker's ring buffer to match the trimmed history.
@@ -331,15 +339,14 @@ export default function DigitsApp() {
         workerRef.current?.postMessage({ type: "init", lookback: cfgRef.current.lookback, seed: clean.slice(-cfgRef.current.lookback) });
         scheduleRender();
       },
-      onTick: (digit, quote, _e, arrival) => {
+      onTick: (digit, quote, _e, arrival, sym) => {
+        // Isolation guard: a late packet from the previous volatility must
+        // never enter this instrument's statistics.
+        if (sym !== cfgRef.current.symbol) return;
         const prev = lastArrivalRef.current;
         const gap = prev ? arrival - prev : 0;
         lastArrivalRef.current = arrival;
-        if (gap > 0) {
-          const g = gapsRef.current;
-          g.push(gap);
-          if (g.length > 12) g.shift();
-        }
+        if (gap > 0) gapsRef.current!.push(gap);
         // Mobile browser tab-sleep backlog dropper: if a huge burst of ticks
         // arrives after ColorOS/iOS wakes the tab, flush and resync on the
         // newest tick only — never replay a stale stack sequentially.
@@ -356,12 +363,12 @@ export default function DigitsApp() {
           });
           // hard resubscribe so the server sends fresh state instead of us
           // replaying whatever the socket buffered.
-          clientRef.current?.subscribeTicks(cfgRef.current.symbol, cfgRef.current.lookback);
+          clientRef.current?.subscribeTicks(cfgRef.current.symbol, 100);
           return;
         }
         const staleBudget = Math.max(
           cfgRef.current.safeGapMs,
-          (medianOf(gapsRef.current) || 0) * 1.6,
+          gapsRef.current!.median() * 1.6,
         );
         const isStale = prev !== 0 && gap > staleBudget;
         setStale(isStale);
@@ -371,21 +378,16 @@ export default function DigitsApp() {
           scheduleRender();
           return;
         }
-        const b = bufRef.current;
-        b.push(digit);
-        if (b.length > MAX_BUFFER) b.splice(0, b.length - MAX_BUFFER);
+        bufRef.current!.push(digit);
         totalTicksRef.current++;
         lastPriceRef.current = quote;
         setLastPrice(quote);
-        // Price EMA + Δ volatility feed (bounded rolling arrays).
+        // Price EMA + Δ volatility feed (fixed-size Float32 ring buffers).
         {
-          const ps = priceSeriesRef.current;
-          const prevPrice = ps.length ? ps[ps.length - 1] : quote;
+          const ps = priceSeriesRef.current!;
+          const prevPrice = ps.length ? ps.last() : quote;
           ps.push(quote);
-          if (ps.length > 20) ps.splice(0, ps.length - 20);
-          const dl = priceDeltasRef.current;
-          dl.push(Math.abs(quote - prevPrice));
-          if (dl.length > 30) dl.splice(0, dl.length - 30);
+          priceDeltasRef.current!.push(Math.abs(quote - prevPrice));
         }
         // LIFO coalescer — if the main thread was busy and multiple ticks
         // stacked up in the task queue, only the newest packet drives
