@@ -559,6 +559,16 @@ export default function DigitsApp() {
   // does not surface it — downstream consumers (worker, logs) read it.
   void context.router;
 
+  // Live fused confidence used by the alert gate (market aware).
+  const gateConf = Math.min(
+    1,
+    (cfg.market === "matches"
+      ? (context.weighted[cfg.predictDigit] ?? 0)
+      : (context.weighted[context.topDigit] ?? 0)) * (engineReport?.confidenceAdjust ?? 1),
+  );
+  confRef.current = gateConf;
+
+
   // Use null sentinel so digit 0 is never confused with "no data". All downstream
   // checks must use strict null/undefined comparisons (digit !== null && digit !== undefined),
   // never truthy checks like `if (lastDigit)` which would drop a legitimate 0.
