@@ -178,19 +178,49 @@ export default function DigitsApp() {
     setSignals((prev) => [...prev.slice(-40), s]);
   }, []);
 
+  /** Hard reset of every analysis buffer — used on symbol change so a new
+   *  volatility never inherits the previous instrument's statistics. */
+  const resetAnalysis = useCallback(() => {
+    bufRef.current!.reset();
+    gapsRef.current!.reset();
+    priceSeriesRef.current!.reset();
+    priceDeltasRef.current!.reset();
+    lastArrivalRef.current = 0;
+    totalTicksRef.current = 0;
+    lastPriceRef.current = 0;
+    confRef.current = 0;
+    pendingTickRef.current = null;
+    pendingSimRef.current = [];
+    lastSignalTickRef.current = 0;
+    setOpenEntry(null);
+    setMatched(false);
+    setLastPrice(0);
+    setStale(false);
+    workerRef.current?.postMessage({ type: "reset", lookback: cfgRef.current.lookback });
+    scheduleRender();
+  }, [scheduleRender]);
+
   const evaluateAndMaybeFire = useCallback(() => {
-    const buf = bufRef.current;
     const cfgNow = cfgRef.current;
-    const win = buf.slice(-cfgNow.lookback);
+    const win = bufRef.current!.lastN(cfgNow.lookback);
     if (win.length < 10) return;
 
+    // ---- STRICT ALERT GATES ----
+    // 1) Every enabled trigger rule must agree (AND, not OR).
+    if (enabledRuleCount(cfgNow) === 0) return;
     const hits = evaluateRules({ window: win, cfg: cfgNow });
-    if (hits.length === 0) return;
+    if (!allRulesAgree(cfgNow, hits)) return;
+    // 2) Network must be green or yellow.
+    if (healthRef.current === "red") return;
+    // 3) Fused confidence must be 80% or higher.
+    if (confRef.current < 0.8) return;
 
     if (totalTicksRef.current - lastSignalTickRef.current < 3) return;
     lastSignalTickRef.current = totalTicksRef.current;
 
-    const reason = hits.map((h) => `${h.rule}:${h.detail}`).join(" · ");
+    const reason =
+      hits.map((h) => `${h.rule}:${h.detail}`).join(" · ") +
+      ` · conf ${(confRef.current * 100).toFixed(0)}%`;
     const sig: Signal = {
       id: Date.now() + Math.random(),
       ts: Date.now(),
@@ -209,7 +239,7 @@ export default function DigitsApp() {
     const lastGap = lastArrivalRef.current ? performance.now() - lastArrivalRef.current : 0;
     // Slow feeds (2s indices, polled fallback) legitimately exceed the raw
     // 800ms guard — scale the gap budget to the observed tick cadence.
-    const gapBudget = Math.max(cfgNow.safeGapMs, (medianOf(gapsRef.current) || 0) * 1.6);
+    const gapBudget = Math.max(cfgNow.safeGapMs, gapsRef.current!.median() * 1.6);
     const networkUnsafe = median > cfgNow.safePingMs || lastGap > gapBudget;
 
     if (cfgNow.mode === "alert") {
@@ -217,7 +247,7 @@ export default function DigitsApp() {
       // (expected next tick) − (ping + drift + configured lag buffer),
       // using performance.now() so we're immune to wall-clock jitter.
       const now = performance.now();
-      const interval = medianOf(gapsRef.current) || 2000;
+      const interval = gapsRef.current!.median() || 2000;
       const sinceLast = lastArrivalRef.current ? now - lastArrivalRef.current : 0;
       const nextTickIn = Math.max(0, interval - sinceLast);
       const ping = median;
