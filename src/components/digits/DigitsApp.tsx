@@ -524,8 +524,8 @@ export default function DigitsApp() {
   // 3-state HMM regime, Poisson cluster weights, and a consolidated signal
   // router payload. Feeds only the prediction math; UI is unchanged.
   const context = useMemo(() => {
-    const p = priceSeriesRef.current;
-    const d = priceDeltasRef.current;
+    const p = priceSeriesRef.current!.toArray();
+    const d = priceDeltasRef.current!.toArray();
     const ema = priceEma(p);
     const vol = volatilityState(d);
     const hmm = hmmState(buf);
@@ -565,14 +565,15 @@ export default function DigitsApp() {
 
   const health: NetHealth =
     pingMs === 0 ? "yellow" : pingMs > cfg.safePingMs ? "red" : pingMs > 250 ? "yellow" : "green";
+  healthRef.current = health;
 
   // Execution safety guard
   const lastGapNow = lastArrivalRef.current ? performance.now() - lastArrivalRef.current : 0;
-  const gapBudgetNow = Math.max(cfg.safeGapMs, (medianOf(gapsRef.current) || 0) * 1.6);
+  const gapBudgetNow = Math.max(cfg.safeGapMs, gapsRef.current!.median() * 1.6);
   const safe = pingMs > 0 && pingMs <= cfg.safePingMs && lastGapNow <= gapBudgetNow;
 
   // Expected next-tick countdown (median inter-tick gap minus elapsed)
-  const tickInterval = medianOf(gapsRef.current) || 2000;
+  const tickInterval = gapsRef.current!.median() || 2000;
   const countdownMs = Math.round(Math.max(0, tickInterval - lastGapNow));
   const purchaseInMs = countdownMs - cfg.latencyOffsetMs;
   // suppress unused-tick warning
