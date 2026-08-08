@@ -204,10 +204,24 @@ export function runPreArrivalAnalysis(
       else break;
     }
 
-    // MICRO-FATIGUE MUTING — 4+ sequential hits ⇒ PRNG loop is spent.
-    const isExhaustedState = explicitCurrentStreakCount >= 4;
+    // Short-window saturation: how many times the digit already fired inside
+    // the immediate horizon window (over-appearance = spent cluster).
+    const satWindow = Math.min(6, len);
+    let recentHits = 0;
+    for (let i = len - satWindow; i < len; i++) if (ticksBuffer[i] === d) recentHits++;
+
+    // Long-window activity: a digit absent from the whole lookback has no
+    // active cluster to ride and must never be forecast.
+    const actWindow = Math.min(50, len);
+    let activityHits = 0;
+    for (let i = len - actWindow; i < len; i++) if (ticksBuffer[i] === d) activityHits++;
+    const isInactiveState = activityHits === 0;
+
+    // MICRO-FATIGUE MUTING — 3+ sequential hits (or 3+ inside the last 6
+    // ticks) ⇒ the PRNG loop is spent; flatten to kill late streak-chasing.
+    const isExhaustedState = explicitCurrentStreakCount >= 3 || recentHits >= 3;
     const isQuantumLockWarning =
-      !isExhaustedState && baseAccuracy > 48 && isSystemLockingIntoLoop;
+      !isExhaustedState && !isInactiveState && baseAccuracy > 48 && isSystemLockingIntoLoop;
 
     let predictedStreakLength = 0;
     if (isQuantumLockWarning) {
@@ -218,9 +232,15 @@ export function runPreArrivalAnalysis(
       } else {
         predictedStreakLength = 2;
       }
+      // Never forecast beyond the exhaustion boundary: an ongoing run of k
+      // hits can only extend to 3 − k more before the digit is muted.
+      predictedStreakLength = Math.max(2, Math.min(predictedStreakLength, 6 - recentHits));
     }
 
-    const finalScore = isExhaustedState ? baseAccuracy * 0.01 : baseAccuracy;
+    let finalScore = baseAccuracy;
+    if (isExhaustedState) finalScore = baseAccuracy * 0.01;
+    else if (isInactiveState) finalScore = baseAccuracy * 0.15;
+    else if (recentHits === 2) finalScore = baseAccuracy * 0.55; // fatigue ramp
     const prob = Math.min(Math.round(finalScore * 10) / 10, 99.9);
 
     output[d] = {

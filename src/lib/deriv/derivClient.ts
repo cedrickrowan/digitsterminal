@@ -1,7 +1,18 @@
 // Deriv WebSocket client tuned for mobile/high-latency networks.
 // Public app_id 1089 for ticks. Optional API token enables authorize + buy.
+//
+// Hardening notes:
+//  - Every stream is keyed to a monotonically increasing subscription
+//    "generation". Messages from a previous symbol can never contaminate the
+//    analysis of the currently selected symbol.
+//  - Errors that are consumed by a request callback are never surfaced as
+//    fatal; the stream falls back to history polling and keeps retrying the
+//    live subscription, so a transient "InvalidSymbol" cannot kill the feed.
+//  - A tick watchdog soft-resubscribes before escalating to a socket reset.
 
 type Listener = (msg: any) => void;
+
+export type ConnState = "connecting" | "live" | "reconnecting" | "offline";
 
 export interface AuthInfo {
   loginid: string;
@@ -23,8 +34,16 @@ export interface BuyResult {
 export interface DerivEvents {
   onOpen?: () => void;
   onClose?: () => void;
-  onTick?: (digit: number, quote: number, epoch: number, arrivalMs: number) => void;
-  onHistory?: (digits: number[], lastPrice: number) => void;
+  onStatus?: (state: ConnState, attempt: number, detail?: string) => void;
+  onTick?: (
+    digit: number,
+    quote: number,
+    epoch: number,
+    arrivalMs: number,
+    symbol: string,
+    generation: number,
+  ) => void;
+  onHistory?: (digits: number[], lastPrice: number, symbol: string, generation: number) => void;
   onPing?: (rttMs: number) => void;
   onTimeSync?: (driftMs: number) => void;
   onError?: (err: string) => void;
@@ -47,7 +66,7 @@ export interface BuyParams {
   symbol: string;
   stake: number;
   durationTicks: number;
-  barrier?: number; // digit barrier 0-9 (for OVER/UNDER) or 0-9 (MATCH/DIFF)
+  barrier?: number;
   currency?: string;
 }
 
@@ -58,31 +77,47 @@ export class DerivClient {
   private subId: string | null = null;
   private balSubId: string | null = null;
   private symbol = "R_100";
+  private historyCount = 100;
+  private generation = 0;
   private pipSize = 2;
   private timeTimer: number | null = null;
   private pingTimer: number | null = null;
   private watchdog: number | null = null;
+  private streamRetry: number | null = null;
   private lastMsgAt = 0;
+  private lastTickAt = 0;
+  private tickIntervalMs = 2000;
+  private softResubscribes = 0;
   private closed = false;
   private reconnectAttempt = 0;
+  private reconnectTimer: number | null = null;
   private token: string | null = null;
   private authInfo: AuthInfo | null = null;
-  // EMA-smoothed ping/drift — dampens mobile-network latency spikes so the
-  // execution scheduler doesn't chase every jitter blip.
+  private state: ConnState = "offline";
   private pingEma = 0;
   private driftEma = 0;
-  // Streaming fallback: some regions/app_ids reject `subscribe:1` with
-  // "Symbol X is invalid" while plain ticks_history still works. In that case
-  // we poll history instead of streaming, so the terminal never goes blank.
   private pollTimer: number | null = null;
+  private pollReqIds = new Set<number>();
   private lastEpoch = 0;
+  private streaming = false;
   private static readonly PING_ALPHA = 0.25;
   private static readonly DRIFT_ALPHA = 0.2;
 
   constructor(private events: DerivEvents) {}
 
+  getState(): ConnState {
+    return this.state;
+  }
+
+  private setState(s: ConnState, detail?: string) {
+    this.state = s;
+    this.events.onStatus?.(s, this.reconnectAttempt, detail);
+  }
+
   connect() {
     this.closed = false;
+    if (this.ws && (this.ws.readyState === 0 || this.ws.readyState === 1)) return;
+    this.setState(this.reconnectAttempt > 0 ? "reconnecting" : "connecting");
     const url = "wss://ws.derivws.com/websockets/v3?app_id=1089";
     let ws: WebSocket;
     try {
@@ -92,113 +127,202 @@ export class DerivClient {
       return;
     }
     this.ws = ws;
+
     ws.onopen = () => {
       this.reconnectAttempt = 0;
+      this.softResubscribes = 0;
       this.lastMsgAt = performance.now();
+      this.lastTickAt = performance.now();
+      this.setState("live");
       this.events.onOpen?.();
-      this.subscribeTicks(this.symbol);
+      // Re-arm the current symbol on every (re)connect so the feed resumes
+      // exactly where it left off.
+      this.subscribeTicks(this.symbol, this.historyCount);
       this.syncTime();
+      this.ping();
       if (this.token) this.authorizeInternal();
-      // 5s cadence for both clock-drift and ping heartbeats keeps the
-      // execution-time formula (nextTick − ping − drift − lag) always fresh.
       this.timeTimer = window.setInterval(() => this.syncTime(), 5_000);
       this.pingTimer = window.setInterval(() => this.ping(), 5_000);
-      this.watchdog = window.setInterval(() => {
-        if (performance.now() - this.lastMsgAt > 20_000) {
-          try { this.ws?.close(); } catch { /* ignore */ }
-        }
-      }, 5_000);
+      this.watchdog = window.setInterval(() => this.checkHealth(), 3_000);
     };
+
     ws.onclose = () => {
-      this.events.onClose?.();
       this.clearTimers();
+      this.pending.clear();
+      this.subId = null;
       this.balSubId = null;
+      this.streaming = false;
+      this.events.onClose?.();
       if (!this.closed) this.scheduleReconnect();
+      else this.setState("offline");
     };
-    ws.onerror = () => this.events.onError?.("ws error");
+
+    ws.onerror = () => {
+      // Non-fatal: onclose drives the reconnect. Surface as status only.
+      this.setState(this.state === "live" ? "reconnecting" : this.state, "socket error");
+    };
+
     ws.onmessage = (e) => {
       this.lastMsgAt = performance.now();
       this.handle(e.data);
     };
   }
 
+  /** Health loop: soft-resubscribe on a silent stream, hard reset if it persists. */
+  private checkHealth() {
+    if (!this.ws || this.ws.readyState !== 1) return;
+    const now = performance.now();
+    const tickBudget = Math.max(8_000, this.tickIntervalMs * 4);
+    if (now - this.lastTickAt > tickBudget) {
+      this.softResubscribes++;
+      if (this.softResubscribes <= 2) {
+        this.setState("reconnecting", "stream silent · resubscribing");
+        this.subscribeTicks(this.symbol, this.historyCount);
+        this.lastTickAt = now;
+      } else {
+        this.softResubscribes = 0;
+        try { this.ws.close(); } catch { /* ignore */ }
+      }
+      return;
+    }
+    if (now - this.lastMsgAt > 20_000) {
+      try { this.ws.close(); } catch { /* ignore */ }
+    }
+  }
+
   private scheduleReconnect() {
     if (this.closed) return;
-    const delay = Math.min(15_000, 500 * Math.pow(2, this.reconnectAttempt++));
-    setTimeout(() => this.connect(), delay);
+    if (this.reconnectTimer !== null) return;
+    const attempt = this.reconnectAttempt++;
+    // Exponential backoff with full jitter, capped at 15s.
+    const base = Math.min(15_000, 500 * Math.pow(2, attempt));
+    const delay = Math.round(base / 2 + Math.random() * (base / 2));
+    this.setState("reconnecting", `retry in ${Math.round(delay / 100) / 10}s`);
+    this.reconnectTimer = window.setTimeout(() => {
+      this.reconnectTimer = null;
+      this.connect();
+    }, delay);
   }
 
   disconnect() {
     this.closed = true;
     this.clearTimers();
+    if (this.reconnectTimer !== null) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
     try { this.ws?.close(); } catch { /* ignore */ }
     this.ws = null;
+    this.setState("offline");
   }
 
   private clearTimers() {
-    if (this.timeTimer) clearInterval(this.timeTimer);
-    if (this.pingTimer) clearInterval(this.pingTimer);
-    if (this.watchdog) clearInterval(this.watchdog);
-    if (this.pollTimer) clearInterval(this.pollTimer);
+    for (const t of [this.timeTimer, this.pingTimer, this.watchdog, this.pollTimer, this.streamRetry]) {
+      if (t !== null) clearInterval(t as number);
+    }
+    if (this.streamRetry !== null) clearTimeout(this.streamRetry);
     this.timeTimer = null;
     this.pingTimer = null;
     this.watchdog = null;
     this.pollTimer = null;
+    this.streamRetry = null;
+    this.pollReqIds.clear();
   }
 
   private send(payload: any, cb?: Listener): number {
     if (!this.ws || this.ws.readyState !== 1) return -1;
     const id = this.reqId++;
     if (cb) this.pending.set(id, cb);
-    this.ws.send(JSON.stringify({ ...payload, req_id: id }));
+    try {
+      this.ws.send(JSON.stringify({ ...payload, req_id: id }));
+    } catch {
+      this.pending.delete(id);
+      return -1;
+    }
     return id;
   }
-
-  private pollReqIds = new Set<number>();
 
   private handle(raw: string) {
     let msg: any;
     try { msg = JSON.parse(raw); } catch { return; }
+
     const isPoll = msg.req_id ? this.pollReqIds.delete(msg.req_id) : false;
+    let handled = false;
     if (msg.req_id && this.pending.has(msg.req_id)) {
       const cb = this.pending.get(msg.req_id)!;
       this.pending.delete(msg.req_id);
+      handled = true;
       cb(msg);
     }
+
     if (msg.error) {
-      // Subscription rejections are handled by the fallback path, not surfaced.
-      if (!isPoll) this.events.onError?.(msg.error.message || "deriv error");
+      // Consumed by a request callback (subscription fallback, proposal, …) →
+      // never treated as a feed failure.
+      if (!handled && !isPoll) this.events.onError?.(msg.error.message || "deriv error");
       return;
     }
+
     if (msg.msg_type === "tick" && msg.tick) {
+      const sym = msg.tick.symbol ?? this.symbol;
+      // Late packet from a previously selected symbol → discard entirely.
+      if (sym !== this.symbol) {
+        if (msg.tick.id) this.send({ forget: msg.tick.id });
+        return;
+      }
       const quote: number = msg.tick.quote;
       const pip = msg.tick.pip_size ?? this.pipSize;
       this.pipSize = pip;
-      const sym = msg.tick.symbol ?? this.symbol;
       const digit = lastDigit(quote, pip, sym);
       this.subId = msg.tick.id ?? this.subId;
-      this.lastEpoch = Math.max(this.lastEpoch, msg.tick.epoch ?? 0);
-      this.events.onTick?.(digit, quote, msg.tick.epoch, performance.now());
-    } else if (msg.msg_type === "history" && msg.history) {
-      const prices: number[] = msg.history.prices;
+      const epoch = msg.tick.epoch ?? 0;
+      if (epoch && epoch <= this.lastEpoch) return; // duplicate / out of order
+      this.lastEpoch = Math.max(this.lastEpoch, epoch);
+      const now = performance.now();
+      if (this.lastTickAt) {
+        const gap = now - this.lastTickAt;
+        if (gap > 200 && gap < 30_000) {
+          this.tickIntervalMs = this.tickIntervalMs * 0.8 + gap * 0.2;
+        }
+      }
+      this.lastTickAt = now;
+      this.softResubscribes = 0;
+      if (this.state !== "live") this.setState("live");
+      this.events.onTick?.(digit, quote, epoch, now, sym, this.generation);
+      return;
+    }
+
+    if (msg.msg_type === "history" && msg.history) {
+      const sym = msg.echo_req?.ticks_history ?? this.symbol;
+      if (sym !== this.symbol) return;
+      const prices: number[] = msg.history.prices ?? [];
       const times: number[] = msg.history.times ?? [];
       const pip = msg.pip_size ?? this.pipSize;
       this.pipSize = pip;
-      const sym = msg.echo_req?.ticks_history ?? this.symbol;
       if (isPoll) {
-        // Polled refresh — emit only ticks newer than the last one seen.
         for (let i = 0; i < prices.length; i++) {
           const epoch = times[i] ?? 0;
           if (epoch <= this.lastEpoch) continue;
           this.lastEpoch = epoch;
-          this.events.onTick?.(lastDigit(prices[i], pip, sym), prices[i], epoch, performance.now());
+          this.lastTickAt = performance.now();
+          this.events.onTick?.(
+            lastDigit(prices[i], pip, sym),
+            prices[i],
+            epoch,
+            this.lastTickAt,
+            sym,
+            this.generation,
+          );
         }
         return;
       }
       this.lastEpoch = times.length ? times[times.length - 1] : this.lastEpoch;
+      this.lastTickAt = performance.now();
       const digits = prices.map((p) => lastDigit(p, pip, sym));
-      this.events.onHistory?.(digits, prices[prices.length - 1] ?? 0);
-    } else if (msg.msg_type === "balance" && msg.balance) {
+      this.events.onHistory?.(digits, prices[prices.length - 1] ?? 0, sym, this.generation);
+      return;
+    }
+
+    if (msg.msg_type === "balance" && msg.balance) {
       const b = Number(msg.balance.balance);
       const c = msg.balance.currency;
       if (this.authInfo) {
@@ -209,22 +333,62 @@ export class DerivClient {
     }
   }
 
+  /** Current subscription generation — consumers use it to drop stale data. */
+  getGeneration(): number {
+    return this.generation;
+  }
+
   subscribeTicks(symbol: string, count = 100) {
+    const symbolChanged = symbol !== this.symbol;
     this.symbol = symbol;
-    // Reset to the per-symbol fallback until Deriv reports pip_size for it.
+    this.historyCount = count;
+    this.generation++;
     this.pipSize = decimalsForSymbol(symbol);
     this.lastEpoch = 0;
+    this.tickIntervalMs = /^1HZ\d+V$/.test(symbol) ? 1000 : 2000;
+    this.lastTickAt = performance.now();
     this.stopPolling();
+    if (this.streamRetry !== null) {
+      clearTimeout(this.streamRetry);
+      this.streamRetry = null;
+    }
     if (this.subId) {
       this.send({ forget: this.subId });
       this.subId = null;
     }
-    // 1) Seed history WITHOUT `subscribe` — always accepted.
+    if (symbolChanged) this.send({ forget_all: "ticks" });
+    if (!this.ws || this.ws.readyState !== 1) return;
+
+    // 1) Seed history WITHOUT `subscribe` — always accepted by every region.
     this.send({ ticks_history: symbol, end: "latest", count, style: "ticks" });
-    // 2) Try the live stream. If Deriv rejects the subscription (region /
-    //    app_id restrictions return "Symbol X is invalid"), poll instead.
+    // 2) Try the live stream. Rejections (region/app_id restrictions surface as
+    //    "Symbol X is invalid") switch to polling and keep retrying quietly.
+    this.streaming = false;
+    const gen = this.generation;
     this.send({ ticks: symbol, subscribe: 1 }, (msg) => {
-      if (msg?.error) this.startPolling(symbol);
+      if (this.generation !== gen) return;
+      if (msg?.error) {
+        this.startPolling(symbol, gen);
+        this.streamRetry = window.setTimeout(() => {
+          if (this.generation === gen && !this.streaming) this.retryStream(symbol, gen);
+        }, 20_000);
+      } else {
+        this.streaming = true;
+        this.stopPolling();
+      }
+    });
+  }
+
+  private retryStream(symbol: string, gen: number) {
+    if (this.generation !== gen || !this.ws || this.ws.readyState !== 1) return;
+    this.send({ ticks: symbol, subscribe: 1 }, (msg) => {
+      if (this.generation !== gen) return;
+      if (msg?.error) {
+        this.streamRetry = window.setTimeout(() => this.retryStream(symbol, gen), 30_000);
+      } else {
+        this.streaming = true;
+        this.stopPolling();
+      }
     });
   }
 
@@ -234,26 +398,28 @@ export class DerivClient {
     this.pollReqIds.clear();
   }
 
-  private startPolling(symbol: string) {
+  private startPolling(symbol: string, gen: number) {
     this.stopPolling();
-    const tick = () => {
-      if (this.symbol !== symbol) return;
+    const poll = () => {
+      if (this.symbol !== symbol || this.generation !== gen) return;
       const id = this.send({ ticks_history: symbol, end: "latest", count: 5, style: "ticks" });
       if (id > 0) this.pollReqIds.add(id);
     };
-    tick();
-    this.pollTimer = window.setInterval(tick, 900);
+    poll();
+    this.pollTimer = window.setInterval(poll, /^1HZ\d+V$/.test(symbol) ? 600 : 900);
   }
 
   syncTime() {
     const t0 = performance.now();
     const wall0 = Date.now();
     this.send({ time: 1 }, (msg) => {
+      if (!msg?.time) return;
       const t1 = performance.now();
       const rtt = t1 - t0;
       const serverMs = msg.time * 1000;
       const drift = serverMs - (wall0 + rtt / 2);
-      this.driftEma = this.driftEma === 0 ? drift : this.driftEma + DerivClient.DRIFT_ALPHA * (drift - this.driftEma);
+      this.driftEma =
+        this.driftEma === 0 ? drift : this.driftEma + DerivClient.DRIFT_ALPHA * (drift - this.driftEma);
       this.events.onTimeSync?.(this.driftEma);
     });
   }
@@ -294,7 +460,6 @@ export class DerivClient {
         fullname: a.fullname,
       };
       this.events.onAuth?.(this.authInfo);
-      // subscribe to live balance
       this.send({ balance: 1, subscribe: 1 }, (m) => {
         if (m.balance?.id) this.balSubId = m.balance.id;
       });
@@ -355,20 +520,12 @@ export function decimalsForSymbol(symbol: string): number {
 }
 
 function lastDigit(price: number, pip: number, symbol?: string): number {
-  // Prefer the pip_size reported by Deriv for this exact symbol.
   const decimals =
-    Number.isInteger(pip) && pip >= 0 && pip <= 8
-      ? pip
-      : decimalsForSymbol(symbol ?? "");
+    Number.isInteger(pip) && pip >= 0 && pip <= 8 ? pip : decimalsForSymbol(symbol ?? "");
   // toFixed preserves trailing zeros so "1245.30" stays "1245.30" → last char "0"
   const s = price.toFixed(decimals);
   const ch = s.charAt(s.length - 1);
   const d = parseInt(ch, 10);
-  // Strict validation: 0 is a fully valid digit. Only flag truly invalid parses.
-  if (!Number.isInteger(d) || d < 0 || d > 9) {
-    // eslint-disable-next-line no-console
-    console.warn("[lastDigit] invalid parse", { price, decimals, formatted: s, ch });
-    return -1;
-  }
+  if (!Number.isInteger(d) || d < 0 || d > 9) return -1;
   return d;
 }

@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Subject } from "rxjs";
 import { auditTime } from "rxjs/operators";
-import { DerivClient, type AuthInfo, type ContractType } from "@/lib/deriv/derivClient";
+import { DerivClient, type AuthInfo, type ConnState, type ContractType } from "@/lib/deriv/derivClient";
+import { DigitRing, FloatRing } from "@/lib/deriv/ring";
 import { loadConfig, loadToken, saveConfig, saveToken } from "@/lib/deriv/storage";
 import type { AppConfig, NetHealth, Signal } from "@/lib/deriv/types";
 import {
@@ -21,7 +22,7 @@ import {
   topNgrams,
   twoTickFollowups,
 } from "@/lib/deriv/stats";
-import { evaluateRules } from "@/lib/deriv/triggers";
+import { allRulesAgree, enabledRuleCount, evaluateRules } from "@/lib/deriv/triggers";
 import type { EngineReport } from "@/lib/deriv/engine";
 import {
   applyContextWeights,
@@ -59,6 +60,8 @@ const MAX_BUFFER = 500;
 export default function DigitsApp() {
   const [cfg, setCfg] = useState<AppConfig>(() => loadConfig());
   const [connected, setConnected] = useState(false);
+  const [connState, setConnState] = useState<ConnState>("connecting");
+  const [connDetail, setConnDetail] = useState("");
   const [armed, setArmed] = useState(false);
   const [flash, setFlash] = useState(false);
   const [pingMs, setPingMs] = useState(0);
@@ -74,14 +77,22 @@ export default function DigitsApp() {
   const [buyBusy, setBuyBusy] = useState(false);
   const [lastBuyResult, setLastBuyResult] = useState<string>("");
 
-  const bufRef = useRef<number[]>([]);
+  // ---- Persistent circular byte buffers (never touched by React renders) ----
+  const bufRef = useRef<DigitRing | null>(null);
+  if (!bufRef.current) bufRef.current = new DigitRing(MAX_BUFFER);
+  const gapsRef = useRef<FloatRing | null>(null);
+  if (!gapsRef.current) gapsRef.current = new FloatRing(16);
+  const priceSeriesRef = useRef<FloatRing | null>(null);
+  if (!priceSeriesRef.current) priceSeriesRef.current = new FloatRing(20);
+  const priceDeltasRef = useRef<FloatRing | null>(null);
+  if (!priceDeltasRef.current) priceDeltasRef.current = new FloatRing(64);
+
   const lastArrivalRef = useRef<number>(0);
   const totalTicksRef = useRef(0);
   const lastPriceRef = useRef<number>(0);
   const pingMedianRef = useRef<number[]>([]);
-  const gapsRef = useRef<number[]>([]); // inter-tick gaps for interval estimate
-  const priceSeriesRef = useRef<number[]>([]); // last-20 spot prices for EMA filter
-  const priceDeltasRef = useRef<number[]>([]); // last-30 |Δprice| for volatility
+  const confRef = useRef(0);
+  const healthRef = useRef<NetHealth>("yellow");
   const clientRef = useRef<DerivClient | null>(null);
   const cfgRef = useRef(cfg);
   const armedRef = useRef(armed);
@@ -169,19 +180,49 @@ export default function DigitsApp() {
     setSignals((prev) => [...prev.slice(-40), s]);
   }, []);
 
+  /** Hard reset of every analysis buffer — used on symbol change so a new
+   *  volatility never inherits the previous instrument's statistics. */
+  const resetAnalysis = useCallback(() => {
+    bufRef.current!.reset();
+    gapsRef.current!.reset();
+    priceSeriesRef.current!.reset();
+    priceDeltasRef.current!.reset();
+    lastArrivalRef.current = 0;
+    totalTicksRef.current = 0;
+    lastPriceRef.current = 0;
+    confRef.current = 0;
+    pendingTickRef.current = null;
+    pendingSimRef.current = [];
+    lastSignalTickRef.current = 0;
+    setOpenEntry(null);
+    setMatched(false);
+    setLastPrice(0);
+    setStale(false);
+    workerRef.current?.postMessage({ type: "reset", lookback: cfgRef.current.lookback });
+    scheduleRender();
+  }, [scheduleRender]);
+
   const evaluateAndMaybeFire = useCallback(() => {
-    const buf = bufRef.current;
     const cfgNow = cfgRef.current;
-    const win = buf.slice(-cfgNow.lookback);
+    const win = bufRef.current!.lastN(cfgNow.lookback);
     if (win.length < 10) return;
 
+    // ---- STRICT ALERT GATES ----
+    // 1) Every enabled trigger rule must agree (AND, not OR).
+    if (enabledRuleCount(cfgNow) === 0) return;
     const hits = evaluateRules({ window: win, cfg: cfgNow });
-    if (hits.length === 0) return;
+    if (!allRulesAgree(cfgNow, hits)) return;
+    // 2) Network must be green or yellow.
+    if (healthRef.current === "red") return;
+    // 3) Fused confidence must be 80% or higher.
+    if (confRef.current < 0.8) return;
 
     if (totalTicksRef.current - lastSignalTickRef.current < 3) return;
     lastSignalTickRef.current = totalTicksRef.current;
 
-    const reason = hits.map((h) => `${h.rule}:${h.detail}`).join(" · ");
+    const reason =
+      hits.map((h) => `${h.rule}:${h.detail}`).join(" · ") +
+      ` · conf ${(confRef.current * 100).toFixed(0)}%`;
     const sig: Signal = {
       id: Date.now() + Math.random(),
       ts: Date.now(),
@@ -200,7 +241,7 @@ export default function DigitsApp() {
     const lastGap = lastArrivalRef.current ? performance.now() - lastArrivalRef.current : 0;
     // Slow feeds (2s indices, polled fallback) legitimately exceed the raw
     // 800ms guard — scale the gap budget to the observed tick cadence.
-    const gapBudget = Math.max(cfgNow.safeGapMs, (medianOf(gapsRef.current) || 0) * 1.6);
+    const gapBudget = Math.max(cfgNow.safeGapMs, gapsRef.current!.median() * 1.6);
     const networkUnsafe = median > cfgNow.safePingMs || lastGap > gapBudget;
 
     if (cfgNow.mode === "alert") {
@@ -208,7 +249,7 @@ export default function DigitsApp() {
       // (expected next tick) − (ping + drift + configured lag buffer),
       // using performance.now() so we're immune to wall-clock jitter.
       const now = performance.now();
-      const interval = medianOf(gapsRef.current) || 2000;
+      const interval = gapsRef.current!.median() || 2000;
       const sinceLast = lastArrivalRef.current ? now - lastArrivalRef.current : 0;
       const nextTickIn = Math.max(0, interval - sinceLast);
       const ping = median;
@@ -280,11 +321,19 @@ export default function DigitsApp() {
     const client = new DerivClient({
       onOpen: () => setConnected(true),
       onClose: () => setConnected(false),
-      onHistory: (digits, last) => {
+      onStatus: (state, attempt, detail) => {
+        setConnState(state);
+        setConnDetail(detail ? `${detail}` : attempt > 0 ? `attempt ${attempt}` : "");
+      },
+      onHistory: (digits, last, sym) => {
+        // Isolation guard: ignore history for any symbol that is no longer selected.
+        if (sym !== cfgRef.current.symbol) return;
         // Strict filter: keep every digit 0-9 (including 0). Drop only sentinel -1 (parse failure).
         const clean = digits.filter((d) => d !== null && d !== undefined && d >= 0 && d <= 9);
-        bufRef.current = clean.slice(-MAX_BUFFER);
-        totalTicksRef.current = bufRef.current.length;
+        const ring = bufRef.current!;
+        ring.reset();
+        ring.pushMany(clean.slice(-MAX_BUFFER));
+        totalTicksRef.current = ring.length;
         lastPriceRef.current = last;
         setLastPrice(last);
         // Reseed the worker's ring buffer to match the trimmed history.
@@ -292,15 +341,14 @@ export default function DigitsApp() {
         workerRef.current?.postMessage({ type: "init", lookback: cfgRef.current.lookback, seed: clean.slice(-cfgRef.current.lookback) });
         scheduleRender();
       },
-      onTick: (digit, quote, _e, arrival) => {
+      onTick: (digit, quote, _e, arrival, sym) => {
+        // Isolation guard: a late packet from the previous volatility must
+        // never enter this instrument's statistics.
+        if (sym !== cfgRef.current.symbol) return;
         const prev = lastArrivalRef.current;
         const gap = prev ? arrival - prev : 0;
         lastArrivalRef.current = arrival;
-        if (gap > 0) {
-          const g = gapsRef.current;
-          g.push(gap);
-          if (g.length > 12) g.shift();
-        }
+        if (gap > 0) gapsRef.current!.push(gap);
         // Mobile browser tab-sleep backlog dropper: if a huge burst of ticks
         // arrives after ColorOS/iOS wakes the tab, flush and resync on the
         // newest tick only — never replay a stale stack sequentially.
@@ -317,12 +365,12 @@ export default function DigitsApp() {
           });
           // hard resubscribe so the server sends fresh state instead of us
           // replaying whatever the socket buffered.
-          clientRef.current?.subscribeTicks(cfgRef.current.symbol, cfgRef.current.lookback);
+          clientRef.current?.subscribeTicks(cfgRef.current.symbol, 100);
           return;
         }
         const staleBudget = Math.max(
           cfgRef.current.safeGapMs,
-          (medianOf(gapsRef.current) || 0) * 1.6,
+          gapsRef.current!.median() * 1.6,
         );
         const isStale = prev !== 0 && gap > staleBudget;
         setStale(isStale);
@@ -332,21 +380,16 @@ export default function DigitsApp() {
           scheduleRender();
           return;
         }
-        const b = bufRef.current;
-        b.push(digit);
-        if (b.length > MAX_BUFFER) b.splice(0, b.length - MAX_BUFFER);
+        bufRef.current!.push(digit);
         totalTicksRef.current++;
         lastPriceRef.current = quote;
         setLastPrice(quote);
-        // Price EMA + Δ volatility feed (bounded rolling arrays).
+        // Price EMA + Δ volatility feed (fixed-size Float32 ring buffers).
         {
-          const ps = priceSeriesRef.current;
-          const prevPrice = ps.length ? ps[ps.length - 1] : quote;
+          const ps = priceSeriesRef.current!;
+          const prevPrice = ps.length ? ps.last() : quote;
           ps.push(quote);
-          if (ps.length > 20) ps.splice(0, ps.length - 20);
-          const dl = priceDeltasRef.current;
-          dl.push(Math.abs(quote - prevPrice));
-          if (dl.length > 30) dl.splice(0, dl.length - 30);
+          priceDeltasRef.current!.push(Math.abs(quote - prevPrice));
         }
         // LIFO coalescer — if the main thread was busy and multiple ticks
         // stacked up in the task queue, only the newest packet drives
@@ -417,20 +460,18 @@ export default function DigitsApp() {
     return () => document.removeEventListener("visibilitychange", onVis);
   }, [handleConnect]);
 
+  // Symbol switch: wipe every statistic so the new volatility is analysed
+  // from a completely fresh state (no cross-instrument contamination).
   useEffect(() => {
     if (!connected || !clientRef.current) return;
-    bufRef.current = [];
-    lastArrivalRef.current = 0;
-    totalTicksRef.current = 0;
-    pendingSimRef.current = [];
-    gapsRef.current = [];
-    setOpenEntry(null);
-    setMatched(false);
+    resetAnalysis();
     clientRef.current.subscribeTicks(cfg.symbol, 100);
-  }, [cfg.symbol, connected]);
+  }, [cfg.symbol, connected, resetAnalysis]);
 
   const tickKey = totalTicksRef.current;
-  const buf = bufRef.current;
+  // Snapshot the circular byte buffer once per throttled render pass.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const buf = useMemo(() => bufRef.current!.toArray(), [tickKey]);
 
   const derived = useMemo(() => {
     const win = buf.slice(-cfg.lookback);
@@ -485,8 +526,8 @@ export default function DigitsApp() {
   // 3-state HMM regime, Poisson cluster weights, and a consolidated signal
   // router payload. Feeds only the prediction math; UI is unchanged.
   const context = useMemo(() => {
-    const p = priceSeriesRef.current;
-    const d = priceDeltasRef.current;
+    const p = priceSeriesRef.current!.toArray();
+    const d = priceDeltasRef.current!.toArray();
     const ema = priceEma(p);
     const vol = volatilityState(d);
     const hmm = hmmState(buf);
@@ -518,6 +559,16 @@ export default function DigitsApp() {
   // does not surface it — downstream consumers (worker, logs) read it.
   void context.router;
 
+  // Live fused confidence used by the alert gate (market aware).
+  const gateConf = Math.min(
+    1,
+    (cfg.market === "matches"
+      ? (context.weighted[cfg.predictDigit] ?? 0)
+      : (context.weighted[context.topDigit] ?? 0)) * (engineReport?.confidenceAdjust ?? 1),
+  );
+  confRef.current = gateConf;
+
+
   // Use null sentinel so digit 0 is never confused with "no data". All downstream
   // checks must use strict null/undefined comparisons (digit !== null && digit !== undefined),
   // never truthy checks like `if (lastDigit)` which would drop a legitimate 0.
@@ -526,14 +577,15 @@ export default function DigitsApp() {
 
   const health: NetHealth =
     pingMs === 0 ? "yellow" : pingMs > cfg.safePingMs ? "red" : pingMs > 250 ? "yellow" : "green";
+  healthRef.current = health;
 
   // Execution safety guard
   const lastGapNow = lastArrivalRef.current ? performance.now() - lastArrivalRef.current : 0;
-  const gapBudgetNow = Math.max(cfg.safeGapMs, (medianOf(gapsRef.current) || 0) * 1.6);
+  const gapBudgetNow = Math.max(cfg.safeGapMs, gapsRef.current!.median() * 1.6);
   const safe = pingMs > 0 && pingMs <= cfg.safePingMs && lastGapNow <= gapBudgetNow;
 
   // Expected next-tick countdown (median inter-tick gap minus elapsed)
-  const tickInterval = medianOf(gapsRef.current) || 2000;
+  const tickInterval = gapsRef.current!.median() || 2000;
   const countdownMs = Math.round(Math.max(0, tickInterval - lastGapNow));
   const purchaseInMs = countdownMs - cfg.latencyOffsetMs;
   // suppress unused-tick warning
@@ -594,8 +646,23 @@ export default function DigitsApp() {
           </p>
         </div>
         <div className="flex items-center gap-1">
-          <span className={`rounded border px-2 py-0.5 text-[10px] font-mono ${connected ? "border-cyan text-cyan" : "border-danger text-danger"}`}>
-            {connected ? "LIVE FEED" : "OFFLINE"}
+          <span
+            title={connDetail}
+            className={`rounded border px-2 py-0.5 text-[10px] font-mono ${
+              connState === "live" && connected
+                ? "border-cyan text-cyan"
+                : connState === "offline"
+                  ? "border-danger text-danger"
+                  : "border-warning text-warning animate-pulse"
+            }`}
+          >
+            {connState === "live" && connected
+              ? "LIVE FEED"
+              : connState === "reconnecting"
+                ? "RECONNECTING"
+                : connState === "connecting"
+                  ? "CONNECTING"
+                  : "OFFLINE"}
           </span>
           <button
             type="button"
