@@ -646,8 +646,23 @@ export default function DigitsApp() {
           </p>
         </div>
         <div className="flex items-center gap-1">
-          <span className={`rounded border px-2 py-0.5 text-[10px] font-mono ${connected ? "border-cyan text-cyan" : "border-danger text-danger"}`}>
-            {connected ? "LIVE FEED" : "OFFLINE"}
+          <span
+            title={connDetail}
+            className={`rounded border px-2 py-0.5 text-[10px] font-mono ${
+              connState === "live" && connected
+                ? "border-cyan text-cyan"
+                : connState === "offline"
+                  ? "border-danger text-danger"
+                  : "border-warning text-warning animate-pulse"
+            }`}
+          >
+            {connState === "live" && connected
+              ? "LIVE FEED"
+              : connState === "reconnecting"
+                ? "RECONNECTING"
+                : connState === "connecting"
+                  ? "CONNECTING"
+                  : "OFFLINE"}
           </span>
           <button
             type="button"
