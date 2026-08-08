@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Subject } from "rxjs";
 import { auditTime } from "rxjs/operators";
-import { DerivClient, type AuthInfo, type ContractType } from "@/lib/deriv/derivClient";
+import { DerivClient, type AuthInfo, type ConnState, type ContractType } from "@/lib/deriv/derivClient";
+import { DigitRing, FloatRing } from "@/lib/deriv/ring";
 import { loadConfig, loadToken, saveConfig, saveToken } from "@/lib/deriv/storage";
 import type { AppConfig, NetHealth, Signal } from "@/lib/deriv/types";
 import {
