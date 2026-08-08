@@ -60,6 +60,8 @@ const MAX_BUFFER = 500;
 export default function DigitsApp() {
   const [cfg, setCfg] = useState<AppConfig>(() => loadConfig());
   const [connected, setConnected] = useState(false);
+  const [connState, setConnState] = useState<ConnState>("connecting");
+  const [connDetail, setConnDetail] = useState("");
   const [armed, setArmed] = useState(false);
   const [flash, setFlash] = useState(false);
   const [pingMs, setPingMs] = useState(0);
