@@ -14,7 +14,15 @@
 //   + Extended streak forecasting (2 → 6 consecutive hits)
 // ============================================================================
 
+import {
+  isOneSecondIndex,
+  isRandomWalkBand,
+  percentages10,
+  softmaxNormalize,
+} from "./matrix";
+
 export type AssetType = "1S" | "PLAIN";
+
 
 export interface PreArrivalForecast {
   digit: number;
@@ -47,9 +55,10 @@ export interface PreArrivalResult {
 }
 
 /** 1s indices tick every second → project 3 ticks ahead; plain → 2 ticks. */
-export function assetTypeOf(symbol: string): AssetType {
-  return /^1HZ\d+V$/.test(symbol) ? "1S" : "PLAIN";
+export function assetTypeOf(symbol: string, label?: string): AssetType {
+  return isOneSecondIndex(symbol, label) ? "1S" : "PLAIN";
 }
+
 
 export function horizonFor(assetType: AssetType): number {
   return assetType === "1S" ? 3 : 2;
@@ -184,8 +193,12 @@ export function runPreArrivalAnalysis(
   }
 
   // ---- PRE-ARRIVAL FORECASTING LAYER (multi-streak burst projection) ----
-  let topDigit = 0;
-  let topScore = -1;
+  // Pure-randomness guard: inside the Hurst random-walk band the stream has no
+  // exploitable memory, so we fall back to the neutral uniform 10% layer
+  // instead of multiplying formula strings by zero.
+  const neutral = isRandomWalkBand(hurstExponent);
+  const rawScores = new Array<number>(10).fill(0);
+  const meta: Array<{ streak: number; lock: boolean; exhausted: boolean }> = [];
 
   for (let d = 0; d < 10; d++) {
     let baseAccuracy = poissonIntensities[d] * 12;
@@ -221,7 +234,11 @@ export function runPreArrivalAnalysis(
     // ticks) ⇒ the PRNG loop is spent; flatten to kill late streak-chasing.
     const isExhaustedState = explicitCurrentStreakCount >= 3 || recentHits >= 3;
     const isQuantumLockWarning =
-      !isExhaustedState && !isInactiveState && baseAccuracy > 48 && isSystemLockingIntoLoop;
+      !neutral &&
+      !isExhaustedState &&
+      !isInactiveState &&
+      baseAccuracy > 48 &&
+      isSystemLockingIntoLoop;
 
     let predictedStreakLength = 0;
     if (isQuantumLockWarning) {
@@ -241,21 +258,37 @@ export function runPreArrivalAnalysis(
     if (isExhaustedState) finalScore = baseAccuracy * 0.01;
     else if (isInactiveState) finalScore = baseAccuracy * 0.15;
     else if (recentHits === 2) finalScore = baseAccuracy * 0.55; // fatigue ramp
-    const prob = Math.min(Math.round(finalScore * 10) / 10, 99.9);
 
+    rawScores[d] = Math.max(1e-4, finalScore);
+    meta.push({
+      streak: predictedStreakLength,
+      lock: isQuantumLockWarning,
+      exhausted: isExhaustedState,
+    });
+  }
+
+  // ---- STRICT SOFTMAX NORMALIZATION — all 10 digits total exactly 100.0% ----
+  const normalized = neutral
+    ? new Array<number>(10).fill(10)
+    : percentages10(softmaxNormalize(rawScores, 1));
+
+  let topDigit = 0;
+  let topScore = -1;
+  for (let d = 0; d < 10; d++) {
     output[d] = {
       digit: d,
-      preArrivalProbability: prob,
-      predictedStreakLength,
-      isQuantumTarget: isQuantumLockWarning,
-      isQuantumLockWarning,
-      isExhaustedState,
+      preArrivalProbability: normalized[d],
+      predictedStreakLength: meta[d].streak,
+      isQuantumTarget: meta[d].lock,
+      isQuantumLockWarning: meta[d].lock,
+      isExhaustedState: meta[d].exhausted,
     };
-    if (prob > topScore) {
-      topScore = prob;
+    if (normalized[d] > topScore) {
+      topScore = normalized[d];
       topDigit = d;
     }
   }
+
 
   return {
     forecasts: output,
