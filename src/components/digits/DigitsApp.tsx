@@ -37,7 +37,9 @@ import {
   fusePreArrival,
   runPreArrivalAnalysis,
 } from "@/lib/deriv/preArrival";
+import { forecastHorizon, horizonForSymbol } from "@/lib/deriv/matrix";
 import { beep } from "@/lib/deriv/audio";
+
 
 import { signOut } from "./LoginScreen";
 import { NetworkBadge } from "./NetworkBadge";
@@ -53,6 +55,9 @@ import { SplitPanel } from "./SplitPanel";
 import { PatternsPanel } from "./PatternsPanel";
 import { EngineLog } from "./EngineLog";
 import { PreArrivalPanel } from "./PreArrivalPanel";
+import { SignalCard, type SignalState } from "./SignalCard";
+import { MultiAppearancePanel } from "./MultiAppearancePanel";
+
 
 
 const MAX_BUFFER = 500;
@@ -116,6 +121,14 @@ export default function DigitsApp() {
   // ticker for countdown updates
   const [tick, setTick] = useState(0);
   const driftMsRef = useRef(0);
+  // 5-tick EMA of the raw server-clock drift: smoothed = cur*0.4 + prev*0.6.
+  const smoothedDriftRef = useRef(0);
+  // Latch: once |smoothedDrift| > 1000ms we hold trades until it settles < 400ms.
+  const [syncing, setSyncing] = useState(false);
+  const syncingRef = useRef(false);
+  // Second-Run Persistence Shield state.
+  const streakLatchRef = useRef<{ digit: number; of: number; startTick: number } | null>(null);
+
 
   useEffect(() => { cfgRef.current = cfg; saveConfig(cfg); }, [cfg]);
   useEffect(() => { armedRef.current = armed; }, [armed]);
@@ -245,17 +258,28 @@ export default function DigitsApp() {
     const networkUnsafe = median > cfgNow.safePingMs || lastGap > gapBudget;
 
     if (cfgNow.mode === "alert") {
-      // Precision execution scheduler: aim the audible fire at
-      // (expected next tick) − (ping + drift + configured lag buffer),
-      // using performance.now() so we're immune to wall-clock jitter.
+      // Precision execution scheduler. The horizon offset pushes the trigger
+      // out to the tick we actually forecast (t+2 plain / t+3 for 1s indices).
+      //
+      //   drift < 0  → terminal lagging  → pull forward:  ... + drift ...
+      //   drift > 0  → terminal ahead    → push back:     ... − drift ...
+      //
+      // Both branches use the 5-tick EMA-smoothed drift so erratic network
+      // spikes cannot make the countdown jitter.
       const now = performance.now();
       const interval = gapsRef.current!.median() || 2000;
       const sinceLast = lastArrivalRef.current ? now - lastArrivalRef.current : 0;
       const nextTickIn = Math.max(0, interval - sinceLast);
+      const horizon = horizonForSymbol(cfgNow.symbol);
+      const targetHorizonOffset = (horizon - 1) * interval;
       const ping = median;
-      const drift = Math.abs(driftMsRef.current);
-      const lag = cfgNow.latencyOffsetMs;
-      const target = now + Math.max(0, nextTickIn - ping - drift - lag);
+      const smoothedDrift = smoothedDriftRef.current;
+      const lag = cfgNow.latencyOffsetMs + cfgNow.reactionOffsetMs;
+      const preciseTriggerTime =
+        smoothedDrift < 0
+          ? nextTickIn + targetHorizonOffset - ping + smoothedDrift - lag
+          : nextTickIn + targetHorizonOffset - ping - smoothedDrift - lag;
+      const target = now + Math.max(0, preciseTriggerTime);
       nextFireAtRef.current = target;
       if (fireTimerRef.current !== null) clearTimeout(fireTimerRef.current);
       fireTimerRef.current = window.setTimeout(() => {
@@ -265,7 +289,7 @@ export default function DigitsApp() {
         setFlash(true);
         setTimeout(() => setFlash(false), 180);
         setExecDiag((prev) => {
-          const line = `fire · Δ${variance >= 0 ? "+" : ""}${variance.toFixed(1)}ms · ping ${ping.toFixed(0)} · drift ${drift.toFixed(0)} · lag ${lag}`;
+          const line = `fire · Δ${variance >= 0 ? "+" : ""}${variance.toFixed(1)}ms · t+${horizon} · ping ${ping.toFixed(0)} · drift ${smoothedDrift >= 0 ? "+" : ""}${smoothedDrift.toFixed(0)} · lag ${lag}`;
           const next = prev.length >= 30 ? prev.slice(-29) : prev.slice();
           next.push(line);
           return next;
@@ -274,6 +298,7 @@ export default function DigitsApp() {
       pushSignal(sig);
       return;
     }
+
 
     if (networkUnsafe) {
       pushSignal({ ...sig, reason: reason + " (aborted: net)" });
@@ -418,7 +443,23 @@ export default function DigitsApp() {
         if (arr.length > 10) arr.shift();
         setPingMs(medianOf(arr));
       },
-      onTimeSync: (drift) => { driftMsRef.current = drift; setDriftMs(drift); },
+      onTimeSync: (drift) => {
+        // 5-tick EMA smoothing — keeps the visual countdown free of jitter.
+        const smoothed = drift * 0.4 + smoothedDriftRef.current * 0.6;
+        smoothedDriftRef.current = smoothed;
+        driftMsRef.current = smoothed;
+        setDriftMs(smoothed);
+        // Safety-abort latch: engage above 1000ms, release only under 400ms.
+        const mag = Math.abs(smoothed);
+        if (!syncingRef.current && mag > 1000) {
+          syncingRef.current = true;
+          setSyncing(true);
+        } else if (syncingRef.current && mag < 400) {
+          syncingRef.current = false;
+          setSyncing(false);
+        }
+      },
+
       onAuth: (info) => setAuth(info),
       onError: (e) => {
         pushSignal({
@@ -591,6 +632,74 @@ export default function DigitsApp() {
   // suppress unused-tick warning
   void tick;
 
+  // ---- HORIZON FORECAST (async from the worker; local fallback on cold start)
+  const horizonFc = useMemo(
+    () => engineReport?.horizon ?? forecastHorizon(buf, cfg.symbol, 10, 0.35),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [engineReport, tickKey, cfg.symbol],
+  );
+  const horizonTicks = horizonFc.horizon;
+
+  // ---- PERIPHERAL SIGNAL CARD STATE ----
+  const targetDigit = cfg.market === "matches" ? cfg.predictDigit : horizonFc.topDigit;
+  const targetMulti = horizonFc.multi[targetDigit];
+  const runProb = targetMulti?.tail[2] ?? 0;
+  const targetN = targetMulti?.bestN ?? 2;
+  const preF = context.pre.forecasts[targetDigit];
+
+  const greenBase =
+    !syncing &&
+    health !== "red" &&
+    safe &&
+    !stale &&
+    !horizonFc.neutralFallback &&
+    !(preF?.isExhaustedState ?? false) &&
+    gateConf >= 0.7 &&
+    runProb >= 0.45;
+
+  // Second-Run Persistence Shield — hold the green card lit across the whole
+  // forecast run so a missed first tick can still be struck on the next one.
+  {
+    const latch = streakLatchRef.current;
+    const runLen = Math.max(targetN, preF?.predictedStreakLength ?? 0);
+    if (greenBase && (!latch || latch.digit !== targetDigit)) {
+      streakLatchRef.current = {
+        digit: targetDigit,
+        of: Math.max(2, Math.min(7, runLen)),
+        startTick: totalTicksRef.current,
+      };
+    } else if (
+      latch &&
+      (latch.digit !== targetDigit ||
+        totalTicksRef.current - latch.startTick >= latch.of ||
+        syncing ||
+        health === "red")
+    ) {
+      streakLatchRef.current = null;
+    }
+  }
+  const latchNow = streakLatchRef.current;
+  const streakInfo = latchNow
+    ? {
+        step: Math.min(latchNow.of, totalTicksRef.current - latchNow.startTick + 1),
+        of: latchNow.of,
+      }
+    : null;
+
+  const cardState: SignalState = syncing ? "violet" : greenBase || latchNow ? "green" : "red";
+
+  // Latency-corrected time until the multi-appearance window opens.
+  const windowInMs = (() => {
+    const smoothedDrift = smoothedDriftRef.current;
+    const offset = (horizonTicks - 1) * tickInterval;
+    const lag = cfg.latencyOffsetMs + cfg.reactionOffsetMs;
+    const base = countdownMs + offset - pingMs - lag;
+    return smoothedDrift < 0 ? base + smoothedDrift : base - smoothedDrift;
+  })();
+  // 1-tick pre-warning: flash exactly 1000ms before the window opens.
+  const preWarn = windowInMs > 0 && windowInMs <= 1000;
+
+
   const setPartial = useCallback((patch: Partial<AppConfig>) => {
     setCfg((c) => ({ ...c, ...patch }));
   }, []);
@@ -676,77 +785,117 @@ export default function DigitsApp() {
 
       <div className="space-y-3">
         <NetworkBadge health={health} pingMs={pingMs} driftMs={driftMs} ticks={totalTicksRef.current} stale={stale} />
-        <EnsemblePanel
-          ensemble={derived.ens}
-          market={cfg.market}
-          barrier={cfg.barrier}
-          pEven={derived.split.pEven}
-          pHigh={derived.split.pHigh}
-          rise={{ up: derived.rf.up, down: derived.rf.down }}
-          safe={safe}
-          countdownMs={countdownMs}
-          purchaseInMs={purchaseInMs}
-        />
-        {(() => {
-          const isMatches = cfg.market === "matches";
-          const displayDigit = isMatches ? cfg.predictDigit : context.topDigit;
-          const baseConf = isMatches
-            ? context.weighted[cfg.predictDigit] ?? 0
-            : context.weighted[context.topDigit] ?? 0;
-          // Entropy-decay boost from the background engine — bounded [0.8, 1.25].
-          const conf = Math.min(1, baseConf * (engineReport?.confidenceAdjust ?? 1));
-          const highlight = isMatches && conf >= 0.7;
-          return (
-            <PredictedDigit
-              digit={displayDigit}
-              entryPrice={openEntry?.price ?? null}
-              lastPrice={lastPrice}
-              matched={matched}
-              armed={armed}
-              confidence={conf}
-              highlight={highlight}
-            />
-          );
-        })()}
-        <PreArrivalPanel
-          forecasts={context.pre.forecasts}
-          physics={context.pre.physics}
-          topDigit={context.pre.topDigit}
-        />
-        <DigitGrid freq={derived.freq} total={derived.win.length} predict={cfg.predictDigit} />
 
-        <SplitPanel
-          pEven={derived.split.pEven}
-          pHigh={derived.split.pHigh}
-          hot={derived.hc.hot}
-          cold={derived.hc.cold}
-          hotFreq={derived.hc.freq}
-          riseUp={derived.rf.up}
-          riseDown={derived.rf.down}
+        {/* PERIPHERAL SIGNAL BLOCK — the only thing a trader needs mid-setup */}
+        <SignalCard
+          state={cardState}
+          digit={targetDigit}
+          runProb={runProb}
+          targetN={targetN}
+          horizon={horizonTicks}
+          windowInMs={windowInMs}
+          preWarn={preWarn}
+          streak={streakInfo}
+          smoothedDrift={smoothedDriftRef.current}
         />
-        <RecentTicks digits={buf} />
-        <MarkovMatrix matrix={derived.mk} lastDigit={lastDigit} predict={context.topDigit} />
-        <PatternsPanel
-          bigrams={derived.bigrams}
-          trigrams={derived.trigrams}
-          chiUnif={derived.chi}
-          chiIndep={derived.chiIndep}
-          hZ20={derived.hZ20}
-          hZ50={derived.hZ50}
-          bias={derived.bias}
-        />
-        <StatsPanel
-          chi={derived.chi}
-          h20={derived.h20}
-          h50={derived.h50}
-          h100={derived.h100}
-          coldDigit={derived.coldDigit}
-          coldGap={derived.coldGap}
-          coldProb={coldProb(derived.coldGap)}
-          followPrefix={derived.followPrefix}
-          followProbs={derived.follow.probs}
-          followTotal={derived.follow.total}
-        />
+
+        {/* Human Reaction Offset — compensates manual finger-tap delay */}
+        <div className="rounded-lg border border-border bg-card px-3 py-2">
+          <div className="mb-1 flex items-center justify-between text-[11px]">
+            <span className="font-semibold">Human Reaction Offset</span>
+            <span className="font-mono text-cyan">{cfg.reactionOffsetMs} ms</span>
+          </div>
+          <input
+            type="range"
+            min={0}
+            max={1200}
+            step={25}
+            value={cfg.reactionOffsetMs}
+            onChange={(e) => setPartial({ reactionOffsetMs: Number(e.target.value) })}
+            className="w-full accent-[var(--color-cyan)]"
+            aria-label="Human Reaction Offset in milliseconds"
+          />
+        </div>
+
+        <MultiAppearancePanel horizon={horizonFc} target={targetDigit} />
+
+        <details className="rounded-lg border border-border bg-card px-3 py-2">
+          <summary className="cursor-pointer text-[11px] font-semibold uppercase tracking-widest text-cyan">
+            Analytics detail
+          </summary>
+          <div className="mt-2 space-y-3">
+            <EnsemblePanel
+              ensemble={derived.ens}
+              market={cfg.market}
+              barrier={cfg.barrier}
+              pEven={derived.split.pEven}
+              pHigh={derived.split.pHigh}
+              rise={{ up: derived.rf.up, down: derived.rf.down }}
+              safe={safe}
+              countdownMs={countdownMs}
+              purchaseInMs={purchaseInMs}
+            />
+            {(() => {
+              const isMatches = cfg.market === "matches";
+              const displayDigit = isMatches ? cfg.predictDigit : context.topDigit;
+              const baseConf = isMatches
+                ? context.weighted[cfg.predictDigit] ?? 0
+                : context.weighted[context.topDigit] ?? 0;
+              const conf = Math.min(1, baseConf * (engineReport?.confidenceAdjust ?? 1));
+              const highlight = isMatches && conf >= 0.7;
+              return (
+                <PredictedDigit
+                  digit={displayDigit}
+                  entryPrice={openEntry?.price ?? null}
+                  lastPrice={lastPrice}
+                  matched={matched}
+                  armed={armed}
+                  confidence={conf}
+                  highlight={highlight}
+                />
+              );
+            })()}
+            <PreArrivalPanel
+              forecasts={context.pre.forecasts}
+              physics={context.pre.physics}
+              topDigit={context.pre.topDigit}
+            />
+            <DigitGrid freq={derived.freq} total={derived.win.length} predict={cfg.predictDigit} />
+            <SplitPanel
+              pEven={derived.split.pEven}
+              pHigh={derived.split.pHigh}
+              hot={derived.hc.hot}
+              cold={derived.hc.cold}
+              hotFreq={derived.hc.freq}
+              riseUp={derived.rf.up}
+              riseDown={derived.rf.down}
+            />
+            <RecentTicks digits={buf} />
+            <MarkovMatrix matrix={derived.mk} lastDigit={lastDigit} predict={horizonFc.topDigit} />
+            <PatternsPanel
+              bigrams={derived.bigrams}
+              trigrams={derived.trigrams}
+              chiUnif={derived.chi}
+              chiIndep={derived.chiIndep}
+              hZ20={derived.hZ20}
+              hZ50={derived.hZ50}
+              bias={derived.bias}
+            />
+            <StatsPanel
+              chi={derived.chi}
+              h20={derived.h20}
+              h50={derived.h50}
+              h100={derived.h100}
+              coldDigit={derived.coldDigit}
+              coldGap={derived.coldGap}
+              coldProb={coldProb(derived.coldGap)}
+              followPrefix={derived.followPrefix}
+              followProbs={derived.follow.probs}
+              followTotal={derived.follow.total}
+            />
+          </div>
+        </details>
+
         <Controls
           cfg={cfg}
           onChange={setPartial}
@@ -766,10 +915,11 @@ export default function DigitsApp() {
           bitmask={engineReport?.bitmask ?? 0}
         />
         <div className="rounded-md border border-border bg-card px-3 py-2 text-[11px]">
-          <div className="mb-1 flex items-center justify-between">
+          <div className="mb-1 flex items-center justify-between gap-2">
             <span className="font-semibold">Execution Diagnostics</span>
-            <span className="rounded border border-input px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
-              trigger = nextTick − ping − drift − lag({cfg.latencyOffsetMs}ms)
+            <span className="rounded border border-input px-1.5 py-0.5 text-right font-mono text-[9px] text-muted-foreground">
+              nextTick + {(horizonTicks - 1)}×Δt − ping {smoothedDriftRef.current < 0 ? "+" : "−"} |drift| − lag(
+              {cfg.latencyOffsetMs + cfg.reactionOffsetMs}ms)
             </span>
           </div>
           <div className="max-h-32 overflow-auto rounded bg-background/60 p-1 font-mono text-[10px] leading-tight">
@@ -782,6 +932,7 @@ export default function DigitsApp() {
             )}
           </div>
         </div>
+
         <footer className="pb-6 text-center text-[10px] text-muted-foreground">
           Public app_id 1089 · analysis only · not financial advice
         </footer>

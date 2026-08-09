@@ -19,6 +19,9 @@ export interface AppConfig {
   stake: number;
   lookback: 25 | 50 | 100;
   latencyOffsetMs: number;
+  /** Human Reaction Offset — manual finger-tap delay compensation (ms). */
+  reactionOffsetMs: number;
+
   mode: Mode;
   market: Market;
   barrier: number; // for over/under
@@ -55,6 +58,8 @@ export const DEFAULT_CONFIG: AppConfig = {
   stake: 1,
   lookback: 50,
   latencyOffsetMs: 1000,
+  reactionOffsetMs: 300,
+
   mode: "simulated",
   market: "matches",
   barrier: 4,
