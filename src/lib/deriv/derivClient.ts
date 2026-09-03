@@ -381,7 +381,28 @@ export class DerivClient {
     });
   }
 
+  /**
+   * INSTANT TICK HISTORY BUFFERING — fires a standalone `ticks_history`
+   * request (never `subscribe`, accepted in every region) so the analysis
+   * engine is seeded with a full lookback packet the moment the terminal
+   * initialises, reconnects, or switches asset. Retries quietly on failure.
+   */
+  requestHistory(count = 100): boolean {
+    const symbol = this.symbol;
+    const gen = this.generation;
+    if (!this.ws || this.ws.readyState !== 1) return false;
+    this.send({ ticks_history: symbol, end: "latest", count, style: "ticks" }, (msg) => {
+      if (msg?.error && this.generation === gen) {
+        window.setTimeout(() => {
+          if (this.generation === gen) this.requestHistory(count);
+        }, 1500);
+      }
+    });
+    return true;
+  }
+
   private retryStream(symbol: string, gen: number) {
+
     if (this.generation !== gen || !this.ws || this.ws.readyState !== 1) return;
     this.send({ ticks: symbol, subscribe: 1 }, (msg) => {
       if (this.generation !== gen) return;
