@@ -641,6 +641,15 @@ export default function DigitsApp() {
       ? engineReport.intervalStdMs / engineReport.intervalMs
       : 0;
 
+  // TRIGGER RULES panel — every enabled percentage rule must be satisfied.
+  const ruleHits = useMemo(
+    () => (derived.win.length >= 10 ? evaluateRules({ window: derived.win, cfg }) : []),
+    [derived.win, cfg],
+  );
+  const rulesSatisfied = enabledRuleCount(cfg) > 0 && allRulesAgree(cfg, ruleHits);
+  rulesOkRef.current = rulesSatisfied;
+
+
   const layered = evaluateLayeredEnsemble({
     window: derived.win,
     target: targetDigit,
