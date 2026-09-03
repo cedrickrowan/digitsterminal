@@ -359,8 +359,10 @@ export class DerivClient {
     if (symbolChanged) this.send({ forget_all: "ticks" });
     if (!this.ws || this.ws.readyState !== 1) return;
 
-    // 1) Seed history WITHOUT `subscribe` — always accepted by every region.
-    this.send({ ticks_history: symbol, end: "latest", count, style: "ticks" });
+    // 1) INSTANT BUFFERING — pull the last `count` ticks immediately so the
+    //    Markov / digram / trigram modules start fully warm (zero waiting).
+    this.requestHistory(count);
+
     // 2) Try the live stream. Rejections (region/app_id restrictions surface as
     //    "Symbol X is invalid") switch to polling and keep retrying quietly.
     this.streaming = false;
