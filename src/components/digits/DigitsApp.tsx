@@ -600,16 +600,6 @@ export default function DigitsApp() {
   // does not surface it — downstream consumers (worker, logs) read it.
   void context.router;
 
-  // Live fused confidence used by the alert gate (market aware).
-  const gateConf = Math.min(
-    1,
-    (cfg.market === "matches"
-      ? (context.weighted[cfg.predictDigit] ?? 0)
-      : (context.weighted[context.topDigit] ?? 0)) * (engineReport?.confidenceAdjust ?? 1),
-  );
-  confRef.current = gateConf;
-
-
   // Use null sentinel so digit 0 is never confused with "no data". All downstream
   // checks must use strict null/undefined comparisons (digit !== null && digit !== undefined),
   // never truthy checks like `if (lastDigit)` which would drop a legitimate 0.
@@ -640,22 +630,51 @@ export default function DigitsApp() {
   );
   const horizonTicks = horizonFc.horizon;
 
-  // ---- PERIPHERAL SIGNAL CARD STATE ----
+  // ---- LAYERED ENSEMBLE (Layer 1 momentum / Layer 2 filters / Layer 3 breakers)
   const targetDigit = cfg.market === "matches" ? cfg.predictDigit : horizonFc.topDigit;
   const targetMulti = horizonFc.multi[targetDigit];
   const runProb = targetMulti?.tail[2] ?? 0;
   const targetN = targetMulti?.bestN ?? 2;
   const preF = context.pre.forecasts[targetDigit];
+  const intervalCv =
+    engineReport && engineReport.intervalMs > 0
+      ? engineReport.intervalStdMs / engineReport.intervalMs
+      : 0;
+
+  const layered = evaluateLayeredEnsemble({
+    window: derived.win,
+    target: targetDigit,
+    posterior: context.weighted,
+    stepDists: horizonFc.stepDists ?? [],
+    horizon: horizonTicks,
+    runProb,
+    bigrams: derived.bigrams,
+    trigrams: derived.trigrams,
+    chiUnif: derived.chi,
+    chiIndep: derived.chiIndep,
+    intervalCv,
+    pingMs,
+    safePingMs: cfg.safePingMs,
+    health,
+    stale,
+    syncing,
+    neutralFallback: horizonFc.neutralFallback,
+    exhausted: preF?.isExhaustedState ?? false,
+  });
+
+  // The Bayesian Fusion confidence bar now reflects the weighted layer vote.
+  const gateConf = layered.confidence;
+  confRef.current = gateConf;
+  layeredRef.current = layered;
 
   const greenBase =
-    !syncing &&
-    health !== "red" &&
+    !layered.blocked &&
     safe &&
-    !stale &&
     !horizonFc.neutralFallback &&
-    !(preF?.isExhaustedState ?? false) &&
-    gateConf >= 0.7 &&
+    meetsExecutionFloor(gateConf) &&
+    rulesSatisfied &&
     runProb >= 0.45;
+
 
   // Second-Run Persistence Shield — hold the green card lit across the whole
   // forecast run so a missed first tick can still be struck on the next one.
