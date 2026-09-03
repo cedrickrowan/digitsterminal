@@ -128,6 +128,11 @@ export default function DigitsApp() {
   const syncingRef = useRef(false);
   // Second-Run Persistence Shield state.
   const streakLatchRef = useRef<{ digit: number; of: number; startTick: number } | null>(null);
+  // Layered-ensemble gate state read by the (non-reactive) fire evaluator.
+  const layeredRef = useRef<LayeredResult | null>(null);
+  const rulesOkRef = useRef(false);
+
+
 
 
   useEffect(() => { cfgRef.current = cfg; saveConfig(cfg); }, [cfg]);
