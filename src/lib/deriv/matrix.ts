@@ -288,5 +288,5 @@ export function forecastHorizon(
     if (a > b) topDigit = d;
   }
 
-  return { horizon, windowSize, horizonDist, multi, topDigit, hurst: h, neutralFallback };
+  return { horizon, windowSize, horizonDist, stepDists, multi, topDigit, hurst: h, neutralFallback };
 }
