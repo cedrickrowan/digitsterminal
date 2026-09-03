@@ -220,11 +220,17 @@ export interface HorizonForecast {
   windowSize: number;
   /** Softmax-normalized P^h row from the current digit. */
   horizonDist: number[];
+  /**
+   * Per-tick lookahead rows: index 0 = P¹ (tick 1), index 1 = P² (tick 2),
+   * index 2 = P³ (tick 3, 1s indices only). Each row sums to 1.
+   */
+  stepDists: number[][];
   multi: MultiAppearance[];
   topDigit: number;
   hurst: number;
   neutralFallback: boolean;
 }
+
 
 /**
  * Full horizon forecast: P^h distribution + cumulative multi-appearance
@@ -248,6 +254,11 @@ export function forecastHorizon(
   const steps = stepDistributions(P, from, Math.max(windowSize, horizon));
   const horizonRow = steps[horizon - 1] ?? UNIFORM10.slice();
   const horizonDist = neutralFallback ? UNIFORM10.slice() : softmaxNormalize(horizonRow);
+  // Per-tick matrix powers: tick1 = P¹, tick2 = P², tick3 = P³ (1s indices).
+  const stepDists = Array.from({ length: horizon }, (_, i) =>
+    neutralFallback ? UNIFORM10.slice() : normalizeToOne((steps[i] ?? UNIFORM10.slice()).slice()),
+  );
+
 
   const multi: MultiAppearance[] = [];
   for (let d = 0; d < 10; d++) {
@@ -277,5 +288,5 @@ export function forecastHorizon(
     if (a > b) topDigit = d;
   }
 
-  return { horizon, windowSize, horizonDist, multi, topDigit, hurst: h, neutralFallback };
+  return { horizon, windowSize, horizonDist, stepDists, multi, topDigit, hurst: h, neutralFallback };
 }
