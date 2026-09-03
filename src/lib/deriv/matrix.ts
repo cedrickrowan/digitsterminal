@@ -220,11 +220,17 @@ export interface HorizonForecast {
   windowSize: number;
   /** Softmax-normalized P^h row from the current digit. */
   horizonDist: number[];
+  /**
+   * Per-tick lookahead rows: index 0 = P¹ (tick 1), index 1 = P² (tick 2),
+   * index 2 = P³ (tick 3, 1s indices only). Each row sums to 1.
+   */
+  stepDists: number[][];
   multi: MultiAppearance[];
   topDigit: number;
   hurst: number;
   neutralFallback: boolean;
 }
+
 
 /**
  * Full horizon forecast: P^h distribution + cumulative multi-appearance
