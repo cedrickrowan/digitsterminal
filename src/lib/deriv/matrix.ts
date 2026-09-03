@@ -254,6 +254,11 @@ export function forecastHorizon(
   const steps = stepDistributions(P, from, Math.max(windowSize, horizon));
   const horizonRow = steps[horizon - 1] ?? UNIFORM10.slice();
   const horizonDist = neutralFallback ? UNIFORM10.slice() : softmaxNormalize(horizonRow);
+  // Per-tick matrix powers: tick1 = P¹, tick2 = P², tick3 = P³ (1s indices).
+  const stepDists = Array.from({ length: horizon }, (_, i) =>
+    neutralFallback ? UNIFORM10.slice() : normalizeToOne((steps[i] ?? UNIFORM10.slice()).slice()),
+  );
+
 
   const multi: MultiAppearance[] = [];
   for (let d = 0; d < 10; d++) {
