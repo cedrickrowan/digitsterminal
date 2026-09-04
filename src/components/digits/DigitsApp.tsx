@@ -63,6 +63,7 @@ import { EngineLog } from "./EngineLog";
 import { PreArrivalPanel } from "./PreArrivalPanel";
 import { SignalCard, type SignalState } from "./SignalCard";
 import { MultiAppearancePanel } from "./MultiAppearancePanel";
+import { OrderExecutionPanel, type OrderRecord } from "./OrderExecutionPanel";
 
 
 
@@ -87,6 +88,9 @@ export default function DigitsApp() {
   const [auth, setAuth] = useState<AuthInfo | null>(null);
   const [buyBusy, setBuyBusy] = useState(false);
   const [lastBuyResult, setLastBuyResult] = useState<string>("");
+  const [autoFire, setAutoFire] = useState(false);
+  const [orders, setOrders] = useState<OrderRecord[]>([]);
+  const lastFireTickRef = useRef(-99);
 
   // ---- Persistent circular byte buffers (never touched by React renders) ----
   const bufRef = useRef<DigitRing | null>(null);
@@ -749,17 +753,36 @@ export default function DigitsApp() {
     setCfg((c) => ({ ...c, ...patch }));
   }, []);
 
-  const applyToken = useCallback(() => {
-    saveToken(token);
-    clientRef.current?.setToken(token);
-  }, [token]);
+  // ---- Deriv OAuth: no token typing. Deriv redirects back with token1=... ----
+  const connectDeriv = useCallback(() => {
+    const appId = (import.meta.env["VITE_DERIV_APP_ID"] as string | undefined) ?? "1089";
+    const redirect = window.location.origin + window.location.pathname;
+    window.location.href =
+      `https://oauth.deriv.com/oauth2/authorize?app_id=${encodeURIComponent(appId)}` +
+      `&l=en&brand=deriv&redirect_uri=${encodeURIComponent(redirect)}`;
+  }, []);
 
-  const clearToken = useCallback(() => {
+  const disconnectDeriv = useCallback(() => {
     setToken("");
     saveToken("");
     clientRef.current?.setToken(null);
     setAuth(null);
+    setAutoFire(false);
   }, []);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const t = params.get("token1");
+    if (!t) return;
+    setToken(t);
+    saveToken(t);
+    clientRef.current?.setToken(t);
+    window.history.replaceState({}, "", window.location.pathname);
+  }, []);
+
+  useEffect(() => {
+    if (token) clientRef.current?.setToken(token);
+  }, [token]);
 
   const handleBuy = useCallback(
     async (contractType: ContractType, barrier?: number) => {
@@ -775,16 +798,44 @@ export default function DigitsApp() {
         currency: auth.currency,
       });
       setBuyBusy(false);
-      if (res.ok) {
-        setLastBuyResult(
-          `✓ ${contractType}${barrier !== undefined ? " " + barrier : ""} · stake ${res.buyPrice?.toFixed(2)} · payout ${res.payout?.toFixed(2)}`,
-        );
-      } else {
-        setLastBuyResult(`✗ ${res.error}`);
-      }
+      const label = `${contractType}${barrier !== undefined ? " " + barrier : ""}`;
+      const detail = res.ok
+        ? `stake ${res.buyPrice?.toFixed(2)} · payout ${res.payout?.toFixed(2)}`
+        : String(res.error);
+      setLastBuyResult(res.ok ? `✓ ${label} · ${detail}` : `✗ ${detail}`);
+      setOrders((o) => [{ id: Date.now() + Math.random(), ts: Date.now(), label, ok: res.ok, detail }, ...o].slice(0, 12));
     },
     [auth, cfg.symbol, cfg.stake, cfg.duration],
   );
+
+  // ---- Planned contract derived from the active market + forecast target ----
+  const planned = useMemo<{ type: ContractType; label: string; barrier?: number }>(() => {
+    switch (cfg.market) {
+      case "overunder":
+        return context.weighted.slice(cfg.barrier + 1).reduce((a, b) => a + b, 0) >= 0.5
+          ? { type: "DIGITOVER", label: `OVER ${cfg.barrier}`, barrier: cfg.barrier }
+          : { type: "DIGITUNDER", label: `UNDER ${cfg.barrier}`, barrier: cfg.barrier };
+      case "evenodd":
+        return derived.split.pEven >= 0.5
+          ? { type: "DIGITEVEN", label: "EVEN" }
+          : { type: "DIGITODD", label: "ODD" };
+      case "risefall":
+        return derived.rf.up >= derived.rf.down
+          ? { type: "CALL", label: "RISE" }
+          : { type: "PUT", label: "FALL" };
+      default:
+        return { type: "DIGITMATCH", label: `MATCH ${targetDigit}`, barrier: targetDigit };
+    }
+  }, [cfg.market, cfg.barrier, context.weighted, derived.split.pEven, derived.rf, targetDigit]);
+
+  // ---- AUTO-FIRE: send a live order the instant the strict gate passes ----
+  const gateReady = greenBase && !syncing && health !== "red";
+  useEffect(() => {
+    if (!autoFire || !auth || !gateReady || buyBusy) return;
+    if (totalTicksRef.current - lastFireTickRef.current < Math.max(3, horizonTicks)) return;
+    lastFireTickRef.current = totalTicksRef.current;
+    void handleBuy(planned.type, planned.barrier);
+  }, [autoFire, auth, gateReady, buyBusy, planned, handleBuy, horizonTicks]);
 
   return (
     <div className={`min-h-screen p-3 text-foreground ${flash ? "ring-4 ring-magenta" : ""}`}>
@@ -842,6 +893,24 @@ export default function DigitsApp() {
           preWarn={preWarn}
           streak={streakInfo}
           smoothedDrift={smoothedDriftRef.current}
+        />
+
+        <OrderExecutionPanel
+          auth={auth}
+          connected={connected}
+          autoFire={autoFire}
+          onAutoFireChange={setAutoFire}
+          onConnect={connectDeriv}
+          onDisconnect={disconnectDeriv}
+          planned={planned}
+          stake={cfg.stake}
+          durationTicks={cfg.duration}
+          gateReady={gateReady}
+          confidence={gateConf}
+          rulesSatisfied={rulesSatisfied}
+          networkOk={health !== "red"}
+          busy={buyBusy}
+          orders={orders}
         />
 
         {/* Human Reaction Offset — compensates manual finger-tap delay */}
