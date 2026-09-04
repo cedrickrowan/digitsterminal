@@ -895,6 +895,24 @@ export default function DigitsApp() {
           smoothedDrift={smoothedDriftRef.current}
         />
 
+        <OrderExecutionPanel
+          auth={auth}
+          connected={connected}
+          autoFire={autoFire}
+          onAutoFireChange={setAutoFire}
+          onConnect={connectDeriv}
+          onDisconnect={disconnectDeriv}
+          planned={planned}
+          stake={cfg.stake}
+          durationTicks={cfg.duration}
+          gateReady={gateReady}
+          confidence={gateConf}
+          rulesSatisfied={rulesSatisfied}
+          networkOk={health !== "red"}
+          busy={buyBusy}
+          orders={orders}
+        />
+
         {/* Human Reaction Offset — compensates manual finger-tap delay */}
         <div className="rounded-lg border border-border bg-card px-3 py-2">
           <div className="mb-1 flex items-center justify-between text-[11px]">
