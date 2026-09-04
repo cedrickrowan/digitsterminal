@@ -63,6 +63,7 @@ import { EngineLog } from "./EngineLog";
 import { PreArrivalPanel } from "./PreArrivalPanel";
 import { SignalCard, type SignalState } from "./SignalCard";
 import { MultiAppearancePanel } from "./MultiAppearancePanel";
+import { OrderExecutionPanel, type OrderRecord } from "./OrderExecutionPanel";
 
 
 
@@ -87,6 +88,9 @@ export default function DigitsApp() {
   const [auth, setAuth] = useState<AuthInfo | null>(null);
   const [buyBusy, setBuyBusy] = useState(false);
   const [lastBuyResult, setLastBuyResult] = useState<string>("");
+  const [autoFire, setAutoFire] = useState(false);
+  const [orders, setOrders] = useState<OrderRecord[]>([]);
+  const lastFireTickRef = useRef(-99);
 
   // ---- Persistent circular byte buffers (never touched by React renders) ----
   const bufRef = useRef<DigitRing | null>(null);
