@@ -42,7 +42,6 @@ import { beep } from "@/lib/deriv/audio";
 import {
   evaluateLayeredEnsemble,
   meetsExecutionFloor,
-  EXECUTION_CONFIDENCE_FLOOR,
   type LayeredResult,
 } from "@/lib/deriv/layeredEnsemble";
 
