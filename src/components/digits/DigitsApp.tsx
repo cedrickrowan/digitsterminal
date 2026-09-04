@@ -42,7 +42,6 @@ import { beep } from "@/lib/deriv/audio";
 import {
   evaluateLayeredEnsemble,
   meetsExecutionFloor,
-  EXECUTION_CONFIDENCE_FLOOR,
   type LayeredResult,
 } from "@/lib/deriv/layeredEnsemble";
 
@@ -232,22 +231,28 @@ export default function DigitsApp() {
     const win = bufRef.current!.lastN(cfgNow.lookback);
     if (win.length < 10) return;
 
-    // ---- STRICT ALERT GATES ----
-    // 1) Every enabled trigger rule must agree (AND, not OR).
+    // ---- STRICT ALERT GATES (Layer 3 gatekeeping) ----
+    // 1) Every enabled TRIGGER RULES percentage must be satisfied (AND, not OR).
     if (enabledRuleCount(cfgNow) === 0) return;
     const hits = evaluateRules({ window: win, cfg: cfgNow });
     if (!allRulesAgree(cfgNow, hits)) return;
-    // 2) Network must be green or yellow.
+    // 2) Network must be strictly GREEN or YELLOW — RED blocks everything.
     if (healthRef.current === "red") return;
-    // 3) Fused confidence must be 80% or higher.
-    if (confRef.current < 0.8) return;
+    // 3) Circuit breakers (chi-square / variance / ping / sync) must be clear.
+    const layeredNow = layeredRef.current;
+    if (layeredNow?.blocked) return;
+    // 4) Weighted layered confidence must be STRICTLY above 85%.
+    if (!meetsExecutionFloor(confRef.current)) return;
 
     if (totalTicksRef.current - lastSignalTickRef.current < 3) return;
     lastSignalTickRef.current = totalTicksRef.current;
 
     const reason =
       hits.map((h) => `${h.rule}:${h.detail}`).join(" · ") +
+      ` · L1 ${((layeredNow?.layer1 ?? 0) * 100).toFixed(0)}%` +
+      ` · L2 ${((layeredNow?.layer2 ?? 0) * 100).toFixed(0)}%` +
       ` · conf ${(confRef.current * 100).toFixed(0)}%`;
+
     const sig: Signal = {
       id: Date.now() + Math.random(),
       ts: Date.now(),
