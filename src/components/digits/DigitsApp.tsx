@@ -656,6 +656,7 @@ export default function DigitsApp() {
   // already compensated for Deriv's 1-tick (first buy) / 2-tick (running) jump.
   const targetDigit = cfg.market === "matches" ? cfg.predictDigit : horizonFc.topDigit;
   const targetMulti = horizonFc.multi[targetDigit];
+  void targetMulti;
   const runFc = horizonFc.runs?.[targetDigit];
   const runProb = runFc?.pRunSafe ?? 0;
   const consecutiveProb = runFc?.pConsecutive ?? 0;
