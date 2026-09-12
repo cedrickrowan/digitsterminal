@@ -73,8 +73,9 @@ function SignalCardImpl({
               {(runProb * 100).toFixed(1)}%
             </div>
             <div className="text-[11px] font-semibold uppercase tracking-wider opacity-80">
-              t+{horizon} horizon
+              repeat · jump safe
             </div>
+
           </div>
         </div>
       ) : (
