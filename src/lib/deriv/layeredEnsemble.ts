@@ -159,6 +159,20 @@ export function evaluateLayeredEnsemble(input: LayeredInputs): LayeredResult {
     weight: LAYER_WEIGHTS.markovMultiStep,
     detail: mk.detail,
   });
+  // Layer 1c — exact jump-safe repeat probability over the executed 3-tick span.
+  // Chance level for >=2 hits of one digit in 3 ticks is ~2.8%; 40%+ saturates.
+  const runRaw = clamp01(input.runProb);
+  const consec = clamp01(input.consecutiveProb ?? 0);
+  const runScore = clamp01(((runRaw - 0.05) / 0.35) * 0.8 + ((consec - 0.03) / 0.3) * 0.2);
+  votes.push({
+    layer: 1,
+    name: "3-tick repeat",
+    score: runScore,
+    weight: LAYER_WEIGHTS.runRepeat,
+    detail: `run ${(runRaw * 100).toFixed(1)}% · pair ${(consec * 100).toFixed(1)}%`,
+  });
+
+
 
   // ---------------- LAYER 2 — PROBABILITY FILTERS ----------------
   const post = clamp01(input.posterior[input.target] ?? 0);
