@@ -75,10 +75,12 @@ export interface LayeredResult {
 export const LAYER_WEIGHTS = Object.freeze({
   streak: 0.3,
   markovMultiStep: 0.32,
+  runRepeat: 0.28,
   bayesian: 0.18,
   digram: 0.1,
   trigram: 0.08,
 });
+
 
 /** Chi-square critical values (df=9, α=0.01 / α=0.05) used as breaker bands. */
 const CHI_RANDOM_FLOOR = 8.34; // below → indistinguishable from uniform noise
