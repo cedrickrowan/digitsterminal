@@ -37,8 +37,11 @@ export interface LayeredInputs {
   /** Per-tick matrix powers P¹..Pʰ from forecastHorizon(). */
   stepDists: number[][];
   horizon: 2 | 3;
-  /** Cumulative P(target appears ≥2× in the rolling 10-tick window). */
+  /** Jump-safe P(target repeats >=2x inside the executed 3-tick span). */
   runProb: number;
+  /** P(two back-to-back hits inside the executed span). */
+  consecutiveProb?: number;
+
   bigrams: Array<{ pattern: string; count: number }>;
   trigrams: Array<{ pattern: string; count: number }>;
   chiUnif: number;
