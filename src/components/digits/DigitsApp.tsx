@@ -683,6 +683,8 @@ export default function DigitsApp() {
     stepDists: horizonFc.stepDists ?? [],
     horizon: horizonTicks,
     runProb,
+    consecutiveProb,
+
     bigrams: derived.bigrams,
     trigrams: derived.trigrams,
     chiUnif: derived.chi,
