@@ -704,13 +704,29 @@ export default function DigitsApp() {
   confRef.current = gateConf;
   layeredRef.current = layered;
 
+  // Worst-case market probability across every tick the contract can settle on
+  // (t+1..t+4), so a one- or two-tick jump cannot invalidate the call.
+  const mkt = horizonFc.market;
+  const marketEdge =
+    cfg.market === "matches"
+      ? runProb
+      : cfg.market === "overunder"
+        ? Math.max(mkt?.overProb?.[cfg.barrier] ?? 0, mkt?.underProb?.[cfg.barrier] ?? 0)
+        : cfg.market === "evenodd"
+          ? Math.max(mkt?.even ?? 0, mkt?.odd ?? 0)
+          : Math.max(derived.rf.up, derived.rf.down);
+  // Matches needs a real repeat edge; directional markets need a robust majority.
+  const edgeFloor = cfg.market === "matches" ? 0.3 : 0.6;
+
   const greenBase =
     !layered.blocked &&
     safe &&
     !horizonFc.neutralFallback &&
     meetsExecutionFloor(gateConf) &&
     rulesSatisfied &&
-    runProb >= 0.45;
+    marketEdge >= edgeFloor;
+
+
 
 
   // Second-Run Persistence Shield — hold the green card lit across the whole
