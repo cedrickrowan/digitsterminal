@@ -429,12 +429,34 @@ export function forecastHorizon(
     multi.push({ digit: d, tail, horizonProb: horizonDist[d], bestN, bestNProb });
   }
 
-  let topDigit = 0;
+  // ---- Jump-compensated 3-tick repeat forecast (exact Markov DP) ----
+  const runs = runForecasts(P, from, 3);
+  // Contract can settle on any of t+1..t+4 after the bot's tick jump.
+  const market = marketRobustness(steps.slice(0, 4).map((r) => normalizeToOne(r.slice())));
+
+  let runTopDigit = 0;
   for (let d = 1; d < 10; d++) {
-    const a = multi[d].tail[2] * 0.6 + horizonDist[d] * 0.4;
-    const b = multi[topDigit].tail[2] * 0.6 + horizonDist[topDigit] * 0.4;
-    if (a > b) topDigit = d;
+    if (runs[d].pRunSafe > runs[runTopDigit].pRunSafe) runTopDigit = d;
   }
 
-  return { horizon, windowSize, horizonDist, stepDists, multi, topDigit, hurst: h, neutralFallback };
+  // Final target blends the jump-safe repeat probability (dominant) with the
+  // horizon row and the 10-tick multi-appearance tail.
+  const scoreOf = (d: number) =>
+    runs[d].pRunSafe * 0.55 + runs[d].pConsecutive * 0.15 + horizonDist[d] * 0.2 + multi[d].tail[2] * 0.1;
+  let topDigit = 0;
+  for (let d = 1; d < 10; d++) if (scoreOf(d) > scoreOf(topDigit)) topDigit = d;
+
+  return {
+    horizon,
+    windowSize,
+    horizonDist,
+    stepDists,
+    multi,
+    runs,
+    runTopDigit,
+    market,
+    topDigit,
+    hurst: h,
+    neutralFallback,
+  };
 }
