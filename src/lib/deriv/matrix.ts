@@ -215,6 +215,39 @@ export interface MultiAppearance {
   bestNProb: number;
 }
 
+/**
+ * Exact (non-independence-approximated) forecast of how many times a digit
+ * repeats inside the contract window that actually gets evaluated.
+ *
+ * Deriv's bot skips one tick when buying the first contract and two ticks when
+ * it is already running, so the executed 3-tick span starts at t+1 OR t+2.
+ * `pRunSafe` is the worst case of both, which is what execution is gated on.
+ */
+export interface RunForecast {
+  digit: number;
+  /** P(>=2 hits) over ticks t+1..t+3 (first purchase, one-tick jump). */
+  pRunEntry: number;
+  /** P(>=2 hits) over ticks t+2..t+4 (continuous run, two-tick jump). */
+  pRunJump: number;
+  /** min(pRunEntry, pRunJump) — survives either jump path. */
+  pRunSafe: number;
+  /** P(>=3 hits) inside the entry span. */
+  pTriple: number;
+  /** P(at least one back-to-back repeat) inside the entry span. */
+  pConsecutive: number;
+  /** Per-tick hit probability across t+1..t+4. */
+  tickProbs: number[];
+}
+
+/** Worst-case (across the jump ticks) probabilities for the non-digit markets. */
+export interface MarketRobustness {
+  /** overProb[b] = min_t P(digit > b); underProb[b] = min_t P(digit < b). */
+  overProb: number[];
+  underProb: number[];
+  even: number;
+  odd: number;
+}
+
 export interface HorizonForecast {
   horizon: 2 | 3;
   windowSize: number;
@@ -226,10 +259,125 @@ export interface HorizonForecast {
    */
   stepDists: number[][];
   multi: MultiAppearance[];
+  /** Exact 3-tick repeat forecast per digit, jump-compensated. */
+  runs: RunForecast[];
+  /** Digit with the highest jump-safe repeat probability. */
+  runTopDigit: number;
+  market: MarketRobustness;
   topDigit: number;
   hurst: number;
   neutralFallback: boolean;
 }
+
+/**
+ * Exact Markov DP over the executed span. States: (current digit, hits so far
+ * capped at 3, seen-consecutive-pair flag). Returns cumulative probabilities.
+ */
+function runWindowStats(
+  P: number[][],
+  from: number,
+  offset: number,
+  span: number,
+  target: number,
+): { pAtLeast2: number; pAtLeast3: number; pConsecutive: number; tickProbs: number[] } {
+  const CAP = 3;
+  const idx = (d: number, c: number, pair: number) => (d * (CAP + 1) + c) * 2 + pair;
+  let state = new Float64Array(10 * (CAP + 1) * 2);
+  if (from >= 0 && from <= 9) state[idx(from, 0, 0)] = 1;
+  else for (let d = 0; d < 10; d++) state[idx(d, 0, 0)] = 0.1;
+
+  const lastTick = offset + span - 1;
+  const tickProbs: number[] = [];
+  for (let k = 1; k <= lastTick; k++) {
+    const next = new Float64Array(state.length);
+    const inWindow = k >= offset && k <= lastTick;
+    let hitProb = 0;
+    for (let d = 0; d < 10; d++) {
+      const prevHit = d === target;
+      for (let c = 0; c <= CAP; c++) {
+        for (let pair = 0; pair < 2; pair++) {
+          const w = state[idx(d, c, pair)];
+          if (w === 0) continue;
+          const Pd = P[d];
+          for (let j = 0; j < 10; j++) {
+            const p = Pd[j];
+            if (p === 0) continue;
+            const hit = j === target && inWindow;
+            const nc = hit ? Math.min(CAP, c + 1) : c;
+            // consecutive pair only counts when both ticks are inside the span
+            const npair = pair || (hit && prevHit && k - 1 >= offset) ? 1 : 0;
+            next[idx(j, nc, npair)] += w * p;
+            if (j === target) hitProb += w * p;
+          }
+        }
+      }
+    }
+    state = next;
+    tickProbs.push(hitProb);
+  }
+
+  let p2 = 0;
+  let p3 = 0;
+  let pc = 0;
+  for (let d = 0; d < 10; d++) {
+    for (let c = 0; c <= CAP; c++) {
+      for (let pair = 0; pair < 2; pair++) {
+        const w = state[idx(d, c, pair)];
+        if (w === 0) continue;
+        if (c >= 2) p2 += w;
+        if (c >= 3) p3 += w;
+        if (pair === 1) pc += w;
+      }
+    }
+  }
+  return { pAtLeast2: p2, pAtLeast3: p3, pConsecutive: pc, tickProbs };
+}
+
+/** Jump-compensated repeat forecast for every digit. */
+export function runForecasts(P: number[][], from: number, span = 3): RunForecast[] {
+  const out: RunForecast[] = [];
+  for (let d = 0; d < 10; d++) {
+    const entry = runWindowStats(P, from, 1, span, d);
+    const jump = runWindowStats(P, from, 2, span, d);
+    out.push({
+      digit: d,
+      pRunEntry: entry.pAtLeast2,
+      pRunJump: jump.pAtLeast2,
+      pRunSafe: Math.min(entry.pAtLeast2, jump.pAtLeast2),
+      pTriple: entry.pAtLeast3,
+      pConsecutive: entry.pConsecutive,
+      tickProbs: jump.tickProbs,
+    });
+  }
+  return out;
+}
+
+/** Worst-case market probabilities across every tick the contract can land on. */
+export function marketRobustness(stepRows: number[][]): MarketRobustness {
+  const rows = stepRows.length ? stepRows : [UNIFORM10.slice()];
+  const overProb = new Array(10).fill(1);
+  const underProb = new Array(10).fill(1);
+  let even = 1;
+  let odd = 1;
+  for (const row of rows) {
+    let e = 0;
+    for (let d = 0; d < 10; d++) if ((d & 1) === 0) e += row[d];
+    even = Math.min(even, e);
+    odd = Math.min(odd, 1 - e);
+    for (let b = 0; b < 10; b++) {
+      let over = 0;
+      let under = 0;
+      for (let d = 0; d < 10; d++) {
+        if (d > b) over += row[d];
+        else if (d < b) under += row[d];
+      }
+      overProb[b] = Math.min(overProb[b], over);
+      underProb[b] = Math.min(underProb[b], under);
+    }
+  }
+  return { overProb, underProb, even, odd };
+}
+
 
 
 /**
