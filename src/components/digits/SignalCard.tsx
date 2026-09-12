@@ -89,8 +89,8 @@ function SignalCardImpl({
       {state === "green" && (
         <div className="mt-2 font-mono text-[11px] font-semibold uppercase tracking-wider opacity-80">
           {windowInMs <= 0
-            ? "WINDOW OPEN"
-            : `WINDOW IN ${Math.round(windowInMs)}ms${preWarn ? " · GET READY" : ""}`}
+            ? `WINDOW OPEN · t+${horizon}`
+            : `WINDOW IN ${Math.round(windowInMs)}ms · t+${horizon}${preWarn ? " · GET READY" : ""}`}
         </div>
       )}
     </div>
