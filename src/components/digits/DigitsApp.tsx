@@ -652,10 +652,15 @@ export default function DigitsApp() {
   const horizonTicks = horizonFc.horizon;
 
   // ---- LAYERED ENSEMBLE (Layer 1 momentum / Layer 2 filters / Layer 3 breakers)
+  // Target = the digit most likely to REPEAT inside the executed 3-tick span,
+  // already compensated for Deriv's 1-tick (first buy) / 2-tick (running) jump.
   const targetDigit = cfg.market === "matches" ? cfg.predictDigit : horizonFc.topDigit;
   const targetMulti = horizonFc.multi[targetDigit];
-  const runProb = targetMulti?.tail[2] ?? 0;
-  const targetN = targetMulti?.bestN ?? 2;
+  const runFc = horizonFc.runs?.[targetDigit];
+  const runProb = runFc?.pRunSafe ?? 0;
+  const consecutiveProb = runFc?.pConsecutive ?? 0;
+  const targetN = runFc && runFc.pTriple >= 0.3 ? 3 : 2;
+
   const preF = context.pre.forecasts[targetDigit];
   const intervalCv =
     engineReport && engineReport.intervalMs > 0
