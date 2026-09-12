@@ -832,14 +832,16 @@ export default function DigitsApp() {
   );
 
   // ---- Planned contract derived from the active market + forecast target ----
+  // Direction comes from the jump-robust (worst-tick) probabilities so the side
+  // stays valid whether the contract settles on t+1, t+2, t+3 or t+4.
   const planned = useMemo<{ type: ContractType; label: string; barrier?: number }>(() => {
     switch (cfg.market) {
       case "overunder":
-        return context.weighted.slice(cfg.barrier + 1).reduce((a, b) => a + b, 0) >= 0.5
+        return (mkt?.overProb?.[cfg.barrier] ?? 0) >= (mkt?.underProb?.[cfg.barrier] ?? 0)
           ? { type: "DIGITOVER", label: `OVER ${cfg.barrier}`, barrier: cfg.barrier }
           : { type: "DIGITUNDER", label: `UNDER ${cfg.barrier}`, barrier: cfg.barrier };
       case "evenodd":
-        return derived.split.pEven >= 0.5
+        return (mkt?.even ?? 0.5) >= (mkt?.odd ?? 0.5)
           ? { type: "DIGITEVEN", label: "EVEN" }
           : { type: "DIGITODD", label: "ODD" };
       case "risefall":
@@ -849,7 +851,8 @@ export default function DigitsApp() {
       default:
         return { type: "DIGITMATCH", label: `MATCH ${targetDigit}`, barrier: targetDigit };
     }
-  }, [cfg.market, cfg.barrier, context.weighted, derived.split.pEven, derived.rf, targetDigit]);
+  }, [cfg.market, cfg.barrier, mkt, derived.rf, targetDigit]);
+
 
   // ---- AUTO-FIRE: send a live order the instant the strict gate passes ----
   const gateReady = greenBase && !syncing && health !== "red";
