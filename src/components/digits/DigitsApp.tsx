@@ -652,10 +652,16 @@ export default function DigitsApp() {
   const horizonTicks = horizonFc.horizon;
 
   // ---- LAYERED ENSEMBLE (Layer 1 momentum / Layer 2 filters / Layer 3 breakers)
+  // Target = the digit most likely to REPEAT inside the executed 3-tick span,
+  // already compensated for Deriv's 1-tick (first buy) / 2-tick (running) jump.
   const targetDigit = cfg.market === "matches" ? cfg.predictDigit : horizonFc.topDigit;
   const targetMulti = horizonFc.multi[targetDigit];
-  const runProb = targetMulti?.tail[2] ?? 0;
-  const targetN = targetMulti?.bestN ?? 2;
+  void targetMulti;
+  const runFc = horizonFc.runs?.[targetDigit];
+  const runProb = runFc?.pRunSafe ?? 0;
+  const consecutiveProb = runFc?.pConsecutive ?? 0;
+  const targetN = runFc && runFc.pTriple >= 0.3 ? 3 : 2;
+
   const preF = context.pre.forecasts[targetDigit];
   const intervalCv =
     engineReport && engineReport.intervalMs > 0
@@ -678,6 +684,8 @@ export default function DigitsApp() {
     stepDists: horizonFc.stepDists ?? [],
     horizon: horizonTicks,
     runProb,
+    consecutiveProb,
+
     bigrams: derived.bigrams,
     trigrams: derived.trigrams,
     chiUnif: derived.chi,
@@ -697,13 +705,29 @@ export default function DigitsApp() {
   confRef.current = gateConf;
   layeredRef.current = layered;
 
+  // Worst-case market probability across every tick the contract can settle on
+  // (t+1..t+4), so a one- or two-tick jump cannot invalidate the call.
+  const mkt = horizonFc.market;
+  const marketEdge =
+    cfg.market === "matches"
+      ? runProb
+      : cfg.market === "overunder"
+        ? Math.max(mkt?.overProb?.[cfg.barrier] ?? 0, mkt?.underProb?.[cfg.barrier] ?? 0)
+        : cfg.market === "evenodd"
+          ? Math.max(mkt?.even ?? 0, mkt?.odd ?? 0)
+          : Math.max(derived.rf.up, derived.rf.down);
+  // Matches needs a real repeat edge; directional markets need a robust majority.
+  const edgeFloor = cfg.market === "matches" ? 0.3 : 0.6;
+
   const greenBase =
     !layered.blocked &&
     safe &&
     !horizonFc.neutralFallback &&
     meetsExecutionFloor(gateConf) &&
     rulesSatisfied &&
-    runProb >= 0.45;
+    marketEdge >= edgeFloor;
+
+
 
 
   // Second-Run Persistence Shield — hold the green card lit across the whole
@@ -809,14 +833,16 @@ export default function DigitsApp() {
   );
 
   // ---- Planned contract derived from the active market + forecast target ----
+  // Direction comes from the jump-robust (worst-tick) probabilities so the side
+  // stays valid whether the contract settles on t+1, t+2, t+3 or t+4.
   const planned = useMemo<{ type: ContractType; label: string; barrier?: number }>(() => {
     switch (cfg.market) {
       case "overunder":
-        return context.weighted.slice(cfg.barrier + 1).reduce((a, b) => a + b, 0) >= 0.5
+        return (mkt?.overProb?.[cfg.barrier] ?? 0) >= (mkt?.underProb?.[cfg.barrier] ?? 0)
           ? { type: "DIGITOVER", label: `OVER ${cfg.barrier}`, barrier: cfg.barrier }
           : { type: "DIGITUNDER", label: `UNDER ${cfg.barrier}`, barrier: cfg.barrier };
       case "evenodd":
-        return derived.split.pEven >= 0.5
+        return (mkt?.even ?? 0.5) >= (mkt?.odd ?? 0.5)
           ? { type: "DIGITEVEN", label: "EVEN" }
           : { type: "DIGITODD", label: "ODD" };
       case "risefall":
@@ -826,7 +852,8 @@ export default function DigitsApp() {
       default:
         return { type: "DIGITMATCH", label: `MATCH ${targetDigit}`, barrier: targetDigit };
     }
-  }, [cfg.market, cfg.barrier, context.weighted, derived.split.pEven, derived.rf, targetDigit]);
+  }, [cfg.market, cfg.barrier, mkt, derived.rf, targetDigit]);
+
 
   // ---- AUTO-FIRE: send a live order the instant the strict gate passes ----
   const gateReady = greenBase && !syncing && health !== "red";

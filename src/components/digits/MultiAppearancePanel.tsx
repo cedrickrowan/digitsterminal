@@ -45,6 +45,28 @@ function MultiAppearancePanelImpl({ horizon, target }: Props) {
         })}
       </div>
 
+      <div className="mb-1 px-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+        Repeat ≥2x in next 3 ticks · jump safe (t+1 / t+2 entry)
+      </div>
+      <div className="mb-2 grid grid-cols-5 gap-1">
+        {(horizon.runs ?? []).map((r) => (
+          <div
+            key={r.digit}
+            className={`rounded-sm border px-1 py-1 text-center ${
+              r.digit === horizon.runTopDigit ? "border-success ring-1 ring-success" : "border-input"
+            }`}
+          >
+            <div className="font-mono text-sm font-bold tabular-nums">{r.digit}</div>
+            <div className="font-mono text-[10px] tabular-nums">{(r.pRunSafe * 100).toFixed(1)}%</div>
+            <div className="font-mono text-[9px] text-muted-foreground">
+              pair {(r.pConsecutive * 100).toFixed(0)}%
+            </div>
+          </div>
+        ))}
+      </div>
+
+
+
       <div className="grid grid-cols-5 gap-1">
         {horizon.multi.map((m) => (
           <div

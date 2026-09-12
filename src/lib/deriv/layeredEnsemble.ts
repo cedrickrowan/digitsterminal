@@ -37,8 +37,11 @@ export interface LayeredInputs {
   /** Per-tick matrix powers P¹..Pʰ from forecastHorizon(). */
   stepDists: number[][];
   horizon: 2 | 3;
-  /** Cumulative P(target appears ≥2× in the rolling 10-tick window). */
+  /** Jump-safe P(target repeats >=2x inside the executed 3-tick span). */
   runProb: number;
+  /** P(two back-to-back hits inside the executed span). */
+  consecutiveProb?: number;
+
   bigrams: Array<{ pattern: string; count: number }>;
   trigrams: Array<{ pattern: string; count: number }>;
   chiUnif: number;
@@ -72,10 +75,12 @@ export interface LayeredResult {
 export const LAYER_WEIGHTS = Object.freeze({
   streak: 0.3,
   markovMultiStep: 0.32,
+  runRepeat: 0.28,
   bayesian: 0.18,
   digram: 0.1,
   trigram: 0.08,
 });
+
 
 /** Chi-square critical values (df=9, α=0.01 / α=0.05) used as breaker bands. */
 const CHI_RANDOM_FLOOR = 8.34; // below → indistinguishable from uniform noise
@@ -154,6 +159,20 @@ export function evaluateLayeredEnsemble(input: LayeredInputs): LayeredResult {
     weight: LAYER_WEIGHTS.markovMultiStep,
     detail: mk.detail,
   });
+  // Layer 1c — exact jump-safe repeat probability over the executed 3-tick span.
+  // Chance level for >=2 hits of one digit in 3 ticks is ~2.8%; 40%+ saturates.
+  const runRaw = clamp01(input.runProb);
+  const consec = clamp01(input.consecutiveProb ?? 0);
+  const runScore = clamp01(((runRaw - 0.05) / 0.35) * 0.8 + ((consec - 0.03) / 0.3) * 0.2);
+  votes.push({
+    layer: 1,
+    name: "3-tick repeat",
+    score: runScore,
+    weight: LAYER_WEIGHTS.runRepeat,
+    detail: `run ${(runRaw * 100).toFixed(1)}% · pair ${(consec * 100).toFixed(1)}%`,
+  });
+
+
 
   // ---------------- LAYER 2 — PROBABILITY FILTERS ----------------
   const post = clamp01(input.posterior[input.target] ?? 0);
@@ -180,8 +199,11 @@ export function evaluateLayeredEnsemble(input: LayeredInputs): LayeredResult {
   }
   const rawScore = den ? num / den : 0;
   const layer1 =
-    (s.score * LAYER_WEIGHTS.streak + mk.score * LAYER_WEIGHTS.markovMultiStep) /
-    (LAYER_WEIGHTS.streak + LAYER_WEIGHTS.markovMultiStep);
+    (s.score * LAYER_WEIGHTS.streak +
+      mk.score * LAYER_WEIGHTS.markovMultiStep +
+      runScore * LAYER_WEIGHTS.runRepeat) /
+    (LAYER_WEIGHTS.streak + LAYER_WEIGHTS.markovMultiStep + LAYER_WEIGHTS.runRepeat);
+
   const layer2 =
     (bayes * LAYER_WEIGHTS.bayesian + dg.score * LAYER_WEIGHTS.digram + tg.score * LAYER_WEIGHTS.trigram) /
     (LAYER_WEIGHTS.bayesian + LAYER_WEIGHTS.digram + LAYER_WEIGHTS.trigram);
