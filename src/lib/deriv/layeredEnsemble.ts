@@ -199,8 +199,11 @@ export function evaluateLayeredEnsemble(input: LayeredInputs): LayeredResult {
   }
   const rawScore = den ? num / den : 0;
   const layer1 =
-    (s.score * LAYER_WEIGHTS.streak + mk.score * LAYER_WEIGHTS.markovMultiStep) /
-    (LAYER_WEIGHTS.streak + LAYER_WEIGHTS.markovMultiStep);
+    (s.score * LAYER_WEIGHTS.streak +
+      mk.score * LAYER_WEIGHTS.markovMultiStep +
+      runScore * LAYER_WEIGHTS.runRepeat) /
+    (LAYER_WEIGHTS.streak + LAYER_WEIGHTS.markovMultiStep + LAYER_WEIGHTS.runRepeat);
+
   const layer2 =
     (bayes * LAYER_WEIGHTS.bayesian + dg.score * LAYER_WEIGHTS.digram + tg.score * LAYER_WEIGHTS.trigram) /
     (LAYER_WEIGHTS.bayesian + LAYER_WEIGHTS.digram + LAYER_WEIGHTS.trigram);
