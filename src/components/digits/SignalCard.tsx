@@ -50,7 +50,7 @@ function SignalCardImpl({
       : state === "green"
         ? streak
           ? `STEP ${streak.step} OF ${streak.of}`
-          : `MATCH DIGIT ${digit} · ${targetN}x IN 10`
+          : `DIGIT ${digit} · ${targetN}x IN NEXT 3 TICKS`
         : "CHAOTIC NOISE";
 
   return (
