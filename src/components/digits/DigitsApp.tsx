@@ -472,7 +472,15 @@ export default function DigitsApp() {
             // Fan the newest tick into the worker analysis engine.
             tickStreamRef.current?.next({ digit: latest.digit, ts: performance.now() });
             resolveSims(latest.digit);
-            if (!isStale) evaluateAndMaybeFire();
+            // Rate limiter: never run the main-thread gate evaluation more
+            // than once per 180ms. A burst of queued ticks (multi-window
+            // wake-up, 1s indices) can otherwise stack synchronous work and
+            // lock the UI thread. The newest tick always wins.
+            const nowMs = performance.now();
+            if (!isStale && nowMs - lastEvalRef.current >= 180) {
+              lastEvalRef.current = nowMs;
+              evaluateAndMaybeFire();
+            }
             scheduleRender();
           });
         }
