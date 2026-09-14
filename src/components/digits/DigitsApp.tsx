@@ -449,7 +449,8 @@ export default function DigitsApp() {
         bufRef.current!.push(digit);
         totalTicksRef.current++;
         lastPriceRef.current = quote;
-        setLastPrice(quote);
+        const visible = typeof document === "undefined" || document.visibilityState === "visible";
+        if (visible) setLastPrice(quote);
         // Price EMA + Δ volatility feed (fixed-size Float32 ring buffers).
         {
           const ps = priceSeriesRef.current!;
