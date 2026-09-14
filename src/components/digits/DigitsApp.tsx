@@ -544,14 +544,43 @@ export default function DigitsApp() {
     const onVis = () => {
       if (document.visibilityState === "hidden") {
         hiddenSinceRef.current = performance.now();
-      } else if (document.visibilityState === "visible") {
-        // Keep marker set; onTick will use it to detect the wake-burst.
-        if (!clientRef.current) handleConnect();
+        return;
       }
+      // Coming back to the foreground (or out of a background floating
+      // window): drop whatever the socket buffered while we were throttled
+      // and resync from the server instead of replaying a stale backlog.
+      const hiddenFor = hiddenSinceRef.current ? performance.now() - hiddenSinceRef.current : 0;
+      if (!clientRef.current) {
+        handleConnect();
+      } else if (hiddenFor > 4000) {
+        lastArrivalRef.current = 0;
+        pendingTickRef.current = null;
+        lastEvalRef.current = 0;
+        clientRef.current.subscribeTicks(cfgRef.current.symbol, 100);
+      }
+      hiddenSinceRef.current = 0;
+      forceRender((x) => (x + 1) & 0x3fffffff);
     };
     document.addEventListener("visibilitychange", onVis);
     return () => document.removeEventListener("visibilitychange", onVis);
   }, [handleConnect]);
+
+  // Foreground stall watchdog — if the feed goes quiet for far longer than the
+  // observed cadence (phone throttled the socket, network dropped silently),
+  // resubscribe instead of sitting on a frozen screen.
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      if (document.visibilityState !== "visible") return;
+      const last = lastArrivalRef.current;
+      if (!last || !clientRef.current) return;
+      const budget = Math.max(6000, (gapsRef.current!.median() || 2000) * 5);
+      if (performance.now() - last > budget) {
+        lastArrivalRef.current = 0;
+        clientRef.current.subscribeTicks(cfgRef.current.symbol, 100);
+      }
+    }, 4000);
+    return () => clearInterval(id);
+  }, []);
 
   // Symbol switch: wipe every statistic so the new volatility is analysed
   // from a completely fresh state (no cross-instrument contamination).
