@@ -214,11 +214,14 @@ export default function DigitsApp() {
 
   const scheduleRender = useCallback(() => {
     if (renderScheduled.current) return;
+    // While the page is hidden/backgrounded there is nothing to paint — the
+    // ring buffers keep recording, and the first visible frame catches up.
+    if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
     renderScheduled.current = true;
     setTimeout(() => {
       renderScheduled.current = false;
       forceRender((x) => (x + 1) & 0x3fffffff);
-    }, 120);
+    }, 140);
   }, []);
 
   const pushSignal = useCallback((s: Signal) => {
