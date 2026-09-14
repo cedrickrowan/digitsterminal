@@ -113,6 +113,8 @@ export default function DigitsApp() {
   const armedRef = useRef(armed);
   const pendingSimRef = useRef<Array<{ id: number; tickIndex: number; predicted: number; entryPrice: number }>>([]);
   const lastSignalTickRef = useRef(-100);
+  // Timestamp of the last main-thread gate evaluation (burst rate limiter).
+  const lastEvalRef = useRef(0);
   const renderScheduled = useRef(false);
   // Background analysis engine (Web Worker) + reactive tick stream
   const workerRef = useRef<Worker | null>(null);
