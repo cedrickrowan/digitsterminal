@@ -113,6 +113,8 @@ export default function DigitsApp() {
   const armedRef = useRef(armed);
   const pendingSimRef = useRef<Array<{ id: number; tickIndex: number; predicted: number; entryPrice: number }>>([]);
   const lastSignalTickRef = useRef(-100);
+  // Timestamp of the last main-thread gate evaluation (burst rate limiter).
+  const lastEvalRef = useRef(0);
   const renderScheduled = useRef(false);
   // Background analysis engine (Web Worker) + reactive tick stream
   const workerRef = useRef<Worker | null>(null);
@@ -148,10 +150,27 @@ export default function DigitsApp() {
   useEffect(() => { cfgRef.current = cfg; saveConfig(cfg); }, [cfg]);
   useEffect(() => { armedRef.current = armed; }, [armed]);
 
-  // Countdown ticker @ 5fps — light, only updates a single number/bar.
+  // Countdown ticker @ 4fps — light, only updates a single number/bar.
+  // Paused whenever the page is hidden or shrunk to a background floating
+  // window, so a throttled phone never accumulates a backlog of timer work.
   useEffect(() => {
-    const id = window.setInterval(() => setTick((t) => (t + 1) & 0x3fffffff), 200);
-    return () => clearInterval(id);
+    let id = 0;
+    const start = () => {
+      if (id) return;
+      id = window.setInterval(() => setTick((t) => (t + 1) & 0x3fffffff), 250);
+    };
+    const stop = () => {
+      if (!id) return;
+      clearInterval(id);
+      id = 0;
+    };
+    const sync = () => (document.visibilityState === "visible" ? start() : stop());
+    sync();
+    document.addEventListener("visibilitychange", sync);
+    return () => {
+      stop();
+      document.removeEventListener("visibilitychange", sync);
+    };
   }, []);
 
   // Spin up the analysis Web Worker + RxJS tick stream once. The worker owns
@@ -197,11 +216,14 @@ export default function DigitsApp() {
 
   const scheduleRender = useCallback(() => {
     if (renderScheduled.current) return;
+    // While the page is hidden/backgrounded there is nothing to paint — the
+    // ring buffers keep recording, and the first visible frame catches up.
+    if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
     renderScheduled.current = true;
     setTimeout(() => {
       renderScheduled.current = false;
       forceRender((x) => (x + 1) & 0x3fffffff);
-    }, 120);
+    }, 140);
   }, []);
 
   const pushSignal = useCallback((s: Signal) => {
@@ -429,7 +451,8 @@ export default function DigitsApp() {
         bufRef.current!.push(digit);
         totalTicksRef.current++;
         lastPriceRef.current = quote;
-        setLastPrice(quote);
+        const visible = typeof document === "undefined" || document.visibilityState === "visible";
+        if (visible) setLastPrice(quote);
         // Price EMA + Δ volatility feed (fixed-size Float32 ring buffers).
         {
           const ps = priceSeriesRef.current!;
@@ -451,7 +474,15 @@ export default function DigitsApp() {
             // Fan the newest tick into the worker analysis engine.
             tickStreamRef.current?.next({ digit: latest.digit, ts: performance.now() });
             resolveSims(latest.digit);
-            if (!isStale) evaluateAndMaybeFire();
+            // Rate limiter: never run the main-thread gate evaluation more
+            // than once per 180ms. A burst of queued ticks (multi-window
+            // wake-up, 1s indices) can otherwise stack synchronous work and
+            // lock the UI thread. The newest tick always wins.
+            const nowMs = performance.now();
+            if (!isStale && nowMs - lastEvalRef.current >= 180) {
+              lastEvalRef.current = nowMs;
+              evaluateAndMaybeFire();
+            }
             scheduleRender();
           });
         }
@@ -513,14 +544,43 @@ export default function DigitsApp() {
     const onVis = () => {
       if (document.visibilityState === "hidden") {
         hiddenSinceRef.current = performance.now();
-      } else if (document.visibilityState === "visible") {
-        // Keep marker set; onTick will use it to detect the wake-burst.
-        if (!clientRef.current) handleConnect();
+        return;
       }
+      // Coming back to the foreground (or out of a background floating
+      // window): drop whatever the socket buffered while we were throttled
+      // and resync from the server instead of replaying a stale backlog.
+      const hiddenFor = hiddenSinceRef.current ? performance.now() - hiddenSinceRef.current : 0;
+      if (!clientRef.current) {
+        handleConnect();
+      } else if (hiddenFor > 4000) {
+        lastArrivalRef.current = 0;
+        pendingTickRef.current = null;
+        lastEvalRef.current = 0;
+        clientRef.current.subscribeTicks(cfgRef.current.symbol, 100);
+      }
+      hiddenSinceRef.current = 0;
+      forceRender((x) => (x + 1) & 0x3fffffff);
     };
     document.addEventListener("visibilitychange", onVis);
     return () => document.removeEventListener("visibilitychange", onVis);
   }, [handleConnect]);
+
+  // Foreground stall watchdog — if the feed goes quiet for far longer than the
+  // observed cadence (phone throttled the socket, network dropped silently),
+  // resubscribe instead of sitting on a frozen screen.
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      if (document.visibilityState !== "visible") return;
+      const last = lastArrivalRef.current;
+      if (!last || !clientRef.current) return;
+      const budget = Math.max(6000, (gapsRef.current!.median() || 2000) * 5);
+      if (performance.now() - last > budget) {
+        lastArrivalRef.current = 0;
+        clientRef.current.subscribeTicks(cfgRef.current.symbol, 100);
+      }
+    }, 4000);
+    return () => clearInterval(id);
+  }, []);
 
   // Symbol switch: wipe every statistic so the new volatility is analysed
   // from a completely fresh state (no cross-instrument contamination).
@@ -677,28 +737,49 @@ export default function DigitsApp() {
   rulesOkRef.current = rulesSatisfied;
 
 
-  const layered = evaluateLayeredEnsemble({
-    window: derived.win,
-    target: targetDigit,
-    posterior: context.weighted,
-    stepDists: horizonFc.stepDists ?? [],
-    horizon: horizonTicks,
-    runProb,
-    consecutiveProb,
+  // Memoised so the 4fps countdown repaint never re-runs the weighted vote.
+  // Identical inputs → identical result, so nothing about the math changes.
+  const layered = useMemo(
+    () =>
+      evaluateLayeredEnsemble({
+        window: derived.win,
+        target: targetDigit,
+        posterior: context.weighted,
+        stepDists: horizonFc.stepDists ?? [],
+        horizon: horizonTicks,
+        runProb,
+        consecutiveProb,
 
-    bigrams: derived.bigrams,
-    trigrams: derived.trigrams,
-    chiUnif: derived.chi,
-    chiIndep: derived.chiIndep,
-    intervalCv,
-    pingMs,
-    safePingMs: cfg.safePingMs,
-    health,
-    stale,
-    syncing,
-    neutralFallback: horizonFc.neutralFallback,
-    exhausted: preF?.isExhaustedState ?? false,
-  });
+        bigrams: derived.bigrams,
+        trigrams: derived.trigrams,
+        chiUnif: derived.chi,
+        chiIndep: derived.chiIndep,
+        intervalCv,
+        pingMs,
+        safePingMs: cfg.safePingMs,
+        health,
+        stale,
+        syncing,
+        neutralFallback: horizonFc.neutralFallback,
+        exhausted: preF?.isExhaustedState ?? false,
+      }),
+    [
+      derived,
+      targetDigit,
+      context.weighted,
+      horizonFc,
+      horizonTicks,
+      runProb,
+      consecutiveProb,
+      intervalCv,
+      pingMs,
+      cfg.safePingMs,
+      health,
+      stale,
+      syncing,
+      preF,
+    ],
+  );
 
   // The Bayesian Fusion confidence bar now reflects the weighted layer vote.
   const gateConf = layered.confidence;
