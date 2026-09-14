@@ -708,28 +708,49 @@ export default function DigitsApp() {
   rulesOkRef.current = rulesSatisfied;
 
 
-  const layered = evaluateLayeredEnsemble({
-    window: derived.win,
-    target: targetDigit,
-    posterior: context.weighted,
-    stepDists: horizonFc.stepDists ?? [],
-    horizon: horizonTicks,
-    runProb,
-    consecutiveProb,
+  // Memoised so the 4fps countdown repaint never re-runs the weighted vote.
+  // Identical inputs → identical result, so nothing about the math changes.
+  const layered = useMemo(
+    () =>
+      evaluateLayeredEnsemble({
+        window: derived.win,
+        target: targetDigit,
+        posterior: context.weighted,
+        stepDists: horizonFc.stepDists ?? [],
+        horizon: horizonTicks,
+        runProb,
+        consecutiveProb,
 
-    bigrams: derived.bigrams,
-    trigrams: derived.trigrams,
-    chiUnif: derived.chi,
-    chiIndep: derived.chiIndep,
-    intervalCv,
-    pingMs,
-    safePingMs: cfg.safePingMs,
-    health,
-    stale,
-    syncing,
-    neutralFallback: horizonFc.neutralFallback,
-    exhausted: preF?.isExhaustedState ?? false,
-  });
+        bigrams: derived.bigrams,
+        trigrams: derived.trigrams,
+        chiUnif: derived.chi,
+        chiIndep: derived.chiIndep,
+        intervalCv,
+        pingMs,
+        safePingMs: cfg.safePingMs,
+        health,
+        stale,
+        syncing,
+        neutralFallback: horizonFc.neutralFallback,
+        exhausted: preF?.isExhaustedState ?? false,
+      }),
+    [
+      derived,
+      targetDigit,
+      context.weighted,
+      horizonFc,
+      horizonTicks,
+      runProb,
+      consecutiveProb,
+      intervalCv,
+      pingMs,
+      cfg.safePingMs,
+      health,
+      stale,
+      syncing,
+      preF,
+    ],
+  );
 
   // The Bayesian Fusion confidence bar now reflects the weighted layer vote.
   const gateConf = layered.confidence;
