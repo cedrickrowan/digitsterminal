@@ -148,10 +148,27 @@ export default function DigitsApp() {
   useEffect(() => { cfgRef.current = cfg; saveConfig(cfg); }, [cfg]);
   useEffect(() => { armedRef.current = armed; }, [armed]);
 
-  // Countdown ticker @ 5fps — light, only updates a single number/bar.
+  // Countdown ticker @ 4fps — light, only updates a single number/bar.
+  // Paused whenever the page is hidden or shrunk to a background floating
+  // window, so a throttled phone never accumulates a backlog of timer work.
   useEffect(() => {
-    const id = window.setInterval(() => setTick((t) => (t + 1) & 0x3fffffff), 200);
-    return () => clearInterval(id);
+    let id = 0;
+    const start = () => {
+      if (id) return;
+      id = window.setInterval(() => setTick((t) => (t + 1) & 0x3fffffff), 250);
+    };
+    const stop = () => {
+      if (!id) return;
+      clearInterval(id);
+      id = 0;
+    };
+    const sync = () => (document.visibilityState === "visible" ? start() : stop());
+    sync();
+    document.addEventListener("visibilitychange", sync);
+    return () => {
+      stop();
+      document.removeEventListener("visibilitychange", sync);
+    };
   }, []);
 
   // Spin up the analysis Web Worker + RxJS tick stream once. The worker owns
