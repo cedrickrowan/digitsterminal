@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Subject } from "rxjs";
-import { auditTime } from "rxjs/operators";
 import { DerivClient, type AuthInfo, type ConnState, type ContractType } from "@/lib/deriv/derivClient";
 import { DigitRing, FloatRing } from "@/lib/deriv/ring";
 import { loadConfig, loadToken, saveConfig, saveToken } from "@/lib/deriv/storage";
@@ -64,6 +63,10 @@ import { PreArrivalPanel } from "./PreArrivalPanel";
 import { SignalCard, type SignalState } from "./SignalCard";
 import { MultiAppearancePanel } from "./MultiAppearancePanel";
 import { OrderExecutionPanel, type OrderRecord } from "./OrderExecutionPanel";
+import {
+  AiExplanationPanel,
+  type PredictionExplanationSnapshot,
+} from "./AiExplanationPanel";
 
 
 
@@ -116,6 +119,7 @@ export default function DigitsApp() {
   // Timestamp of the last main-thread gate evaluation (burst rate limiter).
   const lastEvalRef = useRef(0);
   const renderScheduled = useRef(false);
+  const lastRenderAtRef = useRef(0);
   // Background analysis engine (Web Worker) + reactive tick stream
   const workerRef = useRef<Worker | null>(null);
   const tickStreamRef = useRef<Subject<{ digit: number; ts: number }> | null>(null);
@@ -150,27 +154,12 @@ export default function DigitsApp() {
   useEffect(() => { cfgRef.current = cfg; saveConfig(cfg); }, [cfg]);
   useEffect(() => { armedRef.current = armed; }, [armed]);
 
-  // Countdown ticker @ 4fps — light, only updates a single number/bar.
-  // Paused whenever the page is hidden or shrunk to a background floating
-  // window, so a throttled phone never accumulates a backlog of timer work.
+  // Countdown ticker @ 4fps. Never pause it from document.visibilityState:
+  // Android floating windows can be visibly painted while reporting a hidden
+  // or unfocused page, and pausing here made the terminal wake only on touch.
   useEffect(() => {
-    let id = 0;
-    const start = () => {
-      if (id) return;
-      id = window.setInterval(() => setTick((t) => (t + 1) & 0x3fffffff), 250);
-    };
-    const stop = () => {
-      if (!id) return;
-      clearInterval(id);
-      id = 0;
-    };
-    const sync = () => (document.visibilityState === "visible" ? start() : stop());
-    sync();
-    document.addEventListener("visibilitychange", sync);
-    return () => {
-      stop();
-      document.removeEventListener("visibilitychange", sync);
-    };
+    const id = window.setInterval(() => setTick((t) => (t + 1) & 0x3fffffff), 250);
+    return () => clearInterval(id);
   }, []);
 
   // Spin up the analysis Web Worker + RxJS tick stream once. The worker owns
@@ -195,8 +184,9 @@ export default function DigitsApp() {
 
     const stream = new Subject<{ digit: number; ts: number }>();
     tickStreamRef.current = stream;
-    // auditTime coalesces bursts so a wake-up backlog can't spam the worker.
-    const sub = stream.pipe(auditTime(0)).subscribe(({ digit, ts }) => {
+    // Direct delivery avoids RxJS's timer scheduler, which some Android
+    // floating-window hosts suspend until the next touch event.
+    const sub = stream.subscribe(({ digit, ts }) => {
       worker.postMessage({ type: "tick", digit, ts, cfg: cfgRef.current });
     });
     return () => {
@@ -216,14 +206,17 @@ export default function DigitsApp() {
 
   const scheduleRender = useCallback(() => {
     if (renderScheduled.current) return;
-    // While the page is hidden/backgrounded there is nothing to paint — the
-    // ring buffers keep recording, and the first visible frame catches up.
-    if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+    const now = performance.now();
+    // WebSocket ticks are already cadence-limited. Commit immediately instead
+    // of using setTimeout: Samsung floating windows may defer that timer until
+    // the user touches the screen. Burst packets remain bounded to one commit.
+    if (now - lastRenderAtRef.current < 100) return;
     renderScheduled.current = true;
-    setTimeout(() => {
+    lastRenderAtRef.current = now;
+    forceRender((x) => (x + 1) & 0x3fffffff);
+    queueMicrotask(() => {
       renderScheduled.current = false;
-      forceRender((x) => (x + 1) & 0x3fffffff);
-    }, 140);
+    });
   }, []);
 
   const pushSignal = useCallback((s: Signal) => {
@@ -451,8 +444,8 @@ export default function DigitsApp() {
         bufRef.current!.push(digit);
         totalTicksRef.current++;
         lastPriceRef.current = quote;
-        const visible = typeof document === "undefined" || document.visibilityState === "visible";
-        if (visible) setLastPrice(quote);
+        // Do not suppress visible values in Android floating-window mode.
+        setLastPrice(quote);
         // Price EMA + Δ volatility feed (fixed-size Float32 ring buffers).
         {
           const ps = priceSeriesRef.current!;
@@ -541,18 +534,19 @@ export default function DigitsApp() {
   }, []);
 
   useEffect(() => {
-    const onVis = () => {
+    const resume = () => {
       if (document.visibilityState === "hidden") {
-        hiddenSinceRef.current = performance.now();
+        if (!hiddenSinceRef.current) hiddenSinceRef.current = performance.now();
         return;
       }
-      // Coming back to the foreground (or out of a background floating
-      // window): drop whatever the socket buffered while we were throttled
-      // and resync from the server instead of replaying a stale backlog.
       const hiddenFor = hiddenSinceRef.current ? performance.now() - hiddenSinceRef.current : 0;
       if (!clientRef.current) {
         handleConnect();
-      } else if (hiddenFor > 4000) {
+      } else if (
+        hiddenFor > 4000 ||
+        (lastArrivalRef.current > 0 &&
+          performance.now() - lastArrivalRef.current > Math.max(6000, (gapsRef.current!.median() || 2000) * 5))
+      ) {
         lastArrivalRef.current = 0;
         pendingTickRef.current = null;
         lastEvalRef.current = 0;
@@ -561,8 +555,19 @@ export default function DigitsApp() {
       hiddenSinceRef.current = 0;
       forceRender((x) => (x + 1) & 0x3fffffff);
     };
-    document.addEventListener("visibilitychange", onVis);
-    return () => document.removeEventListener("visibilitychange", onVis);
+    const noteHidden = () => {
+      if (!hiddenSinceRef.current) hiddenSinceRef.current = performance.now();
+    };
+    document.addEventListener("visibilitychange", resume);
+    window.addEventListener("focus", resume);
+    window.addEventListener("pageshow", resume);
+    window.addEventListener("pagehide", noteHidden);
+    return () => {
+      document.removeEventListener("visibilitychange", resume);
+      window.removeEventListener("focus", resume);
+      window.removeEventListener("pageshow", resume);
+      window.removeEventListener("pagehide", noteHidden);
+    };
   }, [handleConnect]);
 
   // Foreground stall watchdog — if the feed goes quiet for far longer than the
@@ -935,6 +940,55 @@ export default function DigitsApp() {
     }
   }, [cfg.market, cfg.barrier, mkt, derived.rf, targetDigit]);
 
+  const explanationSnapshot = useMemo<PredictionExplanationSnapshot>(() => {
+    const fired = new Map(ruleHits.map((hit) => [hit.rule, hit.detail]));
+    const enabled = (Object.keys(cfg.rules) as Array<keyof AppConfig["rules"]>).filter(
+      (rule) => cfg.rules[rule],
+    );
+    return {
+      symbol: cfg.symbol,
+      market: cfg.market,
+      planned: planned.label,
+      targetDigit,
+      confidence: gateConf,
+      runProbability: runProb,
+      consecutiveProbability: consecutiveProb,
+      horizon: horizonTicks,
+      markovSteps: horizonFc.stepDists.slice(0, horizonTicks),
+      recentTail: derived.win.slice(-6),
+      order2: engineReport?.higherOrder.order2 ?? new Array(10).fill(0.1),
+      order3: engineReport?.higherOrder.order3 ?? new Array(10).fill(0.1),
+      passedRules: enabled
+        .filter((rule) => fired.has(rule))
+        .map((rule) => `${rule}: ${fired.get(rule)}`),
+      failedRules: enabled.filter((rule) => !fired.has(rule)),
+      layer1: layered.layer1,
+      layer2: layered.layer2,
+      breakerMultiplier: layered.breakerMultiplier,
+      blocked: layered.blocked,
+      blockReason: layered.blockReason,
+      network: health,
+      pingMs,
+    };
+  }, [
+    ruleHits,
+    cfg.rules,
+    cfg.symbol,
+    cfg.market,
+    planned.label,
+    targetDigit,
+    gateConf,
+    runProb,
+    consecutiveProb,
+    horizonTicks,
+    horizonFc.stepDists,
+    derived.win,
+    engineReport,
+    layered,
+    health,
+    pingMs,
+  ]);
+
 
   // ---- AUTO-FIRE: send a live order the instant the strict gate passes ----
   const gateReady = greenBase && !syncing && health !== "red";
@@ -1040,6 +1094,8 @@ export default function DigitsApp() {
         </div>
 
         <MultiAppearancePanel horizon={horizonFc} target={targetDigit} />
+
+        <AiExplanationPanel snapshot={explanationSnapshot} />
 
         <details className="rounded-lg border border-border bg-card px-3 py-2">
           <summary className="cursor-pointer text-[11px] font-semibold uppercase tracking-widest text-cyan">
