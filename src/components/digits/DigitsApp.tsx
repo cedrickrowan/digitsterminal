@@ -63,10 +63,6 @@ import { PreArrivalPanel } from "./PreArrivalPanel";
 import { SignalCard, type SignalState } from "./SignalCard";
 import { MultiAppearancePanel } from "./MultiAppearancePanel";
 import { OrderExecutionPanel, type OrderRecord } from "./OrderExecutionPanel";
-import {
-  AiExplanationPanel,
-  type PredictionExplanationSnapshot,
-} from "./AiExplanationPanel";
 
 
 
@@ -413,7 +409,7 @@ export default function DigitsApp() {
         // Mobile browser tab-sleep backlog dropper: if a huge burst of ticks
         // arrives after ColorOS/iOS wakes the tab, flush and resync on the
         // newest tick only — never replay a stale stack sequentially.
-        const wokeFromSleep = hiddenSinceRef.current > 0 && document.visibilityState === "visible";
+        const wokeFromSleep = hiddenSinceRef.current > 0;
         const burstDetected = wokeFromSleep && gap > 0 && gap < 40; // <40ms between ticks = queued backlog
         if (burstDetected) {
           hiddenSinceRef.current = 0;
@@ -535,10 +531,6 @@ export default function DigitsApp() {
 
   useEffect(() => {
     const resume = () => {
-      if (document.visibilityState === "hidden") {
-        if (!hiddenSinceRef.current) hiddenSinceRef.current = performance.now();
-        return;
-      }
       const hiddenFor = hiddenSinceRef.current ? performance.now() - hiddenSinceRef.current : 0;
       if (!clientRef.current) {
         handleConnect();
@@ -558,12 +550,10 @@ export default function DigitsApp() {
     const noteHidden = () => {
       if (!hiddenSinceRef.current) hiddenSinceRef.current = performance.now();
     };
-    document.addEventListener("visibilitychange", resume);
     window.addEventListener("focus", resume);
     window.addEventListener("pageshow", resume);
     window.addEventListener("pagehide", noteHidden);
     return () => {
-      document.removeEventListener("visibilitychange", resume);
       window.removeEventListener("focus", resume);
       window.removeEventListener("pageshow", resume);
       window.removeEventListener("pagehide", noteHidden);
@@ -575,13 +565,11 @@ export default function DigitsApp() {
   // resubscribe instead of sitting on a frozen screen.
   useEffect(() => {
     const id = window.setInterval(() => {
-      if (document.visibilityState !== "visible") return;
       const last = lastArrivalRef.current;
       if (!last || !clientRef.current) return;
-      const budget = Math.max(6000, (gapsRef.current!.median() || 2000) * 5);
-      if (performance.now() - last > budget) {
+      if (performance.now() - last > 4000) {
         lastArrivalRef.current = 0;
-        clientRef.current.subscribeTicks(cfgRef.current.symbol, 100);
+        clientRef.current.hardReset();
       }
     }, 4000);
     return () => clearInterval(id);
@@ -940,54 +928,6 @@ export default function DigitsApp() {
     }
   }, [cfg.market, cfg.barrier, mkt, derived.rf, targetDigit]);
 
-  const explanationSnapshot = useMemo<PredictionExplanationSnapshot>(() => {
-    const fired = new Map(ruleHits.map((hit) => [hit.rule, hit.detail]));
-    const enabled = (Object.keys(cfg.rules) as Array<keyof AppConfig["rules"]>).filter(
-      (rule) => cfg.rules[rule],
-    );
-    return {
-      symbol: cfg.symbol,
-      market: cfg.market,
-      planned: planned.label,
-      targetDigit,
-      confidence: gateConf,
-      runProbability: runProb,
-      consecutiveProbability: consecutiveProb,
-      horizon: horizonTicks,
-      markovSteps: horizonFc.stepDists.slice(0, horizonTicks),
-      recentTail: derived.win.slice(-6),
-      order2: engineReport?.higherOrder.order2 ?? new Array(10).fill(0.1),
-      order3: engineReport?.higherOrder.order3 ?? new Array(10).fill(0.1),
-      passedRules: enabled
-        .filter((rule) => fired.has(rule))
-        .map((rule) => `${rule}: ${fired.get(rule)}`),
-      failedRules: enabled.filter((rule) => !fired.has(rule)),
-      layer1: layered.layer1,
-      layer2: layered.layer2,
-      breakerMultiplier: layered.breakerMultiplier,
-      blocked: layered.blocked,
-      blockReason: layered.blockReason,
-      network: health,
-      pingMs,
-    };
-  }, [
-    ruleHits,
-    cfg.rules,
-    cfg.symbol,
-    cfg.market,
-    planned.label,
-    targetDigit,
-    gateConf,
-    runProb,
-    consecutiveProb,
-    horizonTicks,
-    horizonFc.stepDists,
-    derived.win,
-    engineReport,
-    layered,
-    health,
-    pingMs,
-  ]);
 
 
   // ---- AUTO-FIRE: send a live order the instant the strict gate passes ----
@@ -1009,7 +949,10 @@ export default function DigitsApp() {
             <span>DIGITS TERMINAL</span>
           </h1>
           <p className="text-[10px] uppercase tracking-widest text-muted-foreground">
-            Bayesian ensemble · Markov · Mobile-grade safety
+            Deriv server{" "}
+            <span className="font-mono text-cyan">
+              {new Date(Date.now() + driftMs).toISOString().slice(11, 19)} GMT
+            </span>
           </p>
         </div>
         <div className="flex items-center gap-1">
@@ -1020,7 +963,7 @@ export default function DigitsApp() {
                 ? "border-cyan text-cyan"
                 : connState === "offline"
                   ? "border-danger text-danger"
-                  : "border-warning text-warning animate-pulse"
+                  : "border-warning text-warning"
             }`}
           >
             {connState === "live" && connected
@@ -1095,7 +1038,6 @@ export default function DigitsApp() {
 
         <MultiAppearancePanel horizon={horizonFc} target={targetDigit} />
 
-        <AiExplanationPanel snapshot={explanationSnapshot} />
 
         <details className="rounded-lg border border-border bg-card px-3 py-2">
           <summary className="cursor-pointer text-[11px] font-semibold uppercase tracking-widest text-cyan">

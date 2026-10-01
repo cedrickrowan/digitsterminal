@@ -100,6 +100,7 @@ export class DerivClient {
   private pollReqIds = new Set<number>();
   private lastEpoch = 0;
   private streaming = false;
+  private failedOpens = 0;
   private static readonly PING_ALPHA = 0.25;
   private static readonly DRIFT_ALPHA = 0.2;
 
@@ -118,7 +119,13 @@ export class DerivClient {
     this.closed = false;
     if (this.ws && (this.ws.readyState === 0 || this.ws.readyState === 1)) return;
     this.setState(this.reconnectAttempt > 0 ? "reconnecting" : "connecting");
-    const url = "wss://ws.derivws.com/websockets/v3?app_id=1089";
+    // Public endpoint first (no auth); legacy v3 only as a fallback if the
+    // public endpoint repeatedly fails to open.
+    const url =
+      this.failedOpens >= 2 && this.failedOpens % 2 === 0
+        ? "wss://ws.derivws.com/websockets/v3?app_id=1089"
+        : "wss://api.derivws.com/trading/v1/options/ws/public";
+    let opened = false;
     let ws: WebSocket;
     try {
       ws = new WebSocket(url);
@@ -129,6 +136,8 @@ export class DerivClient {
     this.ws = ws;
 
     ws.onopen = () => {
+      opened = true;
+      this.failedOpens = 0;
       this.reconnectAttempt = 0;
       this.softResubscribes = 0;
       this.lastMsgAt = performance.now();
@@ -143,10 +152,12 @@ export class DerivClient {
       if (this.token) this.authorizeInternal();
       this.timeTimer = window.setInterval(() => this.syncTime(), 5_000);
       this.pingTimer = window.setInterval(() => this.ping(), 5_000);
-      this.watchdog = window.setInterval(() => this.checkHealth(), 3_000);
+      this.watchdog = window.setInterval(() => this.checkHealth(), 4_000);
     };
 
     ws.onclose = () => {
+      if (this.ws !== ws) return; // already torn down by hardReset
+      if (!opened) this.failedOpens++;
       this.clearTimers();
       this.pending.clear();
       this.subId = null;
@@ -168,26 +179,36 @@ export class DerivClient {
     };
   }
 
-  /** Health loop: soft-resubscribe on a silent stream, hard reset if it persists. */
+  /** Health loop (4s): a silent socket gets an immediate hard teardown + clean reconnect. */
   private checkHealth() {
     if (!this.ws || this.ws.readyState !== 1) return;
     const now = performance.now();
-    const tickBudget = Math.max(8_000, this.tickIntervalMs * 4);
-    if (now - this.lastTickAt > tickBudget) {
-      this.softResubscribes++;
-      if (this.softResubscribes <= 2) {
-        this.setState("reconnecting", "stream silent · resubscribing");
-        this.subscribeTicks(this.symbol, this.historyCount);
-        this.lastTickAt = now;
-      } else {
-        this.softResubscribes = 0;
-        try { this.ws.close(); } catch { /* ignore */ }
-      }
-      return;
+    const tickBudget = Math.max(4_000, this.tickIntervalMs * 2);
+    if (now - this.lastTickAt > tickBudget || now - this.lastMsgAt > 4_000) {
+      this.hardReset();
     }
-    if (now - this.lastMsgAt > 20_000) {
-      try { this.ws.close(); } catch { /* ignore */ }
+  }
+
+  /** Immediate hard teardown of the current socket and a clean reconnect. */
+  hardReset() {
+    if (this.closed) return;
+    const old = this.ws;
+    this.ws = null;
+    this.clearTimers();
+    this.pending.clear();
+    this.subId = null;
+    this.balSubId = null;
+    this.streaming = false;
+    if (old) {
+      old.onopen = old.onmessage = old.onerror = old.onclose = null;
+      try { old.close(); } catch { /* ignore */ }
     }
+    if (this.reconnectTimer !== null) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+    this.setState("reconnecting", "watchdog · hard reset");
+    this.connect();
   }
 
   private scheduleReconnect() {
