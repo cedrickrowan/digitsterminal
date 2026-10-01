@@ -37,7 +37,9 @@ import {
   runPreArrivalAnalysis,
 } from "@/lib/deriv/preArrival";
 import { forecastHorizon, horizonForSymbol } from "@/lib/deriv/matrix";
-import { beep } from "@/lib/deriv/audio";
+import { beep, chimeClickNow, pingPrepare, buzzAbort, loadAudioPrefs, setAudioPrefs, unlockAudio } from "@/lib/deriv/audio";
+import { RollingStats, computeEntryTiming, type EntryStage } from "@/lib/deriv/entryTiming";
+import { EntryStageBar } from "./EntryStageBar";
 import {
   evaluateLayeredEnsemble,
   meetsExecutionFloor,
@@ -105,6 +107,11 @@ export default function DigitsApp() {
   const totalTicksRef = useRef(0);
   const lastPriceRef = useRef<number>(0);
   const pingMedianRef = useRef<number[]>([]);
+  const rttStatsRef = useRef(new RollingStats(20));
+  const arrivalStatsRef = useRef(new RollingStats(20));
+  const lastStageRef = useRef<EntryStage>("IDLE");
+  const [audioVol, setAudioVol] = useState(0.7);
+  const [audioMuted, setAudioMuted] = useState(false)
   const confRef = useRef(0);
   const healthRef = useRef<NetHealth>("yellow");
   const clientRef = useRef<DerivClient | null>(null);
@@ -406,6 +413,7 @@ export default function DigitsApp() {
         const gap = prev ? arrival - prev : 0;
         lastArrivalRef.current = arrival;
         if (gap > 0) gapsRef.current!.push(gap);
+        if (gap > 0 && gap < 30_000) arrivalStatsRef.current.push(gap);
         // Mobile browser tab-sleep backlog dropper: if a huge burst of ticks
         // arrives after ColorOS/iOS wakes the tab, flush and resync on the
         // newest tick only — never replay a stale stack sequentially.
@@ -476,7 +484,8 @@ export default function DigitsApp() {
           });
         }
       },
-      onPing: (rtt) => {
+      onPing: (rtt, raw) => {
+        rttStatsRef.current.push(raw);
         // rtt is already EMA-smoothed by the client; still keep a short
         // median as a secondary sanity filter for the safety guard.
         const arr = pingMedianRef.current;
@@ -846,6 +855,38 @@ export default function DigitsApp() {
   // 1-tick pre-warning: flash exactly 1000ms before the window opens.
   const preWarn = windowInMs > 0 && windowInMs <= 1000;
 
+  // ---- DYNAMIC ENTRY TIMING ENGINE ----
+  const entryTiming = computeEntryTiming({
+    symbol: cfg.symbol,
+    msSinceTick: lastGapNow,
+    rttMs: rttStatsRef.current.mean() || pingMs,
+    rttJitterMs: rttStatsRef.current.std(),
+    arrivalJitterMs: arrivalStatsRef.current.count() >= 5 ? arrivalStatsRef.current.std() : 0,
+    setupForming: !syncing && health !== "red" && (preWarn || gateConf >= 0.7),
+    setupGreen: cardState === "green" && health !== "red" && !syncing,
+  });
+  const entryStage = entryTiming.stage;
+  useEffect(() => {
+    const prev = lastStageRef.current;
+    if (prev === entryStage) return;
+    lastStageRef.current = entryStage;
+    if (entryStage === "CLICK_NOW") chimeClickNow();
+    else if (entryStage === "PREPARE" && prev === "IDLE") pingPrepare();
+    else if (entryStage === "ABORT" && prev === "CLICK_NOW") buzzAbort();
+  }, [entryStage]);
+  useEffect(() => {
+    const p = loadAudioPrefs();
+    setAudioVol(p.volume);
+    setAudioMuted(p.muted);
+    const unlock = () => unlockAudio();
+    window.addEventListener("pointerdown", unlock, { once: true });
+    return () => window.removeEventListener("pointerdown", unlock);
+  }, []);
+  useEffect(() => {
+    rttStatsRef.current.clear();
+    arrivalStatsRef.current.clear();
+  }, [cfg.symbol]);
+
 
   const setPartial = useCallback((patch: Partial<AppConfig>) => {
     setCfg((c) => ({ ...c, ...patch }));
@@ -953,6 +994,34 @@ export default function DigitsApp() {
             <span className="font-mono text-cyan">
               {new Date(Date.now() + driftMs).toISOString().slice(11, 19)} GMT
             </span>
+            <button
+              type="button"
+              aria-label={audioMuted ? "Unmute alerts" : "Mute alerts"}
+              onClick={() => {
+                unlockAudio();
+                setAudioMuted((m) => {
+                  setAudioPrefs(audioVol, !m);
+                  return !m;
+                });
+              }}
+              className="ml-2 rounded border border-input px-1 font-mono text-[10px]"
+            >
+              {audioMuted ? "MUTED" : "SOUND"}
+            </button>
+            <input
+              type="range"
+              aria-label="Alert volume"
+              min={0}
+              max={1}
+              step={0.05}
+              value={audioVol}
+              onChange={(e) => {
+                const v = Number(e.target.value);
+                setAudioVol(v);
+                setAudioPrefs(v, audioMuted);
+              }}
+              className="ml-1 h-2 w-16 align-middle accent-cyan"
+            />
           </p>
         </div>
         <div className="flex items-center gap-1">
@@ -988,6 +1057,8 @@ export default function DigitsApp() {
         <NetworkBadge health={health} pingMs={pingMs} driftMs={driftMs} ticks={totalTicksRef.current} stale={stale} />
 
         {/* PERIPHERAL SIGNAL BLOCK — the only thing a trader needs mid-setup */}
+        <EntryStageBar t={entryTiming} rttMs={rttStatsRef.current.mean() || pingMs} />
+
         <SignalCard
           state={cardState}
           digit={targetDigit}
