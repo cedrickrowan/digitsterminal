@@ -182,7 +182,7 @@
   50% { box-shadow: 0 0 24px 2px var(--color-cyan); }
 }
 @utility neon-pulse {
-  animation: neon-pulse 1.6s ease-in-out infinite;
+  box-shadow: 0 0 16px -2px var(--color-cyan);
 }
 
 /* 1-tick pre-warning: fires 1000ms before the multi-appearance window opens. */
@@ -191,8 +191,14 @@
   50% { box-shadow: 0 0 34px 10px color-mix(in oklab, var(--color-warning) 85%, transparent); }
 }
 @utility prewarn-glow {
-  animation: prewarn-glow 0.5s ease-in-out infinite;
+  box-shadow: 0 0 24px 6px color-mix(in oklab, var(--color-warning) 80%, transparent);
 }
 
 
 
+
+/* Latency: no animations/transitions — predictions and alerts paint instantly. */
+*, *::before, *::after {
+  animation: none !important;
+  transition: none !important;
+}
