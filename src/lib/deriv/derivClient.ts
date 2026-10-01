@@ -44,7 +44,7 @@ export interface DerivEvents {
     generation: number,
   ) => void;
   onHistory?: (digits: number[], lastPrice: number, symbol: string, generation: number) => void;
-  onPing?: (rttMs: number) => void;
+  onPing?: (rttMs: number, rawRttMs: number) => void;
   onTimeSync?: (driftMs: number) => void;
   onError?: (err: string) => void;
   onAuth?: (info: AuthInfo | null) => void;
@@ -473,7 +473,7 @@ export class DerivClient {
     this.send({ ping: 1 }, () => {
       const rtt = performance.now() - t0;
       this.pingEma = this.pingEma === 0 ? rtt : this.pingEma + DerivClient.PING_ALPHA * (rtt - this.pingEma);
-      this.events.onPing?.(this.pingEma);
+      this.events.onPing?.(this.pingEma, rtt);
     });
   }
 
