@@ -1,3 +1,4 @@
+import { decimalsFor, extractLastDigit, normalizePip } from "./cadence";
 // Deriv WebSocket client tuned for mobile/high-latency networks.
 // Public app_id 1089 for ticks. Optional API token enables authorize + buy.
 //
@@ -77,7 +78,7 @@ export class DerivClient {
   private subId: string | null = null;
   private balSubId: string | null = null;
   private symbol = "R_100";
-  private historyCount = 100;
+  private historyCount = 150;
   private generation = 0;
   private pipSize = 2;
   private timeTimer: number | null = null;
@@ -291,7 +292,7 @@ export class DerivClient {
         return;
       }
       const quote: number = msg.tick.quote;
-      const pip = msg.tick.pip_size ?? this.pipSize;
+      const pip = normalizePip(msg.tick.pip_size) ?? this.pipSize;
       this.pipSize = pip;
       const digit = lastDigit(quote, pip, sym);
       this.subId = msg.tick.id ?? this.subId;
@@ -317,7 +318,7 @@ export class DerivClient {
       if (sym !== this.symbol) return;
       const prices: number[] = msg.history.prices ?? [];
       const times: number[] = msg.history.times ?? [];
-      const pip = msg.pip_size ?? this.pipSize;
+      const pip = normalizePip(msg.pip_size) ?? this.pipSize;
       this.pipSize = pip;
       if (isPoll) {
         for (let i = 0; i < prices.length; i++) {
@@ -359,7 +360,7 @@ export class DerivClient {
     return this.generation;
   }
 
-  subscribeTicks(symbol: string, count = 100) {
+  subscribeTicks(symbol: string, count = 150) {
     const symbolChanged = symbol !== this.symbol;
     this.symbol = symbol;
     this.historyCount = count;
@@ -408,7 +409,7 @@ export class DerivClient {
    * engine is seeded with a full lookback packet the moment the terminal
    * initialises, reconnects, or switches asset. Retries quietly on failure.
    */
-  requestHistory(count = 100): boolean {
+  requestHistory(count = 150): boolean {
     const symbol = this.symbol;
     const gen = this.generation;
     if (!this.ws || this.ws.readyState !== 1) return false;
@@ -551,25 +552,12 @@ export class DerivClient {
   }
 }
 
-// Decimal places come from Deriv's live `pip_size` per symbol (authoritative).
-// This static map is only a fallback before the first message arrives.
-const FALLBACK_DECIMALS: Record<string, number> = {
-  R_10: 3, R_25: 3, R_50: 4, R_75: 4, R_100: 2,
-  "1HZ10V": 2, "1HZ15V": 3, "1HZ25V": 2, "1HZ30V": 3, "1HZ50V": 2,
-  "1HZ75V": 2, "1HZ90V": 3, "1HZ100V": 2, "1HZ150V": 2, "1HZ250V": 5,
-};
-
+// Decimal precision is calibrated per asset (see cadence.ts) — the
+// calibrated map is authoritative; Deriv's live pip_size only for unknown assets.
 export function decimalsForSymbol(symbol: string): number {
-  return FALLBACK_DECIMALS[symbol] ?? 2;
+  return decimalsFor(symbol);
 }
 
 function lastDigit(price: number, pip: number, symbol?: string): number {
-  const decimals =
-    Number.isInteger(pip) && pip >= 0 && pip <= 8 ? pip : decimalsForSymbol(symbol ?? "");
-  // toFixed preserves trailing zeros so "1245.30" stays "1245.30" → last char "0"
-  const s = price.toFixed(decimals);
-  const ch = s.charAt(s.length - 1);
-  const d = parseInt(ch, 10);
-  if (!Number.isInteger(d) || d < 0 || d > 9) return -1;
-  return d;
+  return extractLastDigit(price, decimalsFor(symbol ?? "", pip));
 }
