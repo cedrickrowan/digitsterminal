@@ -40,6 +40,8 @@ import { forecastHorizon, horizonForSymbol } from "@/lib/deriv/matrix";
 import { beep, chimeClickNow, pingPrepare, buzzAbort, loadAudioPrefs, setAudioPrefs, unlockAudio } from "@/lib/deriv/audio";
 import { RollingStats, computeEntryTiming, type EntryStage } from "@/lib/deriv/entryTiming";
 import { EntryStageBar } from "./EntryStageBar";
+import { DualBufferPanel } from "./DualBufferPanel";
+import { analyzeDual, SLOW_MAX } from "@/lib/deriv/dualBuffer";
 import {
   evaluateLayeredEnsemble,
   meetsExecutionFloor,
@@ -430,7 +432,7 @@ export default function DigitsApp() {
           });
           // hard resubscribe so the server sends fresh state instead of us
           // replaying whatever the socket buffered.
-          clientRef.current?.subscribeTicks(cfgRef.current.symbol, 100);
+          clientRef.current?.subscribeTicks(cfgRef.current.symbol, 150);
           return;
         }
         const staleBudget = Math.max(
@@ -551,7 +553,7 @@ export default function DigitsApp() {
         lastArrivalRef.current = 0;
         pendingTickRef.current = null;
         lastEvalRef.current = 0;
-        clientRef.current.subscribeTicks(cfgRef.current.symbol, 100);
+        clientRef.current.subscribeTicks(cfgRef.current.symbol, 150);
       }
       hiddenSinceRef.current = 0;
       forceRender((x) => (x + 1) & 0x3fffffff);
@@ -589,13 +591,19 @@ export default function DigitsApp() {
   useEffect(() => {
     if (!connected || !clientRef.current) return;
     resetAnalysis();
-    clientRef.current.subscribeTicks(cfg.symbol, 100);
+    clientRef.current.subscribeTicks(cfg.symbol, 150);
   }, [cfg.symbol, connected, resetAnalysis]);
 
   const tickKey = totalTicksRef.current;
   // Snapshot the circular byte buffer once per throttled render pass.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const buf = useMemo(() => bufRef.current!.toArray(), [tickKey]);
+  // Dual-window buffers (fast 30–50 · slow 100–150) + Stride-3 lattice.
+  const dual = useMemo(
+    () => analyzeDual(buf, cfg.lookback, cfg.symbol),
+    [buf, cfg.lookback, cfg.symbol],
+  );
+  const slowTape = useMemo(() => buf.slice(-SLOW_MAX), [buf]);
 
   const derived = useMemo(() => {
     const win = buf.slice(-cfg.lookback);
@@ -1058,6 +1066,8 @@ export default function DigitsApp() {
 
         {/* PERIPHERAL SIGNAL BLOCK — the only thing a trader needs mid-setup */}
         <EntryStageBar t={entryTiming} rttMs={rttStatsRef.current.mean() || pingMs} />
+
+        <DualBufferPanel r={dual} tape={slowTape} />
 
         <SignalCard
           state={cardState}

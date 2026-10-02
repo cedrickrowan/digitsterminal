@@ -1,3 +1,4 @@
+import { cadenceProfile } from "./cadence";
 // Dynamic Entry Timing Engine.
 // Converts network RTT, jitter and tick cadence into a manual-entry stage.
 
@@ -11,17 +12,17 @@ export function isOneSecondSymbol(symbol: string): boolean {
 
 /** Execution budget = tick cadence. */
 export function executionBudgetMs(symbol: string): number {
-  return isOneSecondSymbol(symbol) ? 1000 : 2000;
+  return cadenceProfile(symbol).budgetMs;
 }
 
 /** Safe green window inside the budget. */
 export function safeWindowMs(symbol: string): number {
-  return isOneSecondSymbol(symbol) ? 700 : 1500;
+  return cadenceProfile(symbol).safeWindowMs;
 }
 
 /** Jitter ceiling before entry is locked out. */
 export function jitterLimitMs(symbol: string): number {
-  return isOneSecondSymbol(symbol) ? 120 : 250;
+  return cadenceProfile(symbol).jitterLimitMs;
 }
 
 /** Rolling sample window with mean + standard deviation. */
