@@ -237,6 +237,8 @@ export default function DigitsApp() {
    *  volatility never inherits the previous instrument's statistics. */
   const resetAnalysis = useCallback(() => {
     bufRef.current!.reset();
+    guardRef.current.reset(cfgRef.current.symbol);
+    setSpikeHold(false);
     gapsRef.current!.reset();
     priceSeriesRef.current!.reset();
     priceDeltasRef.current!.reset();
@@ -396,9 +398,11 @@ export default function DigitsApp() {
         setConnState(state);
         setConnDetail(detail ? `${detail}` : attempt > 0 ? `attempt ${attempt}` : "");
       },
-      onHistory: (digits, last, sym) => {
+      onHistory: (digits, last, sym, _gen, prices) => {
         // Isolation guard: ignore history for any symbol that is no longer selected.
         if (sym !== cfgRef.current.symbol) return;
+        // Warm the microstructure |Δ| baseline from the historical packet.
+        if (prices && prices.length) guardRef.current.seed(sym, prices);
         // Strict filter: keep every digit 0-9 (including 0). Drop only sentinel -1 (parse failure).
         const clean = digits.filter((d) => d !== null && d !== undefined && d >= 0 && d <= 9);
         const ring = bufRef.current!;
@@ -820,7 +824,15 @@ export default function DigitsApp() {
   // Matches needs a real repeat edge; directional markets need a robust majority.
   const edgeFloor = cfg.market === "matches" ? 0.3 : 0.6;
 
+  // Microstructure / clustering holds — block every entry while active.
+  const holdReason: string | null = spikeHold
+    ? "HOLD - VOLATILITY SPIKE"
+    : dual.clusterFlat
+      ? "HOLD - NO CONSECUTIVE VARIANCE"
+      : null;
+
   const greenBase =
+    !holdReason &&
     !layered.blocked &&
     safe &&
     !horizonFc.neutralFallback &&
@@ -860,7 +872,11 @@ export default function DigitsApp() {
       }
     : null;
 
-  const cardState: SignalState = syncing ? "violet" : greenBase || latchNow ? "green" : "red";
+  const cardState: SignalState = syncing
+    ? "violet"
+    : (greenBase || latchNow) && !holdReason
+      ? "green"
+      : "red";
 
   // Latency-corrected time until the multi-appearance window opens.
   const windowInMs = (() => {
@@ -888,10 +904,11 @@ export default function DigitsApp() {
     const prev = lastStageRef.current;
     if (prev === entryStage) return;
     lastStageRef.current = entryStage;
+    if (lockedDigit !== null) return;
     if (entryStage === "CLICK_NOW") chimeClickNow();
     else if (entryStage === "PREPARE" && prev === "IDLE") pingPrepare();
     else if (entryStage === "ABORT" && prev === "CLICK_NOW") buzzAbort();
-  }, [entryStage]);
+  }, [entryStage, lockedDigit]);
   useEffect(() => {
     const p = loadAudioPrefs();
     setAudioVol(p.volume);
@@ -905,6 +922,12 @@ export default function DigitsApp() {
     arrivalStatsRef.current.clear();
   }, [cfg.symbol]);
 
+
+  const getLastArrival = useCallback(() => lastArrivalRef.current, []);
+  const onLockDigit = useCallback((d: number | null) => {
+    setLockedDigit(d);
+    if (d !== null) setCfg((c) => ({ ...c, predictDigit: d }));
+  }, []);
 
   const setPartial = useCallback((patch: Partial<AppConfig>) => {
     setCfg((c) => ({ ...c, ...patch }));
@@ -1089,6 +1112,7 @@ export default function DigitsApp() {
           preWarn={preWarn}
           streak={streakInfo}
           smoothedDrift={smoothedDriftRef.current}
+          holdReason={holdReason}
         />
 
         <OrderExecutionPanel
@@ -1142,9 +1166,15 @@ export default function DigitsApp() {
               pEven={derived.split.pEven}
               pHigh={derived.split.pHigh}
               rise={{ up: derived.rf.up, down: derived.rf.down }}
-              safe={safe}
-              countdownMs={countdownMs}
-              purchaseInMs={purchaseInMs}
+              symbol={cfg.symbol}
+              getLastArrival={getLastArrival}
+              rttMs={rttStatsRef.current.mean() || pingMs}
+              safe={safe && health !== "red"}
+              hold={holdReason}
+              lockedDigit={lockedDigit}
+              onLock={onLockDigit}
+              threshold={targetThreshold}
+              onThreshold={setTargetThreshold}
             />
             {(() => {
               const isMatches = cfg.market === "matches";
