@@ -44,7 +44,7 @@ export interface DerivEvents {
     symbol: string,
     generation: number,
   ) => void;
-  onHistory?: (digits: number[], lastPrice: number, symbol: string, generation: number) => void;
+  onHistory?: (digits: number[], lastPrice: number, symbol: string, generation: number, prices?: number[]) => void;
   onPing?: (rttMs: number, rawRttMs: number) => void;
   onTimeSync?: (driftMs: number) => void;
   onError?: (err: string) => void;
@@ -340,7 +340,7 @@ export class DerivClient {
       this.lastEpoch = times.length ? times[times.length - 1] : this.lastEpoch;
       this.lastTickAt = performance.now();
       const digits = prices.map((p) => lastDigit(p, pip, sym));
-      this.events.onHistory?.(digits, prices[prices.length - 1] ?? 0, sym, this.generation);
+      this.events.onHistory?.(digits, prices[prices.length - 1] ?? 0, sym, this.generation, prices);
       return;
     }
 

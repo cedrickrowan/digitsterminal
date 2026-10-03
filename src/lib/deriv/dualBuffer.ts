@@ -31,7 +31,15 @@ export interface DualBufferReport {
   streakDigit: number;
   streakLen: number;
   lattice: LatticePoint[];
+  /** First-run cluster density per digit over ticks t+2, t+3, t+5. */
+  cluster: { digit: number; p2: number; p3: number; p5: number; pair23: number; score: number }[];
+  clusterTop: number;
+  clusterSpread: number; // max - min score across digits
+  clusterFlat: boolean;
 }
+
+/** Below this max-min spread the cluster distribution is treated as flat. */
+export const CLUSTER_FLAT_SPREAD = 0.02;
 
 function freq(win: number[]): number[] {
   const f = new Array(10).fill(0);
@@ -89,7 +97,33 @@ export function analyzeDual(all: number[], lookback: number, symbol: string): Du
     }
   }
 
+  // First-run consecutive clustering: bot jumps 1 tick on the first contract
+  // and 2 ticks while running → density across t+2, t+3, t+5.
+  const cluster: DualBufferReport["cluster"] = [];
+  let clusterTop = -1;
+  let clusterSpread = 0;
+  if (slow.length >= 10 && last >= 0) {
+    const P = transitionMatrix(slow, 0.35);
+    const P2 = matPow(P, 2)[last];
+    const P3 = matPow(P, 3)[last];
+    const P5 = matPow(P, 5)[last];
+    let lo = Infinity, hi = -Infinity;
+    for (let d = 0; d < 10; d++) {
+      const pair23 = P2[d] * P[d][d];
+      const score = 0.3 * P2[d] + 0.3 * P3[d] + 0.2 * P5[d] + 0.2 * (pair23 / 0.1);
+      cluster.push({ digit: d, p2: P2[d], p3: P3[d], p5: P5[d], pair23, score });
+      if (score < lo) lo = score;
+      if (score > hi) { hi = score; clusterTop = d; }
+    }
+    clusterSpread = hi - lo;
+  }
+  const clusterFlat = cluster.length === 0 || clusterSpread < CLUSTER_FLAT_SPREAD;
+
   return {
+    cluster,
+    clusterTop,
+    clusterSpread,
+    clusterFlat,
     fastLen: fast.length,
     slowLen: slow.length,
     fastFreq,

@@ -14,6 +14,8 @@ interface Props {
   preWarn: boolean;
   streak: { step: number; of: number } | null;
   smoothedDrift: number;
+  /** Specific hold reason (volatility spike / no consecutive variance). */
+  holdReason?: string | null;
 }
 
 /**
@@ -30,6 +32,7 @@ function SignalCardImpl({
   preWarn,
   streak,
   smoothedDrift,
+  holdReason,
 }: Props) {
   const bg =
     state === "green" ? "bg-success" : state === "violet" ? "bg-violet" : "bg-danger";
@@ -42,7 +45,7 @@ function SignalCardImpl({
         ? streak
           ? "STREAK CONTINUING"
           : "EXECUTE NOW"
-        : "HOLD — NO SETUP";
+        : holdReason ?? "HOLD — NO SETUP";
 
   const sub =
     state === "violet"
