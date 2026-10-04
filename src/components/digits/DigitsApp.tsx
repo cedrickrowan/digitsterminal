@@ -42,6 +42,13 @@ import { RollingStats, computeEntryTiming, type EntryStage } from "@/lib/deriv/e
 import { EntryStageBar } from "./EntryStageBar";
 import { DualBufferPanel } from "./DualBufferPanel";
 import { MicrostructureGuard } from "@/lib/deriv/microstructure";
+import {
+  dirichletMatches,
+  parityEngine,
+  barrierEngine,
+  riseFallEngine,
+  matchesConsensus,
+} from "@/lib/deriv/marketEngines";
 import { analyzeDual, SLOW_MAX } from "@/lib/deriv/dualBuffer";
 import {
   evaluateLayeredEnsemble,
@@ -103,6 +110,9 @@ export default function DigitsApp() {
   if (!gapsRef.current) gapsRef.current = new FloatRing(16);
   const priceSeriesRef = useRef<FloatRing | null>(null);
   if (!priceSeriesRef.current) priceSeriesRef.current = new FloatRing(20);
+  // Price-only history for the isolated Rise/Fall engine (stride-3 Kalman/DFA).
+  const priceHistRef = useRef<FloatRing | null>(null);
+  if (!priceHistRef.current) priceHistRef.current = new FloatRing(150);
   const priceDeltasRef = useRef<FloatRing | null>(null);
   if (!priceDeltasRef.current) priceDeltasRef.current = new FloatRing(64);
 
@@ -241,6 +251,7 @@ export default function DigitsApp() {
     setSpikeHold(false);
     gapsRef.current!.reset();
     priceSeriesRef.current!.reset();
+    priceHistRef.current!.reset();
     priceDeltasRef.current!.reset();
     lastArrivalRef.current = 0;
     totalTicksRef.current = 0;
@@ -402,7 +413,11 @@ export default function DigitsApp() {
         // Isolation guard: ignore history for any symbol that is no longer selected.
         if (sym !== cfgRef.current.symbol) return;
         // Warm the microstructure |Δ| baseline from the historical packet.
-        if (prices && prices.length) guardRef.current.seed(sym, prices);
+        if (prices && prices.length) {
+          guardRef.current.seed(sym, prices);
+          priceHistRef.current!.reset();
+          for (const pr of prices.slice(-150)) priceHistRef.current!.push(pr);
+        }
         // Strict filter: keep every digit 0-9 (including 0). Drop only sentinel -1 (parse failure).
         const clean = digits.filter((d) => d !== null && d !== undefined && d >= 0 && d <= 9);
         const ring = bufRef.current!;
@@ -471,6 +486,7 @@ export default function DigitsApp() {
           const ps = priceSeriesRef.current!;
           const prevPrice = ps.length ? ps.last() : quote;
           ps.push(quote);
+          priceHistRef.current!.push(quote);
           priceDeltasRef.current!.push(Math.abs(quote - prevPrice));
         }
         // LIFO coalescer — if the main thread was busy and multiple ticks
@@ -617,6 +633,16 @@ export default function DigitsApp() {
     () => analyzeDual(buf, cfg.lookback, cfg.symbol),
     [buf, cfg.lookback, cfg.symbol],
   );
+  // Step 5 calibrated market engines (digit engines on buffers, Rise/Fall on prices only).
+  const engines = useMemo(() => {
+    const slowW = buf.slice(-150);
+    const fastW = buf.slice(-50);
+    const dir = dirichletMatches(slowW, cfg.symbol);
+    const parity = parityEngine(fastW);
+    const bar = barrierEngine(fastW, slowW, cfg.barrier, dir.posterior);
+    const rf = riseFallEngine(priceHistRef.current!.toArray());
+    return { dir, parity, bar, rf };
+  }, [buf, cfg.symbol, cfg.barrier]);
   const slowTape = useMemo(() => buf.slice(-SLOW_MAX), [buf]);
 
   const derived = useMemo(() => {
@@ -825,11 +851,18 @@ export default function DigitsApp() {
   const edgeFloor = cfg.market === "matches" ? 0.3 : 0.6;
 
   // Microstructure / clustering holds — block every entry while active.
+  const matchConsensus = matchesConsensus(lockedDigit ?? engines.dir.topDigit, engines.parity, engines.bar);
   const holdReason: string | null = spikeHold
     ? "HOLD - VOLATILITY SPIKE"
-    : dual.clusterFlat
-      ? "HOLD - NO CONSECUTIVE VARIANCE"
-      : null;
+    : cfg.market === "matches" && matchConsensus.conflict
+      ? "HOLD - MODEL CONFLICT"
+      : cfg.market === "overunder" && engines.bar.hazard
+        ? "HOLD - BARRIER HAZARD"
+        : cfg.market === "risefall" && engines.rf.signal === "HOLD"
+          ? "HOLD - FLAT/DRIFTLESS"
+          : cfg.market !== "risefall" && dual.clusterFlat
+            ? "HOLD - NO CONSECUTIVE VARIANCE"
+            : null;
 
   const greenBase =
     !holdReason &&
@@ -1174,6 +1207,7 @@ export default function DigitsApp() {
               lockedDigit={lockedDigit}
               onLock={onLockDigit}
               threshold={targetThreshold}
+              engines={engines}
               onThreshold={setTargetThreshold}
             />
             {(() => {
