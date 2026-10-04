@@ -74,7 +74,7 @@ const CUSUM_P1 = 0.6; // shift alternative (60/40)
 const CUSUM_H = 2.5; // decision threshold (log-likelihood units)
 
 export function parityEngine(window: number[]): ParityResult {
-  const x = window.filter((d) => d >= 0 && d <= 9).map((d) => (d % 2 === 0 ? 1 : 0));
+  const x: number[] = window.filter((d) => d >= 0 && d <= 9).map((d) => (d % 2 === 0 ? 1 : 0));
   const n = x.length;
   const n1 = x.reduce((a, b) => a + b, 0);
   const n0 = n - n1;
