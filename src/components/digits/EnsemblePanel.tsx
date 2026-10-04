@@ -4,6 +4,20 @@ import type { Market } from "@/lib/deriv/types";
 import { cadenceProfile } from "@/lib/deriv/cadence";
 import { HUMAN_RESPONSE_MS } from "@/lib/deriv/entryTiming";
 import { chimeClickNow, buzzAbort } from "@/lib/deriv/audio";
+import {
+  matchesConsensus,
+  type DirichletResult,
+  type ParityResult,
+  type BarrierResult,
+  type RiseFallResult,
+} from "@/lib/deriv/marketEngines";
+
+export interface MarketEnginesView {
+  dir: DirichletResult;
+  parity: ParityResult;
+  bar: BarrierResult;
+  rf: RiseFallResult;
+}
 
 interface Props {
   ensemble: Ensemble;
@@ -23,49 +37,34 @@ interface Props {
   lockedDigit: number | null;
   onLock: (d: number | null) => void;
   threshold: number; // 0.16..0.24
+  engines: MarketEnginesView;
   onThreshold: (t: number) => void;
 }
 
 function directionFor(p: Props, target: number): { side: string; conf: number; tone: "cyan" | "magenta" } {
+  const e = p.engines;
   switch (p.market) {
-    case "overunder": {
-      const pOver = 1 - p.ensemble.posterior.slice(0, p.barrier + 1).reduce((a, b) => a + b, 0);
-      return pOver >= 0.5
-        ? { side: `OVER ${p.barrier}`, conf: pOver, tone: "cyan" }
-        : { side: `UNDER ${p.barrier}`, conf: 1 - pOver, tone: "magenta" };
-    }
+    case "overunder":
+      return e.bar.direction === "NEUTRAL"
+        ? { side: `BARRIER ${p.barrier}`, conf: Math.max(e.bar.pOver, e.bar.pUnder), tone: "magenta" }
+        : { side: `${e.bar.direction} ${p.barrier}`, conf: e.bar.confidence, tone: e.bar.direction === "OVER" ? "cyan" : "magenta" };
     case "evenodd":
-      return p.pEven >= 0.5
-        ? { side: "EVEN", conf: p.pEven, tone: "cyan" }
-        : { side: "ODD", conf: 1 - p.pEven, tone: "magenta" };
+      return { side: e.parity.regime, conf: e.parity.confidence, tone: e.parity.regime === "ODD" ? "magenta" : "cyan" };
     case "risefall":
-      return p.rise.up >= p.rise.down
-        ? { side: "RISE", conf: p.rise.up / Math.max(1, p.rise.up + p.rise.down), tone: "cyan" }
-        : { side: "FALL", conf: p.rise.down / Math.max(1, p.rise.up + p.rise.down), tone: "magenta" };
+      return { side: e.rf.signal, conf: e.rf.confidence, tone: e.rf.signal === "FALL" ? "magenta" : "cyan" };
     default:
-      return { side: `MATCH ${target}`, conf: p.ensemble.posterior[target] ?? 0, tone: "cyan" };
+      return { side: `MATCH ${target}`, conf: e.dir.posterior[target] ?? 0, tone: "cyan" };
   }
 }
 
-/** Parity + barrier consensus for a digit target. */
-export function digitConsensus(
-  d: number,
-  posterior: number[],
-  pEven: number,
-  barrier: number,
-): { parity: boolean; barrierOk: boolean } {
-  const pOver = 1 - posterior.slice(0, barrier + 1).reduce((a, b) => a + b, 0);
-  const parity = (d % 2 === 0) === (pEven >= 0.5);
-  const barrierOk = (d > barrier) === (pOver >= 0.5);
-  return { parity, barrierOk };
-}
-
 function EnsemblePanelImpl(p: Props) {
-  const target = p.lockedDigit ?? p.ensemble.topDigit;
+  const post = p.engines.dir.posterior;
+  const target = p.lockedDigit ?? p.engines.dir.topDigit;
   const dir = directionFor(p, target);
   const cad = cadenceProfile(p.symbol);
-  const prob = p.ensemble.posterior[target] ?? 0;
-  const cons = digitConsensus(target, p.ensemble.posterior, p.pEven, p.barrier);
+  const prob = post[target] ?? 0;
+  const consensus = matchesConsensus(target, p.engines.parity, p.engines.bar);
+  const cons = { parity: consensus.parityOk, barrierOk: consensus.barrierOk };
   const qualifies = prob >= p.threshold && cons.parity && cons.barrierOk && !p.hold && p.safe;
 
   // Live per-frame millisecond countdown (independent of the 4fps app ticker).
@@ -194,7 +193,7 @@ function EnsemblePanelImpl(p: Props) {
       </div>
 
       <div className="mt-1 grid grid-cols-10 gap-0.5">
-        {p.ensemble.posterior.map((q, i) => {
+        {post.map((q, i) => {
           const isT = i === target;
           const pass = q >= p.threshold;
           return (
@@ -215,6 +214,23 @@ function EnsemblePanelImpl(p: Props) {
             </button>
           );
         })}
+      </div>
+
+      <div className="mt-2 space-y-0.5 font-mono text-[10px] text-muted-foreground">
+        <div>
+          <span className="text-cyan">MATCHES</span> Dirichlet α0=1 · λ {p.engines.dir.lambdaPerTick.toFixed(4)}/tick · top{" "}
+          {p.engines.dir.topDigit} {(p.engines.dir.topProb * 100).toFixed(1)}% ±{(p.engines.dir.topHalfWidth * 100).toFixed(1)}
+        </div>
+        <div>
+          <span className="text-cyan">EVEN/ODD</span> {p.engines.parity.regime} {(p.engines.parity.confidence * 100).toFixed(0)}% · {p.engines.parity.detail}
+        </div>
+        <div>
+          <span className="text-cyan">OVER/UNDER</span> {p.engines.bar.direction}
+          {p.engines.bar.hazard ? " · HAZARD" : ""} · {p.engines.bar.detail}
+        </div>
+        <div>
+          <span className="text-cyan">RISE/FALL</span> {p.engines.rf.signal} · {p.engines.rf.detail}
+        </div>
       </div>
 
       <div className="mt-2 flex items-center gap-2 text-[10px] text-muted-foreground">
