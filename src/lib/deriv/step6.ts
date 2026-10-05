@@ -6,7 +6,7 @@ import type { ParityResult, BarrierResult, RiseFallResult } from "./marketEngine
 /** Landing ticks covering a late click (t+2), normal entry (t+3) and a 2-tick bot jump (t+5). */
 export const LANDING_TICKS = [2, 3, 5] as const;
 export const LANDING_MIN_HITS = 2;
-export const LANDING_DENSITY_FLOOR = 0.3; // P(≥2 of 3 landing ticks) — fair ≈ 2.8%
+export const LANDING_DENSITY_FLOOR = 0.07; // P(≥2 of 3 landing ticks) — fair ≈ 2.8%, gate at ~2.5× fair
 export const EXHAUSTED_GAP = 12;
 export const DIRECTIVE_FLOOR = 0.58;
 export const HAZARD_CEIL = 0.12;
