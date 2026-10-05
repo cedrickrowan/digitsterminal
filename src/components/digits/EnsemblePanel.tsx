@@ -38,6 +38,11 @@ interface Props {
   onLock: (d: number | null) => void;
   threshold: number; // 0.16..0.24
   engines: MarketEnginesView;
+  step6: {
+    land: { density: number; perTick: number[]; ok: boolean };
+    inc: { vCluster: number; deviation: number; gap: number; rising: boolean; exhausted: boolean };
+    directive: { text: string; active: boolean };
+  };
   onThreshold: (t: number) => void;
 }
 
@@ -135,7 +140,9 @@ function EnsemblePanelImpl(p: Props) {
             dir.tone === "cyan" ? "border-cyan" : "border-magenta"
           } bg-background/60`}
         >
-          <span className={`text-center font-mono text-xl font-bold leading-tight ${tone}`}>{dir.side}</span>
+          <span className={`text-center font-mono text-base font-bold leading-tight ${p.step6.directive.active ? tone : "text-muted-foreground"}`}>
+            {p.market === "matches" ? dir.side : p.step6.directive.active ? p.step6.directive.text : dir.side}
+          </span>
         </div>
         <div className="min-w-0 flex-1 space-y-1">
           <div className="flex justify-between text-[11px] text-muted-foreground">
@@ -151,20 +158,9 @@ function EnsemblePanelImpl(p: Props) {
           </div>
           <div className="flex justify-between text-[10px] text-muted-foreground">
             <span>Buy now if ≤</span>
-            <span className={`font-mono font-bold tabular-nums ${buyIfMs <= 0 ? "text-danger" : "text-cyan"}`}>
-              {buyIfMs <= 0 ? "TOO LATE" : `${buyIfMs}ms`}
+            <span className={`font-mono font-bold tabular-nums ${last > 0 && buyIfMs <= 0 ? "text-danger" : "text-cyan"}`}>
+              {last === 0 ? "—" : buyIfMs <= 0 ? "TOO LATE" : `${buyIfMs}ms`}
             </span>
-          </div>
-          {/* Window progress: fills as the safe window is consumed. */}
-          <div className="relative h-1 overflow-hidden rounded-full bg-secondary">
-            <div
-              className={`h-full ${inWindow ? "bg-cyan" : "bg-danger"}`}
-              style={{ width: `${Math.min(100, (elapsed / cad.tickMs) * 100)}%` }}
-            />
-            <div
-              className="absolute inset-y-0 w-px bg-foreground"
-              style={{ left: `${(cad.safeWindowMs / cad.tickMs) * 100}%` }}
-            />
           </div>
         </div>
       </div>
@@ -220,6 +216,13 @@ function EnsemblePanelImpl(p: Props) {
         <div>
           <span className="text-cyan">MATCHES</span> Dirichlet α0=1 · λ {p.engines.dir.lambdaPerTick.toFixed(4)}/tick · top{" "}
           {p.engines.dir.topDigit} {(p.engines.dir.topProb * 100).toFixed(1)}% ±{(p.engines.dir.topHalfWidth * 100).toFixed(1)}
+        </div>
+        <div>
+          <span className="text-cyan">LANDING</span> t+2/t+3/t+5{" "}
+          {p.step6.land.perTick.map((q) => (q * 100).toFixed(1)).join(" / ")}% · ≥2 hits{" "}
+          <span className={p.step6.land.ok ? "text-success" : "text-danger"}>{(p.step6.land.density * 100).toFixed(1)}%</span>
+          {" · "}v {(p.step6.inc.vCluster * 100).toFixed(1)} · dev {(p.step6.inc.deviation * 100).toFixed(1)} · gap{" "}
+          <span className={p.step6.inc.exhausted ? "text-danger" : ""}>{p.step6.inc.gap}</span>
         </div>
         <div>
           <span className="text-cyan">EVEN/ODD</span> {p.engines.parity.regime} {(p.engines.parity.confidence * 100).toFixed(0)}% · {p.engines.parity.detail}
