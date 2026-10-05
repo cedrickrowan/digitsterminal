@@ -108,14 +108,14 @@ export function marketDirective(
   switch (market) {
     case "evenodd": {
       if (parity.regime === "NEUTRAL") return { text: "HOLD - PARITY NEUTRAL", active: false };
-      if (parity.confidence < DIRECTIVE_FLOOR) return { text: `HOLD - PARITY < ${DIRECTIVE_FLOOR * 100}%`, active: false };
+      if (parity.confidence < DIRECTIVE_FLOOR) return { text: `HOLD - PARITY < ${Math.round(DIRECTIVE_FLOOR * 100)}%`, active: false };
       if (parity.runsRegime === "RANDOM") return { text: "HOLD - RANDOM RUNS", active: false };
       return { text: `TRADE ${parity.regime}`, active: true };
     }
     case "overunder": {
       if (bar.pEqual >= HAZARD_CEIL) return { text: "HOLD - BARRIER HAZARD", active: false };
       if (bar.direction === "NEUTRAL" || bar.confidence < DIRECTIVE_FLOOR)
-        return { text: `HOLD - BARRIER < ${DIRECTIVE_FLOOR * 100}%`, active: false };
+        return { text: `HOLD - BARRIER < ${Math.round(DIRECTIVE_FLOOR * 100)}%`, active: false };
       return { text: `TRADE ${bar.direction} ${bar.barrier}`, active: true };
     }
     case "risefall": {
