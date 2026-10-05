@@ -49,6 +49,7 @@ import {
   riseFallEngine,
   matchesConsensus,
 } from "@/lib/deriv/marketEngines";
+import { landingDensity, incline, pingHold, marketDirective } from "@/lib/deriv/step6";
 import { analyzeDual, SLOW_MAX } from "@/lib/deriv/dualBuffer";
 import {
   evaluateLayeredEnsemble,
@@ -643,6 +644,22 @@ export default function DigitsApp() {
     const rf = riseFallEngine(priceHistRef.current!.toArray());
     return { dir, parity, bar, rf };
   }, [buf, cfg.symbol, cfg.barrier]);
+  // Step 6: landing-tick density (t+2/t+3/t+5), incline velocity, market directive.
+  const step6 = useMemo(() => {
+    const tgt = lockedDigit ?? engines.dir.topDigit;
+    const slowW = buf.slice(-150);
+    const land = landingDensity(slowW, tgt);
+    const inc = incline(slowW, dual.fastFreq, dual.slowFreq, tgt);
+    const directive = marketDirective(
+      cfg.market,
+      tgt,
+      engines.parity,
+      engines.bar,
+      engines.rf,
+      priceHistRef.current!.toArray(),
+    );
+    return { tgt, land, inc, directive };
+  }, [buf, lockedDigit, engines, dual, cfg.market]);
   const slowTape = useMemo(() => buf.slice(-SLOW_MAX), [buf]);
 
   const derived = useMemo(() => {
@@ -852,17 +869,24 @@ export default function DigitsApp() {
 
   // Microstructure / clustering holds — block every entry while active.
   const matchConsensus = matchesConsensus(lockedDigit ?? engines.dir.topDigit, engines.parity, engines.bar);
-  const holdReason: string | null = spikeHold
-    ? "HOLD - VOLATILITY SPIKE"
-    : cfg.market === "matches" && matchConsensus.conflict
-      ? "HOLD - MODEL CONFLICT"
-      : cfg.market === "overunder" && engines.bar.hazard
-        ? "HOLD - BARRIER HAZARD"
-        : cfg.market === "risefall" && engines.rf.signal === "HOLD"
-          ? "HOLD - FLAT/DRIFTLESS"
-          : cfg.market !== "risefall" && dual.clusterFlat
-            ? "HOLD - NO CONSECUTIVE VARIANCE"
-            : null;
+  const pingGate = pingHold(cfg.symbol, pingMs);
+  const holdReason: string | null = pingGate
+    ? pingGate
+    : spikeHold
+      ? "HOLD - VOLATILITY SPIKE"
+      : cfg.market === "matches" && step6.inc.exhausted
+        ? "HOLD - DIGIT EXHAUSTED"
+        : cfg.market === "matches" && !step6.inc.rising
+          ? "HOLD - NO INCLINE"
+          : cfg.market === "matches" && !step6.land.ok
+            ? "HOLD - LOW LANDING DENSITY"
+            : cfg.market === "matches" && matchConsensus.conflict
+              ? "HOLD - MODEL CONFLICT"
+              : !step6.directive.active
+                ? step6.directive.text
+                : cfg.market !== "risefall" && dual.clusterFlat
+                  ? "HOLD - NO CONSECUTIVE VARIANCE"
+                  : null;
 
   const greenBase =
     !holdReason &&
@@ -1208,6 +1232,7 @@ export default function DigitsApp() {
               onLock={onLockDigit}
               threshold={targetThreshold}
               engines={engines}
+              step6={step6}
               onThreshold={setTargetThreshold}
             />
             {(() => {
