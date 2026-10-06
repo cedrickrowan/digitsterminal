@@ -19,9 +19,6 @@ export interface AppConfig {
   stake: number;
   lookback: 25 | 50 | 100;
   latencyOffsetMs: number;
-  /** Human Reaction Offset — manual finger-tap delay compensation (ms). */
-  reactionOffsetMs: number;
-
   mode: Mode;
   market: Market;
   barrier: number; // for over/under
@@ -58,11 +55,9 @@ export const DEFAULT_CONFIG: AppConfig = {
   stake: 1,
   lookback: 50,
   latencyOffsetMs: 1000,
-  reactionOffsetMs: 300,
-
   mode: "simulated",
   market: "matches",
-  barrier: 5,
+  barrier: 4,
   triggerStreak: 3,
   triggerProbBelow: 8,
   triggerMarkovAbove: 18,
@@ -98,4 +93,6 @@ export const SYMBOLS = [
   { value: "1HZ75V", label: "Volatility 75 (1s)" },
   { value: "1HZ90V", label: "Volatility 90 (1s)" },
   { value: "1HZ100V", label: "Volatility 100 (1s)" },
+  { value: "1HZ150V", label: "Volatility 150 (1s)" },
+  { value: "1HZ250V", label: "Volatility 250 (1s)" },
 ];

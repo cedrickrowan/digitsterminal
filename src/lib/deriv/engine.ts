@@ -3,7 +3,6 @@
 // so counters can never exceed the configured window (structural guarantee).
 
 import type { AppConfig } from "./types";
-import { forecastHorizon, type HorizonForecast } from "./matrix";
 
 export interface EngineReport {
   tickIndex: number;
@@ -14,16 +13,13 @@ export interface EngineReport {
   intervalStdMs: number;
   entropyDecay: number; // 0..1, distance from uniform equilibrium
   confidenceAdjust: number; // multiplier applied to top-digit confidence
-  bitmask: number; // Sync=8 Rise=1 Even=2 Over=4 (sticky — never drops to 000)
+  bitmask: number; // Rise=1 Even=2 Over=4
   higherOrder: {
     order2: number[]; // 10-length prob dist from (a,b) -> next
     order3: number[]; // 10-length prob dist from (a,b,c) -> next
   };
-  /** Matrix-power multi-tick horizon forecast (P² plain / P³ 1s). */
-  horizon: HorizonForecast;
   log: string;
 }
-
 
 // Small fast frequencies using preallocated typed array
 function freqU8(buf: Uint8Array, from: number, len: number, out: Uint32Array): void {
@@ -59,9 +55,6 @@ export class DigitEngine {
 
   private freqBuf = new Uint32Array(10);
   private lookback: number;
-  // Sticky bitmask — a transient tie must never collapse the mask to 000.
-  private lastMask = 0;
-
 
   constructor(lookback: number) {
     this.lookback = Math.max(5, lookback);
@@ -260,20 +253,12 @@ export class DigitEngine {
     const confidenceAdjust =
       1 + Math.min(0.25, entropyDecay * 0.6 + Math.max(0, splitShift - 0.15) * 0.5);
 
-    // Bitwise flag mask — Sync=8, Rise=1, Even=2, Over(barrier)=4.
-    // Bit 3 (Sync) is asserted whenever the stream has usable state, and the
-    // whole mask is sticky: on a transient tie we carry the previous mask so
-    // the binary matrix can never read `mask=0000` mid-cycle.
+    // Bitwise flag mask — Rise=1, Even=2, Over(barrier)=4
     const last = len > 0 ? this.ring[(this.head + len - 1) % this.cap] : -1;
     let mask = 0;
     if (upMoves > downMoves) mask |= 1;
-    else if (upMoves === downMoves) mask |= this.lastMask & 1;
     if (last >= 0 && (last & 1) === 0) mask |= 2;
     if (last >= 0 && last > cfg.barrier) mask |= 4;
-    if (len > 0) mask |= 8; // stream synced
-    if (mask === 0) mask = this.lastMask || 8;
-    this.lastMask = mask;
-
 
     // Time-seed interval stats
     let ivMean = 0, ivVar = 0;
@@ -291,25 +276,16 @@ export class DigitEngine {
     const order2 = this.order2Dist();
     const order3 = this.order3Dist();
 
-    // ---- Matrix-power horizon forecast (async: runs inside the worker) ----
-    // Plain index -> P², 1s index -> P³, plus cumulative multi-appearance
-    // probabilities across a rolling 10-tick sliding window.
-    const horizon = forecastHorizon(this.snapshot(), cfg.symbol, 10, 0.35);
-
     const coreSpeedMs = performance.now() - t0;
 
     // Human-readable per-tick health/status log
     const targetFreq = this.freqBuf[cfg.predictDigit] / n;
-    const tgt = horizon.multi[cfg.predictDigit];
     const log =
       `[Tick ${this.tickIndex}] sync clean · buf ${this.size}/${this.cap} · ` +
       `Δt ${ivMean ? ivMean.toFixed(0) : "-"}ms±${ivStd.toFixed(0)} · ` +
       `H=${H.toFixed(2)} decay ${(entropyDecay * 100).toFixed(0)}% · ` +
-      `hurst ${horizon.hurst.toFixed(2)}${horizon.neutralFallback ? " (neutral)" : ""} · ` +
-      `P^${horizon.horizon}(${cfg.predictDigit})=${(horizon.horizonDist[cfg.predictDigit] * 100).toFixed(1)}% · ` +
-      `x2/10=${((tgt?.tail[2] ?? 0) * 100).toFixed(0)}% · ` +
       `p(${cfg.predictDigit})=${(targetFreq * 100).toFixed(1)}% · ` +
-      `mask=${mask.toString(2).padStart(4, "0")} · core ${coreSpeedMs.toFixed(2)}ms`;
+      `mask=${mask.toString(2).padStart(3, "0")} · core ${coreSpeedMs.toFixed(2)}ms`;
 
     return {
       tickIndex: this.tickIndex,
@@ -322,9 +298,7 @@ export class DigitEngine {
       confidenceAdjust,
       bitmask: mask,
       higherOrder: { order2, order3 },
-      horizon,
       log,
-
     };
   }
 }

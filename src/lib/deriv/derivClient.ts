@@ -1,4 +1,3 @@
-import { decimalsFor, extractLastDigit, normalizePip } from "./cadence";
 // Deriv WebSocket client tuned for mobile/high-latency networks.
 // Public app_id 1089 for ticks. Optional API token enables authorize + buy.
 //
@@ -44,8 +43,8 @@ export interface DerivEvents {
     symbol: string,
     generation: number,
   ) => void;
-  onHistory?: (digits: number[], lastPrice: number, symbol: string, generation: number, prices?: number[]) => void;
-  onPing?: (rttMs: number, rawRttMs: number) => void;
+  onHistory?: (digits: number[], lastPrice: number, symbol: string, generation: number) => void;
+  onPing?: (rttMs: number) => void;
   onTimeSync?: (driftMs: number) => void;
   onError?: (err: string) => void;
   onAuth?: (info: AuthInfo | null) => void;
@@ -78,7 +77,7 @@ export class DerivClient {
   private subId: string | null = null;
   private balSubId: string | null = null;
   private symbol = "R_100";
-  private historyCount = 150;
+  private historyCount = 100;
   private generation = 0;
   private pipSize = 2;
   private timeTimer: number | null = null;
@@ -101,7 +100,6 @@ export class DerivClient {
   private pollReqIds = new Set<number>();
   private lastEpoch = 0;
   private streaming = false;
-  private failedOpens = 0;
   private static readonly PING_ALPHA = 0.25;
   private static readonly DRIFT_ALPHA = 0.2;
 
@@ -120,13 +118,7 @@ export class DerivClient {
     this.closed = false;
     if (this.ws && (this.ws.readyState === 0 || this.ws.readyState === 1)) return;
     this.setState(this.reconnectAttempt > 0 ? "reconnecting" : "connecting");
-    // Public endpoint first (no auth); legacy v3 only as a fallback if the
-    // public endpoint repeatedly fails to open.
-    const url =
-      this.failedOpens >= 2 && this.failedOpens % 2 === 0
-        ? "wss://ws.derivws.com/websockets/v3?app_id=1089"
-        : "wss://api.derivws.com/trading/v1/options/ws/public";
-    let opened = false;
+    const url = "wss://ws.derivws.com/websockets/v3?app_id=1089";
     let ws: WebSocket;
     try {
       ws = new WebSocket(url);
@@ -137,8 +129,6 @@ export class DerivClient {
     this.ws = ws;
 
     ws.onopen = () => {
-      opened = true;
-      this.failedOpens = 0;
       this.reconnectAttempt = 0;
       this.softResubscribes = 0;
       this.lastMsgAt = performance.now();
@@ -153,12 +143,10 @@ export class DerivClient {
       if (this.token) this.authorizeInternal();
       this.timeTimer = window.setInterval(() => this.syncTime(), 5_000);
       this.pingTimer = window.setInterval(() => this.ping(), 5_000);
-      this.watchdog = window.setInterval(() => this.checkHealth(), 4_000);
+      this.watchdog = window.setInterval(() => this.checkHealth(), 3_000);
     };
 
     ws.onclose = () => {
-      if (this.ws !== ws) return; // already torn down by hardReset
-      if (!opened) this.failedOpens++;
       this.clearTimers();
       this.pending.clear();
       this.subId = null;
@@ -180,36 +168,26 @@ export class DerivClient {
     };
   }
 
-  /** Health loop (4s): a silent socket gets an immediate hard teardown + clean reconnect. */
+  /** Health loop: soft-resubscribe on a silent stream, hard reset if it persists. */
   private checkHealth() {
     if (!this.ws || this.ws.readyState !== 1) return;
     const now = performance.now();
-    const tickBudget = Math.max(4_000, this.tickIntervalMs * 2);
-    if (now - this.lastTickAt > tickBudget || now - this.lastMsgAt > 4_000) {
-      this.hardReset();
+    const tickBudget = Math.max(8_000, this.tickIntervalMs * 4);
+    if (now - this.lastTickAt > tickBudget) {
+      this.softResubscribes++;
+      if (this.softResubscribes <= 2) {
+        this.setState("reconnecting", "stream silent · resubscribing");
+        this.subscribeTicks(this.symbol, this.historyCount);
+        this.lastTickAt = now;
+      } else {
+        this.softResubscribes = 0;
+        try { this.ws.close(); } catch { /* ignore */ }
+      }
+      return;
     }
-  }
-
-  /** Immediate hard teardown of the current socket and a clean reconnect. */
-  hardReset() {
-    if (this.closed) return;
-    const old = this.ws;
-    this.ws = null;
-    this.clearTimers();
-    this.pending.clear();
-    this.subId = null;
-    this.balSubId = null;
-    this.streaming = false;
-    if (old) {
-      old.onopen = old.onmessage = old.onerror = old.onclose = null;
-      try { old.close(); } catch { /* ignore */ }
+    if (now - this.lastMsgAt > 20_000) {
+      try { this.ws.close(); } catch { /* ignore */ }
     }
-    if (this.reconnectTimer !== null) {
-      clearTimeout(this.reconnectTimer);
-      this.reconnectTimer = null;
-    }
-    this.setState("reconnecting", "watchdog · hard reset");
-    this.connect();
   }
 
   private scheduleReconnect() {
@@ -292,7 +270,7 @@ export class DerivClient {
         return;
       }
       const quote: number = msg.tick.quote;
-      const pip = normalizePip(msg.tick.pip_size) ?? this.pipSize;
+      const pip = msg.tick.pip_size ?? this.pipSize;
       this.pipSize = pip;
       const digit = lastDigit(quote, pip, sym);
       this.subId = msg.tick.id ?? this.subId;
@@ -318,7 +296,7 @@ export class DerivClient {
       if (sym !== this.symbol) return;
       const prices: number[] = msg.history.prices ?? [];
       const times: number[] = msg.history.times ?? [];
-      const pip = normalizePip(msg.pip_size) ?? this.pipSize;
+      const pip = msg.pip_size ?? this.pipSize;
       this.pipSize = pip;
       if (isPoll) {
         for (let i = 0; i < prices.length; i++) {
@@ -340,7 +318,7 @@ export class DerivClient {
       this.lastEpoch = times.length ? times[times.length - 1] : this.lastEpoch;
       this.lastTickAt = performance.now();
       const digits = prices.map((p) => lastDigit(p, pip, sym));
-      this.events.onHistory?.(digits, prices[prices.length - 1] ?? 0, sym, this.generation, prices);
+      this.events.onHistory?.(digits, prices[prices.length - 1] ?? 0, sym, this.generation);
       return;
     }
 
@@ -360,7 +338,7 @@ export class DerivClient {
     return this.generation;
   }
 
-  subscribeTicks(symbol: string, count = 150) {
+  subscribeTicks(symbol: string, count = 100) {
     const symbolChanged = symbol !== this.symbol;
     this.symbol = symbol;
     this.historyCount = count;
@@ -381,10 +359,8 @@ export class DerivClient {
     if (symbolChanged) this.send({ forget_all: "ticks" });
     if (!this.ws || this.ws.readyState !== 1) return;
 
-    // 1) INSTANT BUFFERING — pull the last `count` ticks immediately so the
-    //    Markov / digram / trigram modules start fully warm (zero waiting).
-    this.requestHistory(count);
-
+    // 1) Seed history WITHOUT `subscribe` — always accepted by every region.
+    this.send({ ticks_history: symbol, end: "latest", count, style: "ticks" });
     // 2) Try the live stream. Rejections (region/app_id restrictions surface as
     //    "Symbol X is invalid") switch to polling and keep retrying quietly.
     this.streaming = false;
@@ -403,28 +379,7 @@ export class DerivClient {
     });
   }
 
-  /**
-   * INSTANT TICK HISTORY BUFFERING — fires a standalone `ticks_history`
-   * request (never `subscribe`, accepted in every region) so the analysis
-   * engine is seeded with a full lookback packet the moment the terminal
-   * initialises, reconnects, or switches asset. Retries quietly on failure.
-   */
-  requestHistory(count = 150): boolean {
-    const symbol = this.symbol;
-    const gen = this.generation;
-    if (!this.ws || this.ws.readyState !== 1) return false;
-    this.send({ ticks_history: symbol, end: "latest", count, style: "ticks" }, (msg) => {
-      if (msg?.error && this.generation === gen) {
-        window.setTimeout(() => {
-          if (this.generation === gen) this.requestHistory(count);
-        }, 1500);
-      }
-    });
-    return true;
-  }
-
   private retryStream(symbol: string, gen: number) {
-
     if (this.generation !== gen || !this.ws || this.ws.readyState !== 1) return;
     this.send({ ticks: symbol, subscribe: 1 }, (msg) => {
       if (this.generation !== gen) return;
@@ -474,7 +429,7 @@ export class DerivClient {
     this.send({ ping: 1 }, () => {
       const rtt = performance.now() - t0;
       this.pingEma = this.pingEma === 0 ? rtt : this.pingEma + DerivClient.PING_ALPHA * (rtt - this.pingEma);
-      this.events.onPing?.(this.pingEma, rtt);
+      this.events.onPing?.(this.pingEma);
     });
   }
 
@@ -552,12 +507,25 @@ export class DerivClient {
   }
 }
 
-// Decimal precision is calibrated per asset (see cadence.ts) — the
-// calibrated map is authoritative; Deriv's live pip_size only for unknown assets.
+// Decimal places come from Deriv's live `pip_size` per symbol (authoritative).
+// This static map is only a fallback before the first message arrives.
+const FALLBACK_DECIMALS: Record<string, number> = {
+  R_10: 3, R_25: 3, R_50: 4, R_75: 4, R_100: 2,
+  "1HZ10V": 2, "1HZ15V": 3, "1HZ25V": 2, "1HZ30V": 3, "1HZ50V": 2,
+  "1HZ75V": 2, "1HZ90V": 3, "1HZ100V": 2, "1HZ150V": 2, "1HZ250V": 5,
+};
+
 export function decimalsForSymbol(symbol: string): number {
-  return decimalsFor(symbol);
+  return FALLBACK_DECIMALS[symbol] ?? 2;
 }
 
 function lastDigit(price: number, pip: number, symbol?: string): number {
-  return extractLastDigit(price, decimalsFor(symbol ?? "", pip));
+  const decimals =
+    Number.isInteger(pip) && pip >= 0 && pip <= 8 ? pip : decimalsForSymbol(symbol ?? "");
+  // toFixed preserves trailing zeros so "1245.30" stays "1245.30" → last char "0"
+  const s = price.toFixed(decimals);
+  const ch = s.charAt(s.length - 1);
+  const d = parseInt(ch, 10);
+  if (!Number.isInteger(d) || d < 0 || d > 9) return -1;
+  return d;
 }

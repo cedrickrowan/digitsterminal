@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Subject } from "rxjs";
+import { auditTime } from "rxjs/operators";
 import { DerivClient, type AuthInfo, type ConnState, type ContractType } from "@/lib/deriv/derivClient";
 import { DigitRing, FloatRing } from "@/lib/deriv/ring";
 import { loadConfig, loadToken, saveConfig, saveToken } from "@/lib/deriv/storage";
@@ -36,28 +37,7 @@ import {
   fusePreArrival,
   runPreArrivalAnalysis,
 } from "@/lib/deriv/preArrival";
-import { forecastHorizon, horizonForSymbol } from "@/lib/deriv/matrix";
-import { beep, chimeClickNow, pingPrepare, buzzAbort, loadAudioPrefs, setAudioPrefs, unlockAudio } from "@/lib/deriv/audio";
-import { RollingStats, computeEntryTiming, type EntryStage } from "@/lib/deriv/entryTiming";
-import { EntryStageBar } from "./EntryStageBar";
-import { DualBufferPanel } from "./DualBufferPanel";
-import { MicrostructureGuard } from "@/lib/deriv/microstructure";
-import {
-  dirichletMatches,
-  parityEngine,
-  barrierEngine,
-  riseFallEngine,
-  matchesConsensus,
-} from "@/lib/deriv/marketEngines";
-import { landingDensity, incline, pingHold, marketDirective } from "@/lib/deriv/step6";
-import { analyzeDual, SLOW_MAX } from "@/lib/deriv/dualBuffer";
-import {
-  evaluateLayeredEnsemble,
-  meetsExecutionFloor,
-  type LayeredResult,
-} from "@/lib/deriv/layeredEnsemble";
-
-
+import { beep } from "@/lib/deriv/audio";
 
 import { signOut } from "./LoginScreen";
 import { NetworkBadge } from "./NetworkBadge";
@@ -73,10 +53,6 @@ import { SplitPanel } from "./SplitPanel";
 import { PatternsPanel } from "./PatternsPanel";
 import { EngineLog } from "./EngineLog";
 import { PreArrivalPanel } from "./PreArrivalPanel";
-import { SignalCard, type SignalState } from "./SignalCard";
-import { MultiAppearancePanel } from "./MultiAppearancePanel";
-import { OrderExecutionPanel, type OrderRecord } from "./OrderExecutionPanel";
-
 
 
 const MAX_BUFFER = 500;
@@ -100,9 +76,6 @@ export default function DigitsApp() {
   const [auth, setAuth] = useState<AuthInfo | null>(null);
   const [buyBusy, setBuyBusy] = useState(false);
   const [lastBuyResult, setLastBuyResult] = useState<string>("");
-  const [autoFire, setAutoFire] = useState(false);
-  const [orders, setOrders] = useState<OrderRecord[]>([]);
-  const lastFireTickRef = useRef(-99);
 
   // ---- Persistent circular byte buffers (never touched by React renders) ----
   const bufRef = useRef<DigitRing | null>(null);
@@ -111,9 +84,6 @@ export default function DigitsApp() {
   if (!gapsRef.current) gapsRef.current = new FloatRing(16);
   const priceSeriesRef = useRef<FloatRing | null>(null);
   if (!priceSeriesRef.current) priceSeriesRef.current = new FloatRing(20);
-  // Price-only history for the isolated Rise/Fall engine (stride-3 Kalman/DFA).
-  const priceHistRef = useRef<FloatRing | null>(null);
-  if (!priceHistRef.current) priceHistRef.current = new FloatRing(150);
   const priceDeltasRef = useRef<FloatRing | null>(null);
   if (!priceDeltasRef.current) priceDeltasRef.current = new FloatRing(64);
 
@@ -121,15 +91,6 @@ export default function DigitsApp() {
   const totalTicksRef = useRef(0);
   const lastPriceRef = useRef<number>(0);
   const pingMedianRef = useRef<number[]>([]);
-  const rttStatsRef = useRef(new RollingStats(20));
-  const guardRef = useRef(new MicrostructureGuard());
-  const [spikeHold, setSpikeHold] = useState(false);
-  const [lockedDigit, setLockedDigit] = useState<number | null>(null);
-  const [targetThreshold, setTargetThreshold] = useState(0.2);
-  const arrivalStatsRef = useRef(new RollingStats(20));
-  const lastStageRef = useRef<EntryStage>("IDLE");
-  const [audioVol, setAudioVol] = useState(0.7);
-  const [audioMuted, setAudioMuted] = useState(false)
   const confRef = useRef(0);
   const healthRef = useRef<NetHealth>("yellow");
   const clientRef = useRef<DerivClient | null>(null);
@@ -137,10 +98,7 @@ export default function DigitsApp() {
   const armedRef = useRef(armed);
   const pendingSimRef = useRef<Array<{ id: number; tickIndex: number; predicted: number; entryPrice: number }>>([]);
   const lastSignalTickRef = useRef(-100);
-  // Timestamp of the last main-thread gate evaluation (burst rate limiter).
-  const lastEvalRef = useRef(0);
   const renderScheduled = useRef(false);
-  const lastRenderAtRef = useRef(0);
   // Background analysis engine (Web Worker) + reactive tick stream
   const workerRef = useRef<Worker | null>(null);
   const tickStreamRef = useRef<Subject<{ digit: number; ts: number }> | null>(null);
@@ -158,28 +116,13 @@ export default function DigitsApp() {
   // ticker for countdown updates
   const [tick, setTick] = useState(0);
   const driftMsRef = useRef(0);
-  // 5-tick EMA of the raw server-clock drift: smoothed = cur*0.4 + prev*0.6.
-  const smoothedDriftRef = useRef(0);
-  // Latch: once |smoothedDrift| > 1000ms we hold trades until it settles < 400ms.
-  const [syncing, setSyncing] = useState(false);
-  const syncingRef = useRef(false);
-  // Second-Run Persistence Shield state.
-  const streakLatchRef = useRef<{ digit: number; of: number; startTick: number } | null>(null);
-  // Layered-ensemble gate state read by the (non-reactive) fire evaluator.
-  const layeredRef = useRef<LayeredResult | null>(null);
-  const rulesOkRef = useRef(false);
-
-
-
 
   useEffect(() => { cfgRef.current = cfg; saveConfig(cfg); }, [cfg]);
   useEffect(() => { armedRef.current = armed; }, [armed]);
 
-  // Countdown ticker @ 4fps. Never pause it from document.visibilityState:
-  // Android floating windows can be visibly painted while reporting a hidden
-  // or unfocused page, and pausing here made the terminal wake only on touch.
+  // Countdown ticker @ 5fps — light, only updates a single number/bar.
   useEffect(() => {
-    const id = window.setInterval(() => setTick((t) => (t + 1) & 0x3fffffff), 250);
+    const id = window.setInterval(() => setTick((t) => (t + 1) & 0x3fffffff), 200);
     return () => clearInterval(id);
   }, []);
 
@@ -205,9 +148,8 @@ export default function DigitsApp() {
 
     const stream = new Subject<{ digit: number; ts: number }>();
     tickStreamRef.current = stream;
-    // Direct delivery avoids RxJS's timer scheduler, which some Android
-    // floating-window hosts suspend until the next touch event.
-    const sub = stream.subscribe(({ digit, ts }) => {
+    // auditTime coalesces bursts so a wake-up backlog can't spam the worker.
+    const sub = stream.pipe(auditTime(0)).subscribe(({ digit, ts }) => {
       worker.postMessage({ type: "tick", digit, ts, cfg: cfgRef.current });
     });
     return () => {
@@ -227,17 +169,11 @@ export default function DigitsApp() {
 
   const scheduleRender = useCallback(() => {
     if (renderScheduled.current) return;
-    const now = performance.now();
-    // WebSocket ticks are already cadence-limited. Commit immediately instead
-    // of using setTimeout: Samsung floating windows may defer that timer until
-    // the user touches the screen. Burst packets remain bounded to one commit.
-    if (now - lastRenderAtRef.current < 100) return;
     renderScheduled.current = true;
-    lastRenderAtRef.current = now;
-    forceRender((x) => (x + 1) & 0x3fffffff);
-    queueMicrotask(() => {
+    setTimeout(() => {
       renderScheduled.current = false;
-    });
+      forceRender((x) => (x + 1) & 0x3fffffff);
+    }, 120);
   }, []);
 
   const pushSignal = useCallback((s: Signal) => {
@@ -248,11 +184,8 @@ export default function DigitsApp() {
    *  volatility never inherits the previous instrument's statistics. */
   const resetAnalysis = useCallback(() => {
     bufRef.current!.reset();
-    guardRef.current.reset(cfgRef.current.symbol);
-    setSpikeHold(false);
     gapsRef.current!.reset();
     priceSeriesRef.current!.reset();
-    priceHistRef.current!.reset();
     priceDeltasRef.current!.reset();
     lastArrivalRef.current = 0;
     totalTicksRef.current = 0;
@@ -274,28 +207,22 @@ export default function DigitsApp() {
     const win = bufRef.current!.lastN(cfgNow.lookback);
     if (win.length < 10) return;
 
-    // ---- STRICT ALERT GATES (Layer 3 gatekeeping) ----
-    // 1) Every enabled TRIGGER RULES percentage must be satisfied (AND, not OR).
+    // ---- STRICT ALERT GATES ----
+    // 1) Every enabled trigger rule must agree (AND, not OR).
     if (enabledRuleCount(cfgNow) === 0) return;
     const hits = evaluateRules({ window: win, cfg: cfgNow });
     if (!allRulesAgree(cfgNow, hits)) return;
-    // 2) Network must be strictly GREEN or YELLOW — RED blocks everything.
+    // 2) Network must be green or yellow.
     if (healthRef.current === "red") return;
-    // 3) Circuit breakers (chi-square / variance / ping / sync) must be clear.
-    const layeredNow = layeredRef.current;
-    if (layeredNow?.blocked) return;
-    // 4) Weighted layered confidence must be STRICTLY above 85%.
-    if (!meetsExecutionFloor(confRef.current)) return;
+    // 3) Fused confidence must be 80% or higher.
+    if (confRef.current < 0.8) return;
 
     if (totalTicksRef.current - lastSignalTickRef.current < 3) return;
     lastSignalTickRef.current = totalTicksRef.current;
 
     const reason =
       hits.map((h) => `${h.rule}:${h.detail}`).join(" · ") +
-      ` · L1 ${((layeredNow?.layer1 ?? 0) * 100).toFixed(0)}%` +
-      ` · L2 ${((layeredNow?.layer2 ?? 0) * 100).toFixed(0)}%` +
       ` · conf ${(confRef.current * 100).toFixed(0)}%`;
-
     const sig: Signal = {
       id: Date.now() + Math.random(),
       ts: Date.now(),
@@ -318,28 +245,17 @@ export default function DigitsApp() {
     const networkUnsafe = median > cfgNow.safePingMs || lastGap > gapBudget;
 
     if (cfgNow.mode === "alert") {
-      // Precision execution scheduler. The horizon offset pushes the trigger
-      // out to the tick we actually forecast (t+2 plain / t+3 for 1s indices).
-      //
-      //   drift < 0  → terminal lagging  → pull forward:  ... + drift ...
-      //   drift > 0  → terminal ahead    → push back:     ... − drift ...
-      //
-      // Both branches use the 5-tick EMA-smoothed drift so erratic network
-      // spikes cannot make the countdown jitter.
+      // Precision execution scheduler: aim the audible fire at
+      // (expected next tick) − (ping + drift + configured lag buffer),
+      // using performance.now() so we're immune to wall-clock jitter.
       const now = performance.now();
       const interval = gapsRef.current!.median() || 2000;
       const sinceLast = lastArrivalRef.current ? now - lastArrivalRef.current : 0;
       const nextTickIn = Math.max(0, interval - sinceLast);
-      const horizon = horizonForSymbol(cfgNow.symbol);
-      const targetHorizonOffset = (horizon - 1) * interval;
       const ping = median;
-      const smoothedDrift = smoothedDriftRef.current;
-      const lag = cfgNow.latencyOffsetMs + cfgNow.reactionOffsetMs;
-      const preciseTriggerTime =
-        smoothedDrift < 0
-          ? nextTickIn + targetHorizonOffset - ping + smoothedDrift - lag
-          : nextTickIn + targetHorizonOffset - ping - smoothedDrift - lag;
-      const target = now + Math.max(0, preciseTriggerTime);
+      const drift = Math.abs(driftMsRef.current);
+      const lag = cfgNow.latencyOffsetMs;
+      const target = now + Math.max(0, nextTickIn - ping - drift - lag);
       nextFireAtRef.current = target;
       if (fireTimerRef.current !== null) clearTimeout(fireTimerRef.current);
       fireTimerRef.current = window.setTimeout(() => {
@@ -349,7 +265,7 @@ export default function DigitsApp() {
         setFlash(true);
         setTimeout(() => setFlash(false), 180);
         setExecDiag((prev) => {
-          const line = `fire · Δ${variance >= 0 ? "+" : ""}${variance.toFixed(1)}ms · t+${horizon} · ping ${ping.toFixed(0)} · drift ${smoothedDrift >= 0 ? "+" : ""}${smoothedDrift.toFixed(0)} · lag ${lag}`;
+          const line = `fire · Δ${variance >= 0 ? "+" : ""}${variance.toFixed(1)}ms · ping ${ping.toFixed(0)} · drift ${drift.toFixed(0)} · lag ${lag}`;
           const next = prev.length >= 30 ? prev.slice(-29) : prev.slice();
           next.push(line);
           return next;
@@ -358,7 +274,6 @@ export default function DigitsApp() {
       pushSignal(sig);
       return;
     }
-
 
     if (networkUnsafe) {
       pushSignal({ ...sig, reason: reason + " (aborted: net)" });
@@ -410,15 +325,9 @@ export default function DigitsApp() {
         setConnState(state);
         setConnDetail(detail ? `${detail}` : attempt > 0 ? `attempt ${attempt}` : "");
       },
-      onHistory: (digits, last, sym, _gen, prices) => {
+      onHistory: (digits, last, sym) => {
         // Isolation guard: ignore history for any symbol that is no longer selected.
         if (sym !== cfgRef.current.symbol) return;
-        // Warm the microstructure |Δ| baseline from the historical packet.
-        if (prices && prices.length) {
-          guardRef.current.seed(sym, prices);
-          priceHistRef.current!.reset();
-          for (const pr of prices.slice(-150)) priceHistRef.current!.push(pr);
-        }
         // Strict filter: keep every digit 0-9 (including 0). Drop only sentinel -1 (parse failure).
         const clean = digits.filter((d) => d !== null && d !== undefined && d >= 0 && d <= 9);
         const ring = bufRef.current!;
@@ -432,24 +341,18 @@ export default function DigitsApp() {
         workerRef.current?.postMessage({ type: "init", lookback: cfgRef.current.lookback, seed: clean.slice(-cfgRef.current.lookback) });
         scheduleRender();
       },
-      onTick: (digit, quote, epoch, arrival, sym) => {
+      onTick: (digit, quote, _e, arrival, sym) => {
         // Isolation guard: a late packet from the previous volatility must
         // never enter this instrument's statistics.
         if (sym !== cfgRef.current.symbol) return;
-        // Microstructure guard: drop duplicates, bursts and corrupt prints;
-        // flag abnormal volatility spikes (>3σ of the asset's |Δ| baseline).
-        const g = guardRef.current.check(sym, quote, epoch, arrival);
-        if (g.verdict !== "accept") return;
-        setSpikeHold((s) => (s === g.spike ? s : g.spike));
         const prev = lastArrivalRef.current;
         const gap = prev ? arrival - prev : 0;
         lastArrivalRef.current = arrival;
         if (gap > 0) gapsRef.current!.push(gap);
-        if (gap > 0 && gap < 30_000) arrivalStatsRef.current.push(gap);
         // Mobile browser tab-sleep backlog dropper: if a huge burst of ticks
         // arrives after ColorOS/iOS wakes the tab, flush and resync on the
         // newest tick only — never replay a stale stack sequentially.
-        const wokeFromSleep = hiddenSinceRef.current > 0;
+        const wokeFromSleep = hiddenSinceRef.current > 0 && document.visibilityState === "visible";
         const burstDetected = wokeFromSleep && gap > 0 && gap < 40; // <40ms between ticks = queued backlog
         if (burstDetected) {
           hiddenSinceRef.current = 0;
@@ -462,7 +365,7 @@ export default function DigitsApp() {
           });
           // hard resubscribe so the server sends fresh state instead of us
           // replaying whatever the socket buffered.
-          clientRef.current?.subscribeTicks(cfgRef.current.symbol, 150);
+          clientRef.current?.subscribeTicks(cfgRef.current.symbol, 100);
           return;
         }
         const staleBudget = Math.max(
@@ -480,14 +383,12 @@ export default function DigitsApp() {
         bufRef.current!.push(digit);
         totalTicksRef.current++;
         lastPriceRef.current = quote;
-        // Do not suppress visible values in Android floating-window mode.
         setLastPrice(quote);
         // Price EMA + Δ volatility feed (fixed-size Float32 ring buffers).
         {
           const ps = priceSeriesRef.current!;
           const prevPrice = ps.length ? ps.last() : quote;
           ps.push(quote);
-          priceHistRef.current!.push(quote);
           priceDeltasRef.current!.push(Math.abs(quote - prevPrice));
         }
         // LIFO coalescer — if the main thread was busy and multiple ticks
@@ -504,21 +405,12 @@ export default function DigitsApp() {
             // Fan the newest tick into the worker analysis engine.
             tickStreamRef.current?.next({ digit: latest.digit, ts: performance.now() });
             resolveSims(latest.digit);
-            // Rate limiter: never run the main-thread gate evaluation more
-            // than once per 180ms. A burst of queued ticks (multi-window
-            // wake-up, 1s indices) can otherwise stack synchronous work and
-            // lock the UI thread. The newest tick always wins.
-            const nowMs = performance.now();
-            if (!isStale && nowMs - lastEvalRef.current >= 180) {
-              lastEvalRef.current = nowMs;
-              evaluateAndMaybeFire();
-            }
+            if (!isStale) evaluateAndMaybeFire();
             scheduleRender();
           });
         }
       },
-      onPing: (rtt, raw) => {
-        rttStatsRef.current.push(raw);
+      onPing: (rtt) => {
         // rtt is already EMA-smoothed by the client; still keep a short
         // median as a secondary sanity filter for the safety guard.
         const arr = pingMedianRef.current;
@@ -526,23 +418,7 @@ export default function DigitsApp() {
         if (arr.length > 10) arr.shift();
         setPingMs(medianOf(arr));
       },
-      onTimeSync: (drift) => {
-        // 5-tick EMA smoothing — keeps the visual countdown free of jitter.
-        const smoothed = drift * 0.4 + smoothedDriftRef.current * 0.6;
-        smoothedDriftRef.current = smoothed;
-        driftMsRef.current = smoothed;
-        setDriftMs(smoothed);
-        // Safety-abort latch: engage above 1000ms, release only under 400ms.
-        const mag = Math.abs(smoothed);
-        if (!syncingRef.current && mag > 1000) {
-          syncingRef.current = true;
-          setSyncing(true);
-        } else if (syncingRef.current && mag < 400) {
-          syncingRef.current = false;
-          setSyncing(false);
-        }
-      },
-
+      onTimeSync: (drift) => { driftMsRef.current = drift; setDriftMs(drift); },
       onAuth: (info) => setAuth(info),
       onError: (e) => {
         pushSignal({
@@ -572,95 +448,30 @@ export default function DigitsApp() {
   }, []);
 
   useEffect(() => {
-    const resume = () => {
-      const hiddenFor = hiddenSinceRef.current ? performance.now() - hiddenSinceRef.current : 0;
-      if (!clientRef.current) {
-        handleConnect();
-      } else if (
-        hiddenFor > 4000 ||
-        (lastArrivalRef.current > 0 &&
-          performance.now() - lastArrivalRef.current > Math.max(6000, (gapsRef.current!.median() || 2000) * 5))
-      ) {
-        lastArrivalRef.current = 0;
-        pendingTickRef.current = null;
-        lastEvalRef.current = 0;
-        clientRef.current.subscribeTicks(cfgRef.current.symbol, 150);
+    const onVis = () => {
+      if (document.visibilityState === "hidden") {
+        hiddenSinceRef.current = performance.now();
+      } else if (document.visibilityState === "visible") {
+        // Keep marker set; onTick will use it to detect the wake-burst.
+        if (!clientRef.current) handleConnect();
       }
-      hiddenSinceRef.current = 0;
-      forceRender((x) => (x + 1) & 0x3fffffff);
     };
-    const noteHidden = () => {
-      if (!hiddenSinceRef.current) hiddenSinceRef.current = performance.now();
-    };
-    window.addEventListener("focus", resume);
-    window.addEventListener("pageshow", resume);
-    window.addEventListener("pagehide", noteHidden);
-    return () => {
-      window.removeEventListener("focus", resume);
-      window.removeEventListener("pageshow", resume);
-      window.removeEventListener("pagehide", noteHidden);
-    };
+    document.addEventListener("visibilitychange", onVis);
+    return () => document.removeEventListener("visibilitychange", onVis);
   }, [handleConnect]);
-
-  // Foreground stall watchdog — if the feed goes quiet for far longer than the
-  // observed cadence (phone throttled the socket, network dropped silently),
-  // resubscribe instead of sitting on a frozen screen.
-  useEffect(() => {
-    const id = window.setInterval(() => {
-      const last = lastArrivalRef.current;
-      if (!last || !clientRef.current) return;
-      if (performance.now() - last > 4000) {
-        lastArrivalRef.current = 0;
-        clientRef.current.hardReset();
-      }
-    }, 4000);
-    return () => clearInterval(id);
-  }, []);
 
   // Symbol switch: wipe every statistic so the new volatility is analysed
   // from a completely fresh state (no cross-instrument contamination).
   useEffect(() => {
     if (!connected || !clientRef.current) return;
     resetAnalysis();
-    clientRef.current.subscribeTicks(cfg.symbol, 150);
+    clientRef.current.subscribeTicks(cfg.symbol, 100);
   }, [cfg.symbol, connected, resetAnalysis]);
 
   const tickKey = totalTicksRef.current;
   // Snapshot the circular byte buffer once per throttled render pass.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const buf = useMemo(() => bufRef.current!.toArray(), [tickKey]);
-  // Dual-window buffers (fast 30–50 · slow 100–150) + Stride-3 lattice.
-  const dual = useMemo(
-    () => analyzeDual(buf, cfg.lookback, cfg.symbol),
-    [buf, cfg.lookback, cfg.symbol],
-  );
-  // Step 5 calibrated market engines (digit engines on buffers, Rise/Fall on prices only).
-  const engines = useMemo(() => {
-    const slowW = buf.slice(-150);
-    const fastW = buf.slice(-50);
-    const dir = dirichletMatches(slowW, cfg.symbol);
-    const parity = parityEngine(fastW);
-    const bar = barrierEngine(fastW, slowW, cfg.barrier, dir.posterior);
-    const rf = riseFallEngine(priceHistRef.current!.toArray());
-    return { dir, parity, bar, rf };
-  }, [buf, cfg.symbol, cfg.barrier]);
-  // Step 6: landing-tick density (t+2/t+3/t+5), incline velocity, market directive.
-  const step6 = useMemo(() => {
-    const tgt = lockedDigit ?? engines.dir.topDigit;
-    const slowW = buf.slice(-150);
-    const land = landingDensity(slowW, tgt);
-    const inc = incline(slowW, dual.fastFreq, dual.slowFreq, tgt);
-    const directive = marketDirective(
-      cfg.market,
-      tgt,
-      engines.parity,
-      engines.bar,
-      engines.rf,
-      priceHistRef.current!.toArray(),
-    );
-    return { tgt, land, inc, directive };
-  }, [buf, lockedDigit, engines, dual, cfg.market]);
-  const slowTape = useMemo(() => buf.slice(-SLOW_MAX), [buf]);
 
   const derived = useMemo(() => {
     const win = buf.slice(-cfg.lookback);
@@ -748,6 +559,16 @@ export default function DigitsApp() {
   // does not surface it — downstream consumers (worker, logs) read it.
   void context.router;
 
+  // Live fused confidence used by the alert gate (market aware).
+  const gateConf = Math.min(
+    1,
+    (cfg.market === "matches"
+      ? (context.weighted[cfg.predictDigit] ?? 0)
+      : (context.weighted[context.topDigit] ?? 0)) * (engineReport?.confidenceAdjust ?? 1),
+  );
+  confRef.current = gateConf;
+
+
   // Use null sentinel so digit 0 is never confused with "no data". All downstream
   // checks must use strict null/undefined comparisons (digit !== null && digit !== undefined),
   // never truthy checks like `if (lastDigit)` which would drop a legitimate 0.
@@ -770,256 +591,21 @@ export default function DigitsApp() {
   // suppress unused-tick warning
   void tick;
 
-  // ---- HORIZON FORECAST (async from the worker; local fallback on cold start)
-  const horizonFc = useMemo(
-    () => engineReport?.horizon ?? forecastHorizon(buf, cfg.symbol, 10, 0.35),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [engineReport, tickKey, cfg.symbol],
-  );
-  const horizonTicks = horizonFc.horizon;
-
-  // ---- LAYERED ENSEMBLE (Layer 1 momentum / Layer 2 filters / Layer 3 breakers)
-  // Target = the digit most likely to REPEAT inside the executed 3-tick span,
-  // already compensated for Deriv's 1-tick (first buy) / 2-tick (running) jump.
-  const targetDigit = cfg.market === "matches" ? cfg.predictDigit : horizonFc.topDigit;
-  const targetMulti = horizonFc.multi[targetDigit];
-  void targetMulti;
-  const runFc = horizonFc.runs?.[targetDigit];
-  const runProb = runFc?.pRunSafe ?? 0;
-  const consecutiveProb = runFc?.pConsecutive ?? 0;
-  const targetN = runFc && runFc.pTriple >= 0.3 ? 3 : 2;
-
-  const preF = context.pre.forecasts[targetDigit];
-  const intervalCv =
-    engineReport && engineReport.intervalMs > 0
-      ? engineReport.intervalStdMs / engineReport.intervalMs
-      : 0;
-
-  // TRIGGER RULES panel — every enabled percentage rule must be satisfied.
-  const ruleHits = useMemo(
-    () => (derived.win.length >= 10 ? evaluateRules({ window: derived.win, cfg }) : []),
-    [derived.win, cfg],
-  );
-  const rulesSatisfied = enabledRuleCount(cfg) > 0 && allRulesAgree(cfg, ruleHits);
-  rulesOkRef.current = rulesSatisfied;
-
-
-  // Memoised so the 4fps countdown repaint never re-runs the weighted vote.
-  // Identical inputs → identical result, so nothing about the math changes.
-  const layered = useMemo(
-    () =>
-      evaluateLayeredEnsemble({
-        window: derived.win,
-        target: targetDigit,
-        posterior: context.weighted,
-        stepDists: horizonFc.stepDists ?? [],
-        horizon: horizonTicks,
-        runProb,
-        consecutiveProb,
-
-        bigrams: derived.bigrams,
-        trigrams: derived.trigrams,
-        chiUnif: derived.chi,
-        chiIndep: derived.chiIndep,
-        intervalCv,
-        pingMs,
-        safePingMs: cfg.safePingMs,
-        health,
-        stale,
-        syncing,
-        neutralFallback: horizonFc.neutralFallback,
-        exhausted: preF?.isExhaustedState ?? false,
-      }),
-    [
-      derived,
-      targetDigit,
-      context.weighted,
-      horizonFc,
-      horizonTicks,
-      runProb,
-      consecutiveProb,
-      intervalCv,
-      pingMs,
-      cfg.safePingMs,
-      health,
-      stale,
-      syncing,
-      preF,
-    ],
-  );
-
-  // The Bayesian Fusion confidence bar now reflects the weighted layer vote.
-  const gateConf = layered.confidence;
-  confRef.current = gateConf;
-  layeredRef.current = layered;
-
-  // Worst-case market probability across every tick the contract can settle on
-  // (t+1..t+4), so a one- or two-tick jump cannot invalidate the call.
-  const mkt = horizonFc.market;
-  const marketEdge =
-    cfg.market === "matches"
-      ? runProb
-      : cfg.market === "overunder"
-        ? Math.max(mkt?.overProb?.[cfg.barrier] ?? 0, mkt?.underProb?.[cfg.barrier] ?? 0)
-        : cfg.market === "evenodd"
-          ? Math.max(mkt?.even ?? 0, mkt?.odd ?? 0)
-          : Math.max(derived.rf.up, derived.rf.down);
-  // Matches needs a real repeat edge; directional markets need a robust majority.
-  const edgeFloor = cfg.market === "matches" ? 0.3 : 0.6;
-
-  // Microstructure / clustering holds — block every entry while active.
-  const matchConsensus = matchesConsensus(lockedDigit ?? engines.dir.topDigit, engines.parity, engines.bar);
-  const pingGate = pingHold(cfg.symbol, pingMs);
-  const holdReason: string | null = pingGate
-    ? pingGate
-    : spikeHold
-      ? "HOLD - VOLATILITY SPIKE"
-      : cfg.market === "matches" && step6.inc.exhausted
-        ? "HOLD - DIGIT EXHAUSTED"
-        : cfg.market === "matches" && !step6.inc.rising
-          ? "HOLD - NO INCLINE"
-          : cfg.market === "matches" && !step6.land.ok
-            ? "HOLD - LOW LANDING DENSITY"
-            : cfg.market === "matches" && matchConsensus.conflict
-              ? "HOLD - MODEL CONFLICT"
-              : !step6.directive.active
-                ? step6.directive.text
-                : cfg.market !== "risefall" && dual.clusterFlat
-                  ? "HOLD - NO CONSECUTIVE VARIANCE"
-                  : null;
-
-  const greenBase =
-    !holdReason &&
-    !layered.blocked &&
-    safe &&
-    !horizonFc.neutralFallback &&
-    meetsExecutionFloor(gateConf) &&
-    rulesSatisfied &&
-    marketEdge >= edgeFloor;
-
-
-
-
-  // Second-Run Persistence Shield — hold the green card lit across the whole
-  // forecast run so a missed first tick can still be struck on the next one.
-  {
-    const latch = streakLatchRef.current;
-    const runLen = Math.max(targetN, preF?.predictedStreakLength ?? 0);
-    if (greenBase && (!latch || latch.digit !== targetDigit)) {
-      streakLatchRef.current = {
-        digit: targetDigit,
-        of: Math.max(2, Math.min(7, runLen)),
-        startTick: totalTicksRef.current,
-      };
-    } else if (
-      latch &&
-      (latch.digit !== targetDigit ||
-        totalTicksRef.current - latch.startTick >= latch.of ||
-        syncing ||
-        health === "red")
-    ) {
-      streakLatchRef.current = null;
-    }
-  }
-  const latchNow = streakLatchRef.current;
-  const streakInfo = latchNow
-    ? {
-        step: Math.min(latchNow.of, totalTicksRef.current - latchNow.startTick + 1),
-        of: latchNow.of,
-      }
-    : null;
-
-  const cardState: SignalState = syncing
-    ? "violet"
-    : (greenBase || latchNow) && !holdReason
-      ? "green"
-      : "red";
-
-  // Latency-corrected time until the multi-appearance window opens.
-  const windowInMs = (() => {
-    const smoothedDrift = smoothedDriftRef.current;
-    const offset = (horizonTicks - 1) * tickInterval;
-    const lag = cfg.latencyOffsetMs + cfg.reactionOffsetMs;
-    const base = countdownMs + offset - pingMs - lag;
-    return smoothedDrift < 0 ? base + smoothedDrift : base - smoothedDrift;
-  })();
-  // 1-tick pre-warning: flash exactly 1000ms before the window opens.
-  const preWarn = windowInMs > 0 && windowInMs <= 1000;
-
-  // ---- DYNAMIC ENTRY TIMING ENGINE ----
-  const entryTiming = computeEntryTiming({
-    symbol: cfg.symbol,
-    msSinceTick: lastGapNow,
-    rttMs: rttStatsRef.current.mean() || pingMs,
-    rttJitterMs: rttStatsRef.current.std(),
-    arrivalJitterMs: arrivalStatsRef.current.count() >= 5 ? arrivalStatsRef.current.std() : 0,
-    setupForming: !syncing && health !== "red" && (preWarn || gateConf >= 0.7),
-    setupGreen: cardState === "green" && health !== "red" && !syncing,
-  });
-  const entryStage = entryTiming.stage;
-  useEffect(() => {
-    const prev = lastStageRef.current;
-    if (prev === entryStage) return;
-    lastStageRef.current = entryStage;
-    if (lockedDigit !== null) return;
-    if (entryStage === "CLICK_NOW") chimeClickNow();
-    else if (entryStage === "PREPARE" && prev === "IDLE") pingPrepare();
-    else if (entryStage === "ABORT" && prev === "CLICK_NOW") buzzAbort();
-  }, [entryStage, lockedDigit]);
-  useEffect(() => {
-    const p = loadAudioPrefs();
-    setAudioVol(p.volume);
-    setAudioMuted(p.muted);
-    const unlock = () => unlockAudio();
-    window.addEventListener("pointerdown", unlock, { once: true });
-    return () => window.removeEventListener("pointerdown", unlock);
-  }, []);
-  useEffect(() => {
-    rttStatsRef.current.clear();
-    arrivalStatsRef.current.clear();
-  }, [cfg.symbol]);
-
-
-  const getLastArrival = useCallback(() => lastArrivalRef.current, []);
-  const onLockDigit = useCallback((d: number | null) => {
-    setLockedDigit(d);
-    if (d !== null) setCfg((c) => ({ ...c, predictDigit: d }));
-  }, []);
-
   const setPartial = useCallback((patch: Partial<AppConfig>) => {
     setCfg((c) => ({ ...c, ...patch }));
   }, []);
 
-  // ---- Deriv OAuth: no token typing. Deriv redirects back with token1=... ----
-  const connectDeriv = useCallback(() => {
-    const appId = (import.meta.env["VITE_DERIV_APP_ID"] as string | undefined) ?? "1089";
-    const redirect = window.location.origin + window.location.pathname;
-    window.location.href =
-      `https://oauth.deriv.com/oauth2/authorize?app_id=${encodeURIComponent(appId)}` +
-      `&l=en&brand=deriv&redirect_uri=${encodeURIComponent(redirect)}`;
-  }, []);
+  const applyToken = useCallback(() => {
+    saveToken(token);
+    clientRef.current?.setToken(token);
+  }, [token]);
 
-  const disconnectDeriv = useCallback(() => {
+  const clearToken = useCallback(() => {
     setToken("");
     saveToken("");
     clientRef.current?.setToken(null);
     setAuth(null);
-    setAutoFire(false);
   }, []);
-
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const t = params.get("token1");
-    if (!t) return;
-    setToken(t);
-    saveToken(t);
-    clientRef.current?.setToken(t);
-    window.history.replaceState({}, "", window.location.pathname);
-  }, []);
-
-  useEffect(() => {
-    if (token) clientRef.current?.setToken(token);
-  }, [token]);
 
   const handleBuy = useCallback(
     async (contractType: ContractType, barrier?: number) => {
@@ -1035,48 +621,16 @@ export default function DigitsApp() {
         currency: auth.currency,
       });
       setBuyBusy(false);
-      const label = `${contractType}${barrier !== undefined ? " " + barrier : ""}`;
-      const detail = res.ok
-        ? `stake ${res.buyPrice?.toFixed(2)} · payout ${res.payout?.toFixed(2)}`
-        : String(res.error);
-      setLastBuyResult(res.ok ? `✓ ${label} · ${detail}` : `✗ ${detail}`);
-      setOrders((o) => [{ id: Date.now() + Math.random(), ts: Date.now(), label, ok: res.ok, detail }, ...o].slice(0, 12));
+      if (res.ok) {
+        setLastBuyResult(
+          `✓ ${contractType}${barrier !== undefined ? " " + barrier : ""} · stake ${res.buyPrice?.toFixed(2)} · payout ${res.payout?.toFixed(2)}`,
+        );
+      } else {
+        setLastBuyResult(`✗ ${res.error}`);
+      }
     },
     [auth, cfg.symbol, cfg.stake, cfg.duration],
   );
-
-  // ---- Planned contract derived from the active market + forecast target ----
-  // Direction comes from the jump-robust (worst-tick) probabilities so the side
-  // stays valid whether the contract settles on t+1, t+2, t+3 or t+4.
-  const planned = useMemo<{ type: ContractType; label: string; barrier?: number }>(() => {
-    switch (cfg.market) {
-      case "overunder":
-        return (mkt?.overProb?.[cfg.barrier] ?? 0) >= (mkt?.underProb?.[cfg.barrier] ?? 0)
-          ? { type: "DIGITOVER", label: `OVER ${cfg.barrier}`, barrier: cfg.barrier }
-          : { type: "DIGITUNDER", label: `UNDER ${cfg.barrier}`, barrier: cfg.barrier };
-      case "evenodd":
-        return (mkt?.even ?? 0.5) >= (mkt?.odd ?? 0.5)
-          ? { type: "DIGITEVEN", label: "EVEN" }
-          : { type: "DIGITODD", label: "ODD" };
-      case "risefall":
-        return derived.rf.up >= derived.rf.down
-          ? { type: "CALL", label: "RISE" }
-          : { type: "PUT", label: "FALL" };
-      default:
-        return { type: "DIGITMATCH", label: `MATCH ${targetDigit}`, barrier: targetDigit };
-    }
-  }, [cfg.market, cfg.barrier, mkt, derived.rf, targetDigit]);
-
-
-
-  // ---- AUTO-FIRE: send a live order the instant the strict gate passes ----
-  const gateReady = greenBase && !syncing && health !== "red";
-  useEffect(() => {
-    if (!autoFire || !auth || !gateReady || buyBusy) return;
-    if (totalTicksRef.current - lastFireTickRef.current < Math.max(3, horizonTicks)) return;
-    lastFireTickRef.current = totalTicksRef.current;
-    void handleBuy(planned.type, planned.barrier);
-  }, [autoFire, auth, gateReady, buyBusy, planned, handleBuy, horizonTicks]);
 
   return (
     <div className={`min-h-screen p-3 text-foreground ${flash ? "ring-4 ring-magenta" : ""}`}>
@@ -1088,38 +642,7 @@ export default function DigitsApp() {
             <span>DIGITS TERMINAL</span>
           </h1>
           <p className="text-[10px] uppercase tracking-widest text-muted-foreground">
-            Deriv server{" "}
-            <span className="font-mono text-cyan">
-              {new Date(Date.now() + driftMs).toISOString().slice(11, 19)} GMT
-            </span>
-            <button
-              type="button"
-              aria-label={audioMuted ? "Unmute alerts" : "Mute alerts"}
-              onClick={() => {
-                unlockAudio();
-                setAudioMuted((m) => {
-                  setAudioPrefs(audioVol, !m);
-                  return !m;
-                });
-              }}
-              className="ml-2 rounded border border-input px-1 font-mono text-[10px]"
-            >
-              {audioMuted ? "MUTED" : "SOUND"}
-            </button>
-            <input
-              type="range"
-              aria-label="Alert volume"
-              min={0}
-              max={1}
-              step={0.05}
-              value={audioVol}
-              onChange={(e) => {
-                const v = Number(e.target.value);
-                setAudioVol(v);
-                setAudioPrefs(v, audioMuted);
-              }}
-              className="ml-1 h-2 w-16 align-middle accent-cyan"
-            />
+            Bayesian ensemble · Markov · Mobile-grade safety
           </p>
         </div>
         <div className="flex items-center gap-1">
@@ -1130,7 +653,7 @@ export default function DigitsApp() {
                 ? "border-cyan text-cyan"
                 : connState === "offline"
                   ? "border-danger text-danger"
-                  : "border-warning text-warning"
+                  : "border-warning text-warning animate-pulse"
             }`}
           >
             {connState === "live" && connected
@@ -1153,149 +676,77 @@ export default function DigitsApp() {
 
       <div className="space-y-3">
         <NetworkBadge health={health} pingMs={pingMs} driftMs={driftMs} ticks={totalTicksRef.current} stale={stale} />
-
-        {/* PERIPHERAL SIGNAL BLOCK — the only thing a trader needs mid-setup */}
-        <EntryStageBar t={entryTiming} rttMs={rttStatsRef.current.mean() || pingMs} />
-
-        <DualBufferPanel r={dual} tape={slowTape} />
-
-        <SignalCard
-          state={cardState}
-          digit={targetDigit}
-          runProb={runProb}
-          targetN={targetN}
-          horizon={horizonTicks}
-          windowInMs={windowInMs}
-          preWarn={preWarn}
-          streak={streakInfo}
-          smoothedDrift={smoothedDriftRef.current}
-          holdReason={holdReason}
+        <EnsemblePanel
+          ensemble={derived.ens}
+          market={cfg.market}
+          barrier={cfg.barrier}
+          pEven={derived.split.pEven}
+          pHigh={derived.split.pHigh}
+          rise={{ up: derived.rf.up, down: derived.rf.down }}
+          safe={safe}
+          countdownMs={countdownMs}
+          purchaseInMs={purchaseInMs}
         />
-
-        <OrderExecutionPanel
-          auth={auth}
-          connected={connected}
-          autoFire={autoFire}
-          onAutoFireChange={setAutoFire}
-          onConnect={connectDeriv}
-          onDisconnect={disconnectDeriv}
-          planned={planned}
-          stake={cfg.stake}
-          durationTicks={cfg.duration}
-          gateReady={gateReady}
-          confidence={gateConf}
-          rulesSatisfied={rulesSatisfied}
-          networkOk={health !== "red"}
-          busy={buyBusy}
-          orders={orders}
+        {(() => {
+          const isMatches = cfg.market === "matches";
+          const displayDigit = isMatches ? cfg.predictDigit : context.topDigit;
+          const baseConf = isMatches
+            ? context.weighted[cfg.predictDigit] ?? 0
+            : context.weighted[context.topDigit] ?? 0;
+          // Entropy-decay boost from the background engine — bounded [0.8, 1.25].
+          const conf = Math.min(1, baseConf * (engineReport?.confidenceAdjust ?? 1));
+          const highlight = isMatches && conf >= 0.7;
+          return (
+            <PredictedDigit
+              digit={displayDigit}
+              entryPrice={openEntry?.price ?? null}
+              lastPrice={lastPrice}
+              matched={matched}
+              armed={armed}
+              confidence={conf}
+              highlight={highlight}
+            />
+          );
+        })()}
+        <PreArrivalPanel
+          forecasts={context.pre.forecasts}
+          physics={context.pre.physics}
+          topDigit={context.pre.topDigit}
         />
+        <DigitGrid freq={derived.freq} total={derived.win.length} predict={cfg.predictDigit} />
 
-        {/* Human Reaction Offset — compensates manual finger-tap delay */}
-        <div className="rounded-lg border border-border bg-card px-3 py-2">
-          <div className="mb-1 flex items-center justify-between text-[11px]">
-            <span className="font-semibold">Human Reaction Offset</span>
-            <span className="font-mono text-cyan">{cfg.reactionOffsetMs} ms</span>
-          </div>
-          <input
-            type="range"
-            min={0}
-            max={1200}
-            step={25}
-            value={cfg.reactionOffsetMs}
-            onChange={(e) => setPartial({ reactionOffsetMs: Number(e.target.value) })}
-            className="w-full accent-[var(--color-cyan)]"
-            aria-label="Human Reaction Offset in milliseconds"
-          />
-        </div>
-
-        <MultiAppearancePanel horizon={horizonFc} target={targetDigit} />
-
-
-        <details className="rounded-lg border border-border bg-card px-3 py-2">
-          <summary className="cursor-pointer text-[11px] font-semibold uppercase tracking-widest text-cyan">
-            Analytics detail
-          </summary>
-          <div className="mt-2 space-y-3">
-            <EnsemblePanel
-              ensemble={derived.ens}
-              market={cfg.market}
-              barrier={cfg.barrier}
-              pEven={derived.split.pEven}
-              pHigh={derived.split.pHigh}
-              rise={{ up: derived.rf.up, down: derived.rf.down }}
-              symbol={cfg.symbol}
-              getLastArrival={getLastArrival}
-              rttMs={rttStatsRef.current.mean() || pingMs}
-              safe={safe && health !== "red"}
-              hold={holdReason}
-              lockedDigit={lockedDigit}
-              onLock={onLockDigit}
-              threshold={targetThreshold}
-              engines={engines}
-              step6={step6}
-              onThreshold={setTargetThreshold}
-            />
-            {(() => {
-              const isMatches = cfg.market === "matches";
-              const displayDigit = isMatches ? cfg.predictDigit : context.topDigit;
-              const baseConf = isMatches
-                ? context.weighted[cfg.predictDigit] ?? 0
-                : context.weighted[context.topDigit] ?? 0;
-              const conf = Math.min(1, baseConf * (engineReport?.confidenceAdjust ?? 1));
-              const highlight = isMatches && conf >= 0.7;
-              return (
-                <PredictedDigit
-                  digit={displayDigit}
-                  entryPrice={openEntry?.price ?? null}
-                  lastPrice={lastPrice}
-                  matched={matched}
-                  armed={armed}
-                  confidence={conf}
-                  highlight={highlight}
-                />
-              );
-            })()}
-            <PreArrivalPanel
-              forecasts={context.pre.forecasts}
-              physics={context.pre.physics}
-              topDigit={context.pre.topDigit}
-            />
-            <DigitGrid freq={derived.freq} total={derived.win.length} predict={cfg.predictDigit} />
-            <SplitPanel
-              pEven={derived.split.pEven}
-              pHigh={derived.split.pHigh}
-              hot={derived.hc.hot}
-              cold={derived.hc.cold}
-              hotFreq={derived.hc.freq}
-              riseUp={derived.rf.up}
-              riseDown={derived.rf.down}
-            />
-            <RecentTicks digits={buf} />
-            <MarkovMatrix matrix={derived.mk} lastDigit={lastDigit} predict={horizonFc.topDigit} />
-            <PatternsPanel
-              bigrams={derived.bigrams}
-              trigrams={derived.trigrams}
-              chiUnif={derived.chi}
-              chiIndep={derived.chiIndep}
-              hZ20={derived.hZ20}
-              hZ50={derived.hZ50}
-              bias={derived.bias}
-            />
-            <StatsPanel
-              chi={derived.chi}
-              h20={derived.h20}
-              h50={derived.h50}
-              h100={derived.h100}
-              coldDigit={derived.coldDigit}
-              coldGap={derived.coldGap}
-              coldProb={coldProb(derived.coldGap)}
-              followPrefix={derived.followPrefix}
-              followProbs={derived.follow.probs}
-              followTotal={derived.follow.total}
-            />
-          </div>
-        </details>
-
+        <SplitPanel
+          pEven={derived.split.pEven}
+          pHigh={derived.split.pHigh}
+          hot={derived.hc.hot}
+          cold={derived.hc.cold}
+          hotFreq={derived.hc.freq}
+          riseUp={derived.rf.up}
+          riseDown={derived.rf.down}
+        />
+        <RecentTicks digits={buf} />
+        <MarkovMatrix matrix={derived.mk} lastDigit={lastDigit} predict={context.topDigit} />
+        <PatternsPanel
+          bigrams={derived.bigrams}
+          trigrams={derived.trigrams}
+          chiUnif={derived.chi}
+          chiIndep={derived.chiIndep}
+          hZ20={derived.hZ20}
+          hZ50={derived.hZ50}
+          bias={derived.bias}
+        />
+        <StatsPanel
+          chi={derived.chi}
+          h20={derived.h20}
+          h50={derived.h50}
+          h100={derived.h100}
+          coldDigit={derived.coldDigit}
+          coldGap={derived.coldGap}
+          coldProb={coldProb(derived.coldGap)}
+          followPrefix={derived.followPrefix}
+          followProbs={derived.follow.probs}
+          followTotal={derived.follow.total}
+        />
         <Controls
           cfg={cfg}
           onChange={setPartial}
@@ -1315,11 +766,10 @@ export default function DigitsApp() {
           bitmask={engineReport?.bitmask ?? 0}
         />
         <div className="rounded-md border border-border bg-card px-3 py-2 text-[11px]">
-          <div className="mb-1 flex items-center justify-between gap-2">
+          <div className="mb-1 flex items-center justify-between">
             <span className="font-semibold">Execution Diagnostics</span>
-            <span className="rounded border border-input px-1.5 py-0.5 text-right font-mono text-[9px] text-muted-foreground">
-              nextTick + {(horizonTicks - 1)}×Δt − ping {smoothedDriftRef.current < 0 ? "+" : "−"} |drift| − lag(
-              {cfg.latencyOffsetMs + cfg.reactionOffsetMs}ms)
+            <span className="rounded border border-input px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
+              trigger = nextTick − ping − drift − lag({cfg.latencyOffsetMs}ms)
             </span>
           </div>
           <div className="max-h-32 overflow-auto rounded bg-background/60 p-1 font-mono text-[10px] leading-tight">
@@ -1332,7 +782,6 @@ export default function DigitsApp() {
             )}
           </div>
         </div>
-
         <footer className="pb-6 text-center text-[10px] text-muted-foreground">
           Public app_id 1089 · analysis only · not financial advice
         </footer>

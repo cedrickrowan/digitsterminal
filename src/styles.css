@@ -64,8 +64,6 @@
   --color-danger: var(--danger);
   --color-cyan: var(--cyan);
   --color-magenta: var(--magenta);
-  --color-violet: var(--violet);
-
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 
@@ -81,8 +79,6 @@
   --success: oklch(0.82 0.18 175);
   --warning: oklch(0.84 0.16 85);
   --danger: oklch(0.68 0.24 20);
-  --violet: oklch(0.58 0.25 300);
-
   --card: oklch(0.17 0.03 240);
   --card-foreground: oklch(0.96 0.02 200);
   --popover: oklch(0.17 0.03 240);
@@ -182,23 +178,7 @@
   50% { box-shadow: 0 0 24px 2px var(--color-cyan); }
 }
 @utility neon-pulse {
-  box-shadow: 0 0 16px -2px var(--color-cyan);
-}
-
-/* 1-tick pre-warning: fires 1000ms before the multi-appearance window opens. */
-@keyframes prewarn-glow {
-  0%, 100% { box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-warning) 70%, transparent); }
-  50% { box-shadow: 0 0 34px 10px color-mix(in oklab, var(--color-warning) 85%, transparent); }
-}
-@utility prewarn-glow {
-  box-shadow: 0 0 24px 6px color-mix(in oklab, var(--color-warning) 80%, transparent);
+  animation: neon-pulse 1.6s ease-in-out infinite;
 }
 
 
-
-
-/* Latency: no animations/transitions — predictions and alerts paint instantly. */
-*, *::before, *::after {
-  animation: none !important;
-  transition: none !important;
-}
