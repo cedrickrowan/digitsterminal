@@ -7,14 +7,26 @@ interface Props {
   matched: boolean;
   armed: boolean;
   confidence?: number; // 0..1
-  highlight?: boolean; // green flashing when conf >= 0.7 on matches
+  highlight?: boolean; // green when conf >= 0.7 on matches
+  pip?: number;
 }
 
-function PredictedDigitImpl({ digit, entryPrice, lastPrice, matched, armed, confidence = 0, highlight = false }: Props) {
+function PriceView({ value, pip }: { value: number | null; pip: number }) {
+  if (value == null || !Number.isFinite(value)) return <span className="font-semibold">—</span>;
+  const s = value.toFixed(pip); // zero-safe: keeps trailing 0
+  return (
+    <span className="font-semibold">
+      {s.slice(0, -1)}
+      <span className="text-2xl font-extrabold text-cyan align-baseline">{s.slice(-1)}</span>
+    </span>
+  );
+}
+
+function PredictedDigitImpl({ digit, entryPrice, lastPrice, matched, armed, confidence = 0, highlight = false, pip = 2 }: Props) {
   const showGreen = highlight || matched;
   return (
     <div
-      className={`flex items-center gap-3 rounded-md border px-3 py-3 transition-colors ${
+      className={`flex items-center gap-3 rounded-md border px-3 py-3 ${
         showGreen
           ? "border-success bg-success/5 shadow-[0_0_24px_-4px_var(--color-success,theme(colors.green.500))]"
           : "border-border bg-card"
@@ -25,15 +37,11 @@ function PredictedDigitImpl({ digit, entryPrice, lastPrice, matched, armed, conf
           className={`absolute inset-0 rounded-full border-2 opacity-70 ${
             showGreen ? "border-success" : "border-primary"
           }`}
-          style={{
-            animation: `ping ${highlight ? "0.7s" : armed ? "1.2s" : "2.5s"} cubic-bezier(0,0,0.2,1) infinite`,
-          }}
         />
         <span
           className={`absolute inset-2 rounded-full border ${
             showGreen ? "border-success/80" : "border-primary/70"
           }`}
-          style={highlight ? { animation: "pulse 0.6s ease-in-out infinite" } : undefined}
         />
         <span
           className={`relative flex h-14 w-14 items-center justify-center rounded-full text-3xl font-extrabold tabular-nums ${
@@ -41,7 +49,6 @@ function PredictedDigitImpl({ digit, entryPrice, lastPrice, matched, armed, conf
               ? "bg-success text-primary-foreground shadow-[0_0_18px_var(--color-success,theme(colors.green.500))]"
               : "bg-primary text-primary-foreground"
           }`}
-          style={highlight ? { animation: "pulse 0.6s ease-in-out infinite" } : undefined}
         >
           {digit}
         </span>
@@ -56,10 +63,10 @@ function PredictedDigitImpl({ digit, entryPrice, lastPrice, matched, armed, conf
           )}
         </div>
         <div className="mt-0.5 font-mono tabular-nums">
-          Entry: <span className="font-semibold">{entryPrice != null ? entryPrice : "—"}</span>
+          Entry: <span className="font-semibold">{entryPrice != null ? entryPrice.toFixed(pip) : "—"}</span>
         </div>
         <div className="font-mono tabular-nums">
-          Last: <span className="font-semibold">{lastPrice != null ? lastPrice : "—"}</span>
+          Last: <PriceView value={lastPrice} pip={pip} />
         </div>
         <div className={`mt-1 font-semibold ${showGreen ? "text-success" : "text-muted-foreground"}`}>
           {highlight

@@ -120,6 +120,16 @@ export default function DigitsApp() {
   useEffect(() => { cfgRef.current = cfg; saveConfig(cfg); }, [cfg]);
   useEffect(() => { armedRef.current = armed; }, [armed]);
 
+  const [theme, setTheme] = useState<"dark" | "light">("dark");
+  useEffect(() => {
+    const t = localStorage.getItem("cdt-theme");
+    if (t === "light") setTheme("light");
+  }, []);
+  useEffect(() => {
+    document.documentElement.classList.toggle("light", theme === "light");
+    localStorage.setItem("cdt-theme", theme);
+  }, [theme]);
+
   // Countdown ticker @ 5fps — light, only updates a single number/bar.
   useEffect(() => {
     const id = window.setInterval(() => setTick((t) => (t + 1) & 0x3fffffff), 200);
@@ -196,7 +206,7 @@ export default function DigitsApp() {
     lastSignalTickRef.current = 0;
     setOpenEntry(null);
     setMatched(false);
-    setLastPrice(0);
+    setLastPrice(null);
     setStale(false);
     workerRef.current?.postMessage({ type: "reset", lookback: cfgRef.current.lookback });
     scheduleRender();
@@ -212,8 +222,11 @@ export default function DigitsApp() {
     if (enabledRuleCount(cfgNow) === 0) return;
     const hits = evaluateRules({ window: win, cfg: cfgNow });
     if (!allRulesAgree(cfgNow, hits)) return;
-    // 2) Network must be green or yellow.
-    if (healthRef.current === "red") return;
+    // 2) Ping gate by index type: 1s < 350ms, plain < 500ms.
+    {
+      const p = medianOf(pingMedianRef.current);
+      if (p <= 0 || p >= pingLimitFor(cfgNow.symbol)) return;
+    }
     // 3) Fused confidence must be 80% or higher.
     if (confRef.current < 0.8) return;
 
@@ -241,15 +254,15 @@ export default function DigitsApp() {
     const lastGap = lastArrivalRef.current ? performance.now() - lastArrivalRef.current : 0;
     // Slow feeds (2s indices, polled fallback) legitimately exceed the raw
     // 800ms guard — scale the gap budget to the observed tick cadence.
-    const gapBudget = Math.max(cfgNow.safeGapMs, gapsRef.current!.median() * 1.6);
-    const networkUnsafe = median > cfgNow.safePingMs || lastGap > gapBudget;
+    const gapBudget = Math.max(cfgNow.safeGapMs, cadenceOf(cfgNow.symbol, gapsRef.current!.median()) * 1.6);
+    const networkUnsafe = median >= pingLimitFor(cfgNow.symbol) || lastGap > gapBudget;
 
     if (cfgNow.mode === "alert") {
       // Precision execution scheduler: aim the audible fire at
       // (expected next tick) − (ping + drift + configured lag buffer),
       // using performance.now() so we're immune to wall-clock jitter.
       const now = performance.now();
-      const interval = gapsRef.current!.median() || 2000;
+      const interval = cadenceOf(cfgNow.symbol, gapsRef.current!.median());
       const sinceLast = lastArrivalRef.current ? now - lastArrivalRef.current : 0;
       const nextTickIn = Math.max(0, interval - sinceLast);
       const ping = median;
@@ -348,7 +361,8 @@ export default function DigitsApp() {
         const prev = lastArrivalRef.current;
         const gap = prev ? arrival - prev : 0;
         lastArrivalRef.current = arrival;
-        if (gap > 0) gapsRef.current!.push(gap);
+        // Only record plausible gaps for this index type (ignore wake/poll outliers).
+        if (gap > 0 && gap < expectedCadence(sym) * 5) gapsRef.current!.push(gap);
         // Mobile browser tab-sleep backlog dropper: if a huge burst of ticks
         // arrives after ColorOS/iOS wakes the tab, flush and resync on the
         // newest tick only — never replay a stale stack sequentially.
@@ -368,9 +382,10 @@ export default function DigitsApp() {
           clientRef.current?.subscribeTicks(cfgRef.current.symbol, 100);
           return;
         }
+        // Cadence-aware: 1s indices ≈1000ms, plain indices ≈2000ms.
         const staleBudget = Math.max(
           cfgRef.current.safeGapMs,
-          gapsRef.current!.median() * 1.6,
+          cadenceOf(cfgRef.current.symbol, gapsRef.current!.median()) * 1.6,
         );
         const isStale = prev !== 0 && gap > staleBudget;
         setStale(isStale);
@@ -575,17 +590,20 @@ export default function DigitsApp() {
   const lastDigit: number | null =
     buf.length > 0 && buf[buf.length - 1] !== undefined ? buf[buf.length - 1] : null;
 
+  const pingLimit = pingLimitFor(cfg.symbol);
   const health: NetHealth =
-    pingMs === 0 ? "yellow" : pingMs > cfg.safePingMs ? "red" : pingMs > 250 ? "yellow" : "green";
+    pingMs === 0 ? "yellow" : pingMs >= pingLimit ? "red" : pingMs > pingLimit * 0.6 ? "yellow" : "green";
   healthRef.current = health;
 
   // Execution safety guard
   const lastGapNow = lastArrivalRef.current ? performance.now() - lastArrivalRef.current : 0;
-  const gapBudgetNow = Math.max(cfg.safeGapMs, gapsRef.current!.median() * 1.6);
-  const safe = pingMs > 0 && pingMs <= cfg.safePingMs && lastGapNow <= gapBudgetNow;
+  const gapBudgetNow = Math.max(cfg.safeGapMs, cadenceOf(cfg.symbol, gapsRef.current!.median()) * 1.6);
+  const safe = pingMs > 0 && pingMs < pingLimit && lastGapNow <= gapBudgetNow;
 
   // Expected next-tick countdown (median inter-tick gap minus elapsed)
-  const tickInterval = gapsRef.current!.median() || 2000;
+  const tickInterval = cadenceOf(cfg.symbol, gapsRef.current!.median());
+  const pip = clientRef.current?.getPipSize() ?? 2;
+  const serverTime = new Date(Date.now() + driftMs).toISOString().slice(11, 19);
   const countdownMs = Math.round(Math.max(0, tickInterval - lastGapNow));
   const purchaseInMs = countdownMs - cfg.latencyOffsetMs;
   // suppress unused-tick warning
@@ -633,7 +651,7 @@ export default function DigitsApp() {
   );
 
   return (
-    <div className={`min-h-screen p-3 text-foreground ${flash ? "ring-4 ring-magenta" : ""}`}>
+    <div className={`min-h-screen p-3 mx-auto max-w-6xl text-foreground ${flash ? "ring-4 ring-magenta" : ""}`}>
       <header className="mb-3 flex items-center justify-between">
         <div>
           <h1 className="text-base font-bold tracking-wide">
@@ -646,6 +664,16 @@ export default function DigitsApp() {
           </p>
         </div>
         <div className="flex items-center gap-1">
+          <span className="rounded border border-input px-2 py-0.5 text-[11px] font-mono tabular-nums" title="Deriv server time (UTC)">
+            {serverTime}
+          </span>
+          <button
+            type="button"
+            onClick={() => setTheme((t) => (t === "dark" ? "light" : "dark"))}
+            className="rounded border border-input px-2 py-0.5 text-[10px] font-mono"
+          >
+            {theme === "dark" ? "Light" : "Dark"}
+          </button>
           <span
             title={connDetail}
             className={`rounded border px-2 py-0.5 text-[10px] font-mono ${
@@ -653,7 +681,7 @@ export default function DigitsApp() {
                 ? "border-cyan text-cyan"
                 : connState === "offline"
                   ? "border-danger text-danger"
-                  : "border-warning text-warning animate-pulse"
+                  : "border-warning text-warning"
             }`}
           >
             {connState === "live" && connected
@@ -674,7 +702,7 @@ export default function DigitsApp() {
         </div>
       </header>
 
-      <div className="space-y-3">
+      <div className="grid gap-3 md:grid-cols-2 [&>*]:min-w-0">
         <NetworkBadge health={health} pingMs={pingMs} driftMs={driftMs} ticks={totalTicksRef.current} stale={stale} />
         <EnsemblePanel
           ensemble={derived.ens}
@@ -701,6 +729,7 @@ export default function DigitsApp() {
               digit={displayDigit}
               entryPrice={openEntry?.price ?? null}
               lastPrice={lastPrice}
+              pip={pip}
               matched={matched}
               armed={armed}
               confidence={conf}
@@ -782,8 +811,8 @@ export default function DigitsApp() {
             )}
           </div>
         </div>
-        <footer className="pb-6 text-center text-[10px] text-muted-foreground">
-          Public app_id 1089 · analysis only · not financial advice
+        <footer className="md:col-span-2 pb-6 text-center text-[10px] text-muted-foreground">
+          Deriv public feed · analysis only · not financial advice
         </footer>
       </div>
     </div>
@@ -795,4 +824,20 @@ function medianOf(arr: number[]): number {
   const s = [...arr].sort((a, b) => a - b);
   const m = Math.floor(s.length / 2);
   return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
+}
+
+function expectedCadence(symbol: string): number {
+  return /^1HZ\d+V$/.test(symbol) ? 1000 : 2000;
+}
+
+/** Observed median gap, clamped to a sane band around the index's nominal cadence. */
+function cadenceOf(symbol: string, median: number): number {
+  const exp = expectedCadence(symbol);
+  if (!median || median <= 0) return exp;
+  return Math.min(exp * 2, Math.max(exp * 0.5, median));
+}
+
+/** Alert ping ceiling: 1s indices < 350ms, plain indices < 500ms. */
+function pingLimitFor(symbol: string): number {
+  return /^1HZ\d+V$/.test(symbol) ? 350 : 500;
 }
