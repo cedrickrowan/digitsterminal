@@ -118,7 +118,7 @@ export class DerivClient {
     this.closed = false;
     if (this.ws && (this.ws.readyState === 0 || this.ws.readyState === 1)) return;
     this.setState(this.reconnectAttempt > 0 ? "reconnecting" : "connecting");
-    const url = "wss://ws.derivws.com/websockets/v3?app_id=1089";
+    const url = "wss://api.derivws.com/trading/v1/options/ws/public";
     let ws: WebSocket;
     try {
       ws = new WebSocket(url);
@@ -464,6 +464,10 @@ export class DerivClient {
         if (m.balance?.id) this.balSubId = m.balance.id;
       });
     });
+  }
+
+  getPipSize(): number {
+    return this.pipSize;
   }
 
   getAuth(): AuthInfo | null {
