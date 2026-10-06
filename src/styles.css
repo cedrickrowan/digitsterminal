@@ -112,39 +112,29 @@
 }
 
 
-.dark {
-  --background: oklch(0.129 0.042 264.695);
-  --foreground: oklch(0.984 0.003 247.858);
-  --card: oklch(0.208 0.042 265.755);
-  --card-foreground: oklch(0.984 0.003 247.858);
-  --popover: oklch(0.208 0.042 265.755);
-  --popover-foreground: oklch(0.984 0.003 247.858);
-  --primary: oklch(0.929 0.013 255.508);
-  --primary-foreground: oklch(0.208 0.042 265.755);
-  --secondary: oklch(0.279 0.041 260.031);
-  --secondary-foreground: oklch(0.984 0.003 247.858);
-  --muted: oklch(0.279 0.041 260.031);
-  --muted-foreground: oklch(0.704 0.04 256.788);
-  --accent: oklch(0.279 0.041 260.031);
-  --accent-foreground: oklch(0.984 0.003 247.858);
-  --destructive: oklch(0.704 0.191 22.216);
-  --destructive-foreground: oklch(0.984 0.003 247.858);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.551 0.027 264.364);
-  --chart-1: oklch(0.488 0.243 264.376);
-  --chart-2: oklch(0.696 0.17 162.48);
-  --chart-3: oklch(0.769 0.188 70.08);
-  --chart-4: oklch(0.627 0.265 303.9);
-  --chart-5: oklch(0.645 0.246 16.439);
-  --sidebar: oklch(0.208 0.042 265.755);
-  --sidebar-foreground: oklch(0.984 0.003 247.858);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.984 0.003 247.858);
-  --sidebar-accent: oklch(0.279 0.041 260.031);
-  --sidebar-accent-foreground: oklch(0.984 0.003 247.858);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.551 0.027 264.364);
+.light {
+  --background: oklch(0.98 0.005 220);
+  --foreground: oklch(0.18 0.03 240);
+  --cyan: oklch(0.5 0.13 210);
+  --magenta: oklch(0.55 0.22 340);
+  --success: oklch(0.55 0.16 160);
+  --warning: oklch(0.62 0.16 70);
+  --danger: oklch(0.55 0.22 25);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.18 0.03 240);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.18 0.03 240);
+  --primary: oklch(0.5 0.13 210);
+  --primary-foreground: oklch(0.99 0 0);
+  --secondary: oklch(0.93 0.01 220);
+  --secondary-foreground: oklch(0.18 0.03 240);
+  --muted: oklch(0.93 0.01 220);
+  --muted-foreground: oklch(0.45 0.03 230);
+  --accent: oklch(0.9 0.03 210);
+  --accent-foreground: oklch(0.18 0.03 240);
+  --border: oklch(0.85 0.02 220);
+  --input: oklch(0.85 0.02 220);
+  --ring: oklch(0.5 0.13 210);
 }
 
 @layer base {
@@ -155,10 +145,6 @@
   body {
     background-color: var(--color-background);
     color: var(--color-foreground);
-    background-image:
-      radial-gradient(circle at 0% 0%, color-mix(in oklab, var(--color-cyan) 12%, transparent), transparent 40%),
-      radial-gradient(circle at 100% 100%, color-mix(in oklab, var(--color-magenta) 10%, transparent), transparent 40%);
-    background-attachment: fixed;
   }
 
   .font-mono, .tabular-nums {
@@ -182,3 +168,9 @@
 }
 
 
+
+/* Performance: no animations or transitions anywhere in the terminal. */
+*, *::before, *::after {
+  animation: none !important;
+  transition: none !important;
+}
