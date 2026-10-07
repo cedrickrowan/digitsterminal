@@ -227,8 +227,6 @@ export default function DigitsApp() {
       const p = medianOf(pingMedianRef.current);
       if (p <= 0 || p >= pingLimitFor(cfgNow.symbol)) return;
     }
-    // 3) Fused confidence must be 80% or higher.
-    if (confRef.current < 0.8) return;
 
     if (totalTicksRef.current - lastSignalTickRef.current < 3) return;
     lastSignalTickRef.current = totalTicksRef.current;
