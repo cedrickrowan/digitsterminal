@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Subject } from "rxjs";
 import { auditTime } from "rxjs/operators";
-import { DerivClient, type AuthInfo, type ConnState, type ContractType } from "@/lib/deriv/derivClient";
+import { DerivClient, decimalsForSymbol, type AuthInfo, type ConnState, type ContractType } from "@/lib/deriv/derivClient";
 import { DigitRing, FloatRing } from "@/lib/deriv/ring";
 import { loadConfig, loadToken, saveConfig, saveToken } from "@/lib/deriv/storage";
 import type { AppConfig, NetHealth, Signal } from "@/lib/deriv/types";
@@ -600,7 +600,7 @@ export default function DigitsApp() {
 
   // Expected next-tick countdown (median inter-tick gap minus elapsed)
   const tickInterval = cadenceOf(cfg.symbol, gapsRef.current!.median());
-  const pip = clientRef.current?.getPipSize() ?? 2;
+  const pip = clientRef.current?.getPipSize() ?? decimalsForSymbol(cfg.symbol);
   const serverTime = new Date(Date.now() + driftMs).toISOString().slice(11, 19);
   const countdownMs = Math.round(Math.max(0, tickInterval - lastGapNow));
   const purchaseInMs = countdownMs - cfg.latencyOffsetMs;
