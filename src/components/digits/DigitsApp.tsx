@@ -53,6 +53,8 @@ import { SplitPanel } from "./SplitPanel";
 import { PatternsPanel } from "./PatternsPanel";
 import { EngineLog } from "./EngineLog";
 import { PreArrivalPanel } from "./PreArrivalPanel";
+import { NavigatorPanel } from "./NavigatorPanel";
+import type { EngineResult } from "@/lib/deriv/navigator";
 
 
 const MAX_BUFFER = 500;
@@ -101,10 +103,14 @@ export default function DigitsApp() {
   const renderScheduled = useRef(false);
   // Background analysis engine (Web Worker) + reactive tick stream
   const workerRef = useRef<Worker | null>(null);
-  const tickStreamRef = useRef<Subject<{ digit: number; ts: number }> | null>(null);
+  const tickStreamRef = useRef<Subject<{ digit: number; ts: number; rtt: number }> | null>(null);
   const hiddenSinceRef = useRef<number>(0);
   const [engineReport, setEngineReport] = useState<EngineReport | null>(null);
   const [engineLog, setEngineLog] = useState<string[]>([]);
+  // Digits Navigator corrected engine — exact DP probabilities per tick.
+  const [navResult, setNavResult] = useState<EngineResult | null>(null);
+  const navReadyAtRef = useRef(0); // performance.now() of the last READY alert
+  const navWasReadyRef = useRef(false);
   // Execution diagnostics — post-tick timing variance vs the scheduled fire.
   const [execDiag, setExecDiag] = useState<string[]>([]);
   const nextFireAtRef = useRef<number>(0); // performance.now() target for next scheduled fire
@@ -145,22 +151,49 @@ export default function DigitsApp() {
     });
     workerRef.current = worker;
     worker.postMessage({ type: "init", lookback: cfgRef.current.lookback, seed: [] });
-    worker.onmessage = (e: MessageEvent<{ type: "report"; report: EngineReport }>) => {
-      if (e.data?.type !== "report") return;
-      const report = e.data.report;
-      setEngineReport(report);
-      setEngineLog((prev) => {
-        const next = prev.length >= 60 ? prev.slice(-59) : prev.slice();
-        next.push(report.log);
-        return next;
-      });
+    worker.onmessage = (e: MessageEvent<{ type: string; report?: EngineReport; result?: EngineResult | null }>) => {
+      if (e.data?.type === "report" && e.data.report) {
+        const report = e.data.report;
+        setEngineReport(report);
+        setEngineLog((prev) => {
+          const next = prev.length >= 60 ? prev.slice(-59) : prev.slice();
+          next.push(report.log);
+          return next;
+        });
+        return;
+      }
+      if (e.data?.type === "nav") {
+        const nav = e.data.result ?? null;
+        setNavResult(nav);
+        const ready = nav?.alertDecision === "READY / MANUAL ALERT";
+        if (ready && !navWasReadyRef.current) {
+          // New READY alert: start the 700 ms human-response window + audio lock.
+          navReadyAtRef.current = performance.now();
+          navWasReadyRef.current = true;
+          beep(1200, 260);
+          setSignals((prev) => [
+            ...prev.slice(-40),
+            {
+              id: Date.now() + Math.random(),
+              ts: Date.now(),
+              reason: `NAV READY · digit ${nav!.topTargetDigit} · multiHit ${(nav!.multiHitProb * 100).toFixed(2)}%`,
+              predicted: nav!.topTargetDigit,
+              market: cfgRef.current.market,
+              mode: cfgRef.current.mode,
+            },
+          ]);
+        } else if (!ready && navWasReadyRef.current) {
+          navReadyAtRef.current = 0;
+          navWasReadyRef.current = false;
+        }
+      }
     };
 
-    const stream = new Subject<{ digit: number; ts: number }>();
+    const stream = new Subject<{ digit: number; ts: number; rtt: number }>();
     tickStreamRef.current = stream;
     // auditTime coalesces bursts so a wake-up backlog can't spam the worker.
-    const sub = stream.pipe(auditTime(0)).subscribe(({ digit, ts }) => {
-      worker.postMessage({ type: "tick", digit, ts, cfg: cfgRef.current });
+    const sub = stream.pipe(auditTime(0)).subscribe(({ digit, ts, rtt }) => {
+      worker.postMessage({ type: "tick", digit, ts, cfg: cfgRef.current, rttMs: rtt });
     });
     return () => {
       sub.unsubscribe();
@@ -204,6 +237,9 @@ export default function DigitsApp() {
     pendingTickRef.current = null;
     pendingSimRef.current = [];
     lastSignalTickRef.current = 0;
+    setNavResult(null);
+    navReadyAtRef.current = 0;
+    navWasReadyRef.current = false;
     setOpenEntry(null);
     setMatched(false);
     setLastPrice(null);
@@ -350,6 +386,8 @@ export default function DigitsApp() {
         // Reseed the worker's ring buffer to match the trimmed history.
         workerRef.current?.postMessage({ type: "reset", lookback: cfgRef.current.lookback });
         workerRef.current?.postMessage({ type: "init", lookback: cfgRef.current.lookback, seed: clean.slice(-cfgRef.current.lookback) });
+        // Navigator engine needs the full exact 100-tick buffer from history.
+        workerRef.current?.postMessage({ type: "navSeed", digits: clean.slice(-100) });
         scheduleRender();
       },
       onTick: (digit, quote, _e, arrival, sym) => {
@@ -416,7 +454,7 @@ export default function DigitsApp() {
             pendingTickRef.current = null;
             if (!latest) return;
             // Fan the newest tick into the worker analysis engine.
-            tickStreamRef.current?.next({ digit: latest.digit, ts: performance.now() });
+            tickStreamRef.current?.next({ digit: latest.digit, ts: performance.now(), rtt: medianOf(pingMedianRef.current) });
             resolveSims(latest.digit);
             if (!isStale) evaluateAndMaybeFire();
             scheduleRender();
@@ -604,6 +642,10 @@ export default function DigitsApp() {
   const serverTime = new Date(Date.now() + driftMs).toISOString().slice(11, 19);
   const countdownMs = Math.round(Math.max(0, tickInterval - lastGapNow));
   const purchaseInMs = countdownMs - cfg.latencyOffsetMs;
+  // Navigator 700 ms human-response window (numeric countdown, no progress bar)
+  const navReady = navResult?.alertDecision === "READY / MANUAL ALERT";
+  const navElapsed = navReady && navReadyAtRef.current > 0 ? performance.now() - navReadyAtRef.current : 0;
+  const navWaiting = totalTicksRef.current < 100;
   // suppress unused-tick warning
   void tick;
 
@@ -752,6 +794,7 @@ export default function DigitsApp() {
           physics={context.pre.physics}
           topDigit={context.pre.topDigit}
         />
+        <NavigatorPanel result={navResult} alertElapsedMs={navElapsed} waiting={navWaiting} />
         <DigitGrid freq={derived.freq} total={derived.win.length} predict={cfg.predictDigit} />
 
         <SplitPanel
