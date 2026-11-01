@@ -53,6 +53,8 @@ import { SplitPanel } from "./SplitPanel";
 import { PatternsPanel } from "./PatternsPanel";
 import { EngineLog } from "./EngineLog";
 import { PreArrivalPanel } from "./PreArrivalPanel";
+import { NavigatorPanel } from "./NavigatorPanel";
+import type { EngineResult } from "@/lib/deriv/navigator";
 
 
 const MAX_BUFFER = 500;
@@ -105,6 +107,10 @@ export default function DigitsApp() {
   const hiddenSinceRef = useRef<number>(0);
   const [engineReport, setEngineReport] = useState<EngineReport | null>(null);
   const [engineLog, setEngineLog] = useState<string[]>([]);
+  // Digits Navigator corrected engine — exact DP probabilities per tick.
+  const [navResult, setNavResult] = useState<EngineResult | null>(null);
+  const navReadyAtRef = useRef(0); // performance.now() of the last READY alert
+  const navWasReadyRef = useRef(false);
   // Execution diagnostics — post-tick timing variance vs the scheduled fire.
   const [execDiag, setExecDiag] = useState<string[]>([]);
   const nextFireAtRef = useRef<number>(0); // performance.now() target for next scheduled fire
@@ -145,22 +151,49 @@ export default function DigitsApp() {
     });
     workerRef.current = worker;
     worker.postMessage({ type: "init", lookback: cfgRef.current.lookback, seed: [] });
-    worker.onmessage = (e: MessageEvent<{ type: "report"; report: EngineReport }>) => {
-      if (e.data?.type !== "report") return;
-      const report = e.data.report;
-      setEngineReport(report);
-      setEngineLog((prev) => {
-        const next = prev.length >= 60 ? prev.slice(-59) : prev.slice();
-        next.push(report.log);
-        return next;
-      });
+    worker.onmessage = (e: MessageEvent<{ type: string; report?: EngineReport; result?: EngineResult | null }>) => {
+      if (e.data?.type === "report" && e.data.report) {
+        const report = e.data.report;
+        setEngineReport(report);
+        setEngineLog((prev) => {
+          const next = prev.length >= 60 ? prev.slice(-59) : prev.slice();
+          next.push(report.log);
+          return next;
+        });
+        return;
+      }
+      if (e.data?.type === "nav") {
+        const nav = e.data.result ?? null;
+        setNavResult(nav);
+        const ready = nav?.alertDecision === "READY / MANUAL ALERT";
+        if (ready && !navWasReadyRef.current) {
+          // New READY alert: start the 700 ms human-response window + audio lock.
+          navReadyAtRef.current = performance.now();
+          navWasReadyRef.current = true;
+          beep(1200, 260);
+          setSignals((prev) => [
+            ...prev.slice(-40),
+            {
+              id: Date.now() + Math.random(),
+              ts: Date.now(),
+              reason: `NAV READY · digit ${nav!.topTargetDigit} · multiHit ${(nav!.multiHitProb * 100).toFixed(2)}%`,
+              predicted: nav!.topTargetDigit,
+              market: cfgRef.current.market,
+              mode: cfgRef.current.mode,
+            },
+          ]);
+        } else if (!ready && navWasReadyRef.current) {
+          navReadyAtRef.current = 0;
+          navWasReadyRef.current = false;
+        }
+      }
     };
 
-    const stream = new Subject<{ digit: number; ts: number }>();
+    const stream = new Subject<{ digit: number; ts: number; rtt: number }>();
     tickStreamRef.current = stream;
     // auditTime coalesces bursts so a wake-up backlog can't spam the worker.
-    const sub = stream.pipe(auditTime(0)).subscribe(({ digit, ts }) => {
-      worker.postMessage({ type: "tick", digit, ts, cfg: cfgRef.current });
+    const sub = stream.pipe(auditTime(0)).subscribe(({ digit, ts, rtt }) => {
+      worker.postMessage({ type: "tick", digit, ts, cfg: cfgRef.current, rttMs: rtt });
     });
     return () => {
       sub.unsubscribe();
@@ -350,6 +383,8 @@ export default function DigitsApp() {
         // Reseed the worker's ring buffer to match the trimmed history.
         workerRef.current?.postMessage({ type: "reset", lookback: cfgRef.current.lookback });
         workerRef.current?.postMessage({ type: "init", lookback: cfgRef.current.lookback, seed: clean.slice(-cfgRef.current.lookback) });
+        // Navigator engine needs the full exact 100-tick buffer from history.
+        workerRef.current?.postMessage({ type: "navSeed", digits: clean.slice(-100) });
         scheduleRender();
       },
       onTick: (digit, quote, _e, arrival, sym) => {
