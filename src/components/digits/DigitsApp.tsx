@@ -237,6 +237,9 @@ export default function DigitsApp() {
     pendingTickRef.current = null;
     pendingSimRef.current = [];
     lastSignalTickRef.current = 0;
+    setNavResult(null);
+    navReadyAtRef.current = 0;
+    navWasReadyRef.current = false;
     setOpenEntry(null);
     setMatched(false);
     setLastPrice(null);
@@ -451,7 +454,7 @@ export default function DigitsApp() {
             pendingTickRef.current = null;
             if (!latest) return;
             // Fan the newest tick into the worker analysis engine.
-            tickStreamRef.current?.next({ digit: latest.digit, ts: performance.now() });
+            tickStreamRef.current?.next({ digit: latest.digit, ts: performance.now(), rtt: medianOf(pingMedianRef.current) });
             resolveSims(latest.digit);
             if (!isStale) evaluateAndMaybeFire();
             scheduleRender();
@@ -639,6 +642,10 @@ export default function DigitsApp() {
   const serverTime = new Date(Date.now() + driftMs).toISOString().slice(11, 19);
   const countdownMs = Math.round(Math.max(0, tickInterval - lastGapNow));
   const purchaseInMs = countdownMs - cfg.latencyOffsetMs;
+  // Navigator 700 ms human-response window (numeric countdown, no progress bar)
+  const navReady = navResult?.alertDecision === "READY / MANUAL ALERT";
+  const navElapsed = navReady && navReadyAtRef.current > 0 ? performance.now() - navReadyAtRef.current : 0;
+  const navWaiting = totalTicksRef.current < 100;
   // suppress unused-tick warning
   void tick;
 
@@ -787,6 +794,7 @@ export default function DigitsApp() {
           physics={context.pre.physics}
           topDigit={context.pre.topDigit}
         />
+        <NavigatorPanel result={navResult} alertElapsedMs={navElapsed} waiting={navWaiting} />
         <DigitGrid freq={derived.freq} total={derived.win.length} predict={cfg.predictDigit} />
 
         <SplitPanel
