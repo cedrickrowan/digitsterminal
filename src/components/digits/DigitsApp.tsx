@@ -173,6 +173,38 @@ export default function DigitsApp() {
         });
         return;
       }
+      if (e.data?.type === "navStatus") {
+        setNavStatus({ filled: e.data.filled, size: e.data.size });
+        return;
+      }
+      if (e.data?.type === "scanResult") {
+        const { symbol, rttMs, result } = e.data;
+        const latencyOk = rttMs > 0 && rttMs < pingLimitFor(symbol);
+        setScanRows((prev) =>
+          prev.map((r) =>
+            r.symbol === symbol
+              ? {
+                  ...r,
+                  pending: false,
+                  ok: !!result,
+                  error: result ? undefined : "no signal",
+                  score: result?.marketScore ?? 0,
+                  edge: result?.marketEdge ?? 0,
+                  recProb: result?.marketRecProb ?? 0,
+                  action: result?.marketAction ?? "",
+                  rttMs,
+                  latencyOk,
+                }
+              : r,
+          ),
+        );
+        scanPendingRef.current = Math.max(0, scanPendingRef.current - 1);
+        if (scanPendingRef.current === 0) {
+          scanningRef.current = false;
+          setScanning(false);
+        }
+        return;
+      }
       if (e.data?.type === "nav") {
         const nav = e.data.result ?? null;
         setNavResult(nav);
@@ -187,7 +219,7 @@ export default function DigitsApp() {
             {
               id: Date.now() + Math.random(),
               ts: Date.now(),
-              reason: `NAV READY · digit ${nav!.topTargetDigit} · multiHit ${(nav!.multiHitProb * 100).toFixed(2)}%`,
+              reason: `NAV READY · ${nav!.marketAction || `digit ${nav!.topTargetDigit}`} · edge ${(nav!.marketEdge * 100).toFixed(1)}%`,
               predicted: nav!.topTargetDigit,
               market: cfgRef.current.market,
               mode: cfgRef.current.mode,
@@ -404,8 +436,8 @@ export default function DigitsApp() {
         // Reseed the worker's ring buffer to match the trimmed history.
         workerRef.current?.postMessage({ type: "reset", lookback: cfgRef.current.lookback });
         workerRef.current?.postMessage({ type: "init", lookback: cfgRef.current.lookback, seed: clean.slice(-cfgRef.current.lookback) });
-        // Navigator engine needs the full exact 100-tick buffer from history.
-        workerRef.current?.postMessage({ type: "navSeed", digits: clean.slice(-100) });
+        // Navigator engine seeds its lookback-sized buffer from history.
+        workerRef.current?.postMessage({ type: "navSeed", digits: clean.slice(-(cfgRef.current.lookback)), size: cfgRef.current.lookback });
         scheduleRender();
       },
       onTick: (digit, quote, _e, arrival, sym) => {
@@ -472,7 +504,13 @@ export default function DigitsApp() {
             pendingTickRef.current = null;
             if (!latest) return;
             // Fan the newest tick into the worker analysis engine.
-            tickStreamRef.current?.next({ digit: latest.digit, ts: performance.now(), rtt: medianOf(pingMedianRef.current) });
+            tickStreamRef.current?.next({
+              digit: latest.digit,
+              ts: performance.now(),
+              rtt: medianOf(pingMedianRef.current),
+              quote: latest.quote,
+              pip: clientRef.current?.getPipSize() ?? decimalsForSymbol(cfgRef.current.symbol),
+            });
             resolveSims(latest.digit);
             if (!isStale) evaluateAndMaybeFire();
             scheduleRender();
@@ -663,7 +701,7 @@ export default function DigitsApp() {
   // Navigator 700 ms human-response window (numeric countdown, no progress bar)
   const navReady = navResult?.alertDecision === "READY / MANUAL ALERT";
   const navElapsed = navReady && navReadyAtRef.current > 0 ? performance.now() - navReadyAtRef.current : 0;
-  const navWaiting = totalTicksRef.current < 100;
+  const navWaiting = navStatus.filled < navStatus.size;
   // suppress unused-tick warning
   void tick;
 
