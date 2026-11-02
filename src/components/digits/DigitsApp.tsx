@@ -182,11 +182,13 @@ export default function DigitsApp() {
         return;
       }
       if (e.data?.type === "navStatus") {
-        setNavStatus({ filled: e.data.filled, size: e.data.size });
+        setNavStatus({ filled: e.data.filled ?? 0, size: e.data.size ?? 0 });
         return;
       }
-      if (e.data?.type === "scanResult") {
-        const { symbol, rttMs, result } = e.data;
+      if (e.data?.type === "scanResult" && e.data.symbol) {
+        const symbol = e.data.symbol;
+        const rttMs = e.data.rttMs ?? 0;
+        const result = e.data.result ?? null;
         const latencyOk = rttMs > 0 && rttMs < pingLimitFor(symbol);
         setScanRows((prev) =>
           prev.map((r) =>
