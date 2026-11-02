@@ -709,6 +709,47 @@ export default function DigitsApp() {
     setCfg((c) => ({ ...c, ...patch }));
   }, []);
 
+  /** Multi-market scanner: fetch a lookback-sized history snapshot for every
+   *  synthetic index on a short-lived public WebSocket, then hand each
+   *  snapshot to the navigator inside the Web Worker for evaluation. */
+  const runScan = useCallback(async () => {
+    if (scanningRef.current) return;
+    scanningRef.current = true;
+    setScanning(true);
+    const cfgNow = cfgRef.current;
+    const symbols = SYMBOLS.map((s) => s.value);
+    setScanRows(
+      symbols.map((sym) => ({ symbol: sym, pending: true, ok: false, score: 0, edge: 0, recProb: 0, action: "", rttMs: 0, latencyOk: false })),
+    );
+    const fetches = await fetchScanHistories(symbols, cfgNow.lookback);
+    scanPendingRef.current = 0;
+    fetches.forEach((f, idx) => {
+      if (!f.ok) {
+        setScanRows((prev) =>
+          prev.map((r) => (r.symbol === f.symbol ? { ...r, pending: false, ok: false, error: f.error } : r)),
+        );
+        return;
+      }
+      scanPendingRef.current++;
+      workerRef.current?.postMessage({
+        type: "scanEval",
+        id: idx,
+        symbol: f.symbol,
+        digits: f.digits,
+        prices: f.prices,
+        pip: f.pip,
+        duration: cfgNow.duration,
+        market: cfgNow.market,
+        barrier: cfgNow.barrier,
+        rttMs: f.rttMs,
+      });
+    });
+    if (scanPendingRef.current === 0) {
+      scanningRef.current = false;
+      setScanning(false);
+    }
+  }, []);
+
   const applyToken = useCallback(() => {
     saveToken(token);
     clientRef.current?.setToken(token);
@@ -850,7 +891,16 @@ export default function DigitsApp() {
           physics={context.pre.physics}
           topDigit={context.pre.topDigit}
         />
-        <NavigatorPanel result={navResult} alertElapsedMs={navElapsed} waiting={navWaiting} />
+        <NavigatorPanel
+          result={navResult}
+          alertElapsedMs={navElapsed}
+          waiting={navWaiting}
+          filled={navStatus.filled}
+          size={navStatus.size}
+          market={cfg.market}
+          barrier={cfg.barrier}
+        />
+        <ScannerPanel rows={scanRows} scanning={scanning} market={cfg.market} onScan={runScan} />
         <DigitGrid freq={derived.freq} total={derived.win.length} predict={cfg.predictDigit} />
 
         <SplitPanel
