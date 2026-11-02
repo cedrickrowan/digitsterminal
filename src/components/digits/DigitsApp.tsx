@@ -57,6 +57,7 @@ import { PatternsPanel } from "./PatternsPanel";
 import { EngineLog } from "./EngineLog";
 import { PreArrivalPanel } from "./PreArrivalPanel";
 import { NavigatorPanel } from "./NavigatorPanel";
+import { ScannerPanel, type ScanRow } from "./ScannerPanel";
 import type { EngineResult } from "@/lib/deriv/navigator";
 
 
@@ -106,12 +107,19 @@ export default function DigitsApp() {
   const renderScheduled = useRef(false);
   // Background analysis engine (Web Worker) + reactive tick stream
   const workerRef = useRef<Worker | null>(null);
-  const tickStreamRef = useRef<Subject<{ digit: number; ts: number; rtt: number }> | null>(null);
+  const tickStreamRef = useRef<Subject<{ digit: number; ts: number; rtt: number; quote: number; pip: number }> | null>(null);
   const hiddenSinceRef = useRef<number>(0);
   const [engineReport, setEngineReport] = useState<EngineReport | null>(null);
   const [engineLog, setEngineLog] = useState<string[]>([]);
   // Digits Navigator corrected engine — exact DP probabilities per tick.
   const [navResult, setNavResult] = useState<EngineResult | null>(null);
+  // Navigator buffer seeding progress (dynamic lookback-sized buffer).
+  const [navStatus, setNavStatus] = useState<{ filled: number; size: number }>({ filled: 0, size: 100 });
+  // Multi-market scanner state.
+  const [scanRows, setScanRows] = useState<ScanRow[]>([]);
+  const [scanning, setScanning] = useState(false);
+  const scanningRef = useRef(false);
+  const scanPendingRef = useRef(0);
   const navReadyAtRef = useRef(0); // performance.now() of the last READY alert
   const navWasReadyRef = useRef(false);
   // Execution diagnostics — post-tick timing variance vs the scheduled fire.
@@ -192,11 +200,11 @@ export default function DigitsApp() {
       }
     };
 
-    const stream = new Subject<{ digit: number; ts: number; rtt: number }>();
+    const stream = new Subject<{ digit: number; ts: number; rtt: number; quote: number; pip: number }>();
     tickStreamRef.current = stream;
     // auditTime coalesces bursts so a wake-up backlog can't spam the worker.
-    const sub = stream.pipe(auditTime(0)).subscribe(({ digit, ts, rtt }) => {
-      worker.postMessage({ type: "tick", digit, ts, cfg: cfgRef.current, rttMs: rtt });
+    const sub = stream.pipe(auditTime(0)).subscribe(({ digit, ts, rtt, quote, pip }) => {
+      worker.postMessage({ type: "tick", digit, ts, cfg: cfgRef.current, rttMs: rtt, quote, pip });
     });
     return () => {
       sub.unsubscribe();
@@ -207,9 +215,16 @@ export default function DigitsApp() {
     };
   }, []);
 
-  // Notify the worker when the user changes lookback.
+  // Notify the worker when the user changes lookback: the analysis ring AND
+  // the navigator buffer both resize, and the navigator is re-seeded from the
+  // main-thread ring so it doesn't wait for 100 fresh live ticks.
   useEffect(() => {
     workerRef.current?.postMessage({ type: "lookback", lookback: cfg.lookback });
+    workerRef.current?.postMessage({ type: "navLookback", size: cfg.lookback });
+    const seed = bufRef.current!.lastN(cfg.lookback);
+    if (seed.length > 0) {
+      workerRef.current?.postMessage({ type: "navSeed", digits: seed, size: cfg.lookback });
+    }
   }, [cfg.lookback]);
 
 
