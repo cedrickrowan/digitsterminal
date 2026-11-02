@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Subject } from "rxjs";
 import { auditTime } from "rxjs/operators";
 import { DerivClient, decimalsForSymbol, type AuthInfo, type ConnState, type ContractType } from "@/lib/deriv/derivClient";
+import { fetchScanHistories } from "@/lib/deriv/scanner";
+import { SYMBOLS } from "@/lib/deriv/types";
 import { DigitRing, FloatRing } from "@/lib/deriv/ring";
 import { loadConfig, loadToken, saveConfig, saveToken } from "@/lib/deriv/storage";
 import type { AppConfig, NetHealth, Signal } from "@/lib/deriv/types";
@@ -22,6 +24,7 @@ import {
   topNgrams,
   twoTickFollowups,
 } from "@/lib/deriv/stats";
+// eslint-disable-next-line @typescript-eslint/no-duplicate-imports
 import { allRulesAgree, enabledRuleCount, evaluateRules } from "@/lib/deriv/triggers";
 import type { EngineReport } from "@/lib/deriv/engine";
 import {
@@ -54,6 +57,7 @@ import { PatternsPanel } from "./PatternsPanel";
 import { EngineLog } from "./EngineLog";
 import { PreArrivalPanel } from "./PreArrivalPanel";
 import { NavigatorPanel } from "./NavigatorPanel";
+import { ScannerPanel, type ScanRow } from "./ScannerPanel";
 import type { EngineResult } from "@/lib/deriv/navigator";
 
 
@@ -103,12 +107,19 @@ export default function DigitsApp() {
   const renderScheduled = useRef(false);
   // Background analysis engine (Web Worker) + reactive tick stream
   const workerRef = useRef<Worker | null>(null);
-  const tickStreamRef = useRef<Subject<{ digit: number; ts: number; rtt: number }> | null>(null);
+  const tickStreamRef = useRef<Subject<{ digit: number; ts: number; rtt: number; quote: number; pip: number }> | null>(null);
   const hiddenSinceRef = useRef<number>(0);
   const [engineReport, setEngineReport] = useState<EngineReport | null>(null);
   const [engineLog, setEngineLog] = useState<string[]>([]);
   // Digits Navigator corrected engine — exact DP probabilities per tick.
   const [navResult, setNavResult] = useState<EngineResult | null>(null);
+  // Navigator buffer seeding progress (dynamic lookback-sized buffer).
+  const [navStatus, setNavStatus] = useState<{ filled: number; size: number }>({ filled: 0, size: 100 });
+  // Multi-market scanner state.
+  const [scanRows, setScanRows] = useState<ScanRow[]>([]);
+  const [scanning, setScanning] = useState(false);
+  const scanningRef = useRef(false);
+  const scanPendingRef = useRef(0);
   const navReadyAtRef = useRef(0); // performance.now() of the last READY alert
   const navWasReadyRef = useRef(false);
   // Execution diagnostics — post-tick timing variance vs the scheduled fire.
@@ -151,7 +162,15 @@ export default function DigitsApp() {
     });
     workerRef.current = worker;
     worker.postMessage({ type: "init", lookback: cfgRef.current.lookback, seed: [] });
-    worker.onmessage = (e: MessageEvent<{ type: string; report?: EngineReport; result?: EngineResult | null }>) => {
+    worker.onmessage = (e: MessageEvent<{
+      type: string;
+      report?: EngineReport;
+      result?: EngineResult | null;
+      filled?: number;
+      size?: number;
+      symbol?: string;
+      rttMs?: number;
+    }>) => {
       if (e.data?.type === "report" && e.data.report) {
         const report = e.data.report;
         setEngineReport(report);
@@ -160,6 +179,40 @@ export default function DigitsApp() {
           next.push(report.log);
           return next;
         });
+        return;
+      }
+      if (e.data?.type === "navStatus") {
+        setNavStatus({ filled: e.data.filled ?? 0, size: e.data.size ?? 0 });
+        return;
+      }
+      if (e.data?.type === "scanResult" && e.data.symbol) {
+        const symbol = e.data.symbol;
+        const rttMs = e.data.rttMs ?? 0;
+        const result = e.data.result ?? null;
+        const latencyOk = rttMs > 0 && rttMs < pingLimitFor(symbol);
+        setScanRows((prev) =>
+          prev.map((r) =>
+            r.symbol === symbol
+              ? {
+                  ...r,
+                  pending: false,
+                  ok: !!result,
+                  error: result ? undefined : "no signal",
+                  score: result?.marketScore ?? 0,
+                  edge: result?.marketEdge ?? 0,
+                  recProb: result?.marketRecProb ?? 0,
+                  action: result?.marketAction ?? "",
+                  rttMs,
+                  latencyOk,
+                }
+              : r,
+          ),
+        );
+        scanPendingRef.current = Math.max(0, scanPendingRef.current - 1);
+        if (scanPendingRef.current === 0) {
+          scanningRef.current = false;
+          setScanning(false);
+        }
         return;
       }
       if (e.data?.type === "nav") {
@@ -176,7 +229,7 @@ export default function DigitsApp() {
             {
               id: Date.now() + Math.random(),
               ts: Date.now(),
-              reason: `NAV READY · digit ${nav!.topTargetDigit} · multiHit ${(nav!.multiHitProb * 100).toFixed(2)}%`,
+              reason: `NAV READY · ${nav!.marketAction || `digit ${nav!.topTargetDigit}`} · edge ${(nav!.marketEdge * 100).toFixed(1)}%`,
               predicted: nav!.topTargetDigit,
               market: cfgRef.current.market,
               mode: cfgRef.current.mode,
@@ -189,11 +242,11 @@ export default function DigitsApp() {
       }
     };
 
-    const stream = new Subject<{ digit: number; ts: number; rtt: number }>();
+    const stream = new Subject<{ digit: number; ts: number; rtt: number; quote: number; pip: number }>();
     tickStreamRef.current = stream;
     // auditTime coalesces bursts so a wake-up backlog can't spam the worker.
-    const sub = stream.pipe(auditTime(0)).subscribe(({ digit, ts, rtt }) => {
-      worker.postMessage({ type: "tick", digit, ts, cfg: cfgRef.current, rttMs: rtt });
+    const sub = stream.pipe(auditTime(0)).subscribe(({ digit, ts, rtt, quote, pip }) => {
+      worker.postMessage({ type: "tick", digit, ts, cfg: cfgRef.current, rttMs: rtt, quote, pip });
     });
     return () => {
       sub.unsubscribe();
@@ -204,9 +257,16 @@ export default function DigitsApp() {
     };
   }, []);
 
-  // Notify the worker when the user changes lookback.
+  // Notify the worker when the user changes lookback: the analysis ring AND
+  // the navigator buffer both resize, and the navigator is re-seeded from the
+  // main-thread ring so it doesn't wait for 100 fresh live ticks.
   useEffect(() => {
     workerRef.current?.postMessage({ type: "lookback", lookback: cfg.lookback });
+    workerRef.current?.postMessage({ type: "navLookback", size: cfg.lookback });
+    const seed = bufRef.current!.lastN(cfg.lookback);
+    if (seed.length > 0) {
+      workerRef.current?.postMessage({ type: "navSeed", digits: seed, size: cfg.lookback });
+    }
   }, [cfg.lookback]);
 
 
@@ -386,8 +446,8 @@ export default function DigitsApp() {
         // Reseed the worker's ring buffer to match the trimmed history.
         workerRef.current?.postMessage({ type: "reset", lookback: cfgRef.current.lookback });
         workerRef.current?.postMessage({ type: "init", lookback: cfgRef.current.lookback, seed: clean.slice(-cfgRef.current.lookback) });
-        // Navigator engine needs the full exact 100-tick buffer from history.
-        workerRef.current?.postMessage({ type: "navSeed", digits: clean.slice(-100) });
+        // Navigator engine seeds its lookback-sized buffer from history.
+        workerRef.current?.postMessage({ type: "navSeed", digits: clean.slice(-(cfgRef.current.lookback)), size: cfgRef.current.lookback });
         scheduleRender();
       },
       onTick: (digit, quote, _e, arrival, sym) => {
@@ -454,7 +514,13 @@ export default function DigitsApp() {
             pendingTickRef.current = null;
             if (!latest) return;
             // Fan the newest tick into the worker analysis engine.
-            tickStreamRef.current?.next({ digit: latest.digit, ts: performance.now(), rtt: medianOf(pingMedianRef.current) });
+            tickStreamRef.current?.next({
+              digit: latest.digit,
+              ts: performance.now(),
+              rtt: medianOf(pingMedianRef.current),
+              quote: latest.quote,
+              pip: clientRef.current?.getPipSize() ?? decimalsForSymbol(cfgRef.current.symbol),
+            });
             resolveSims(latest.digit);
             if (!isStale) evaluateAndMaybeFire();
             scheduleRender();
@@ -645,12 +711,53 @@ export default function DigitsApp() {
   // Navigator 700 ms human-response window (numeric countdown, no progress bar)
   const navReady = navResult?.alertDecision === "READY / MANUAL ALERT";
   const navElapsed = navReady && navReadyAtRef.current > 0 ? performance.now() - navReadyAtRef.current : 0;
-  const navWaiting = totalTicksRef.current < 100;
+  const navWaiting = navStatus.filled < navStatus.size;
   // suppress unused-tick warning
   void tick;
 
   const setPartial = useCallback((patch: Partial<AppConfig>) => {
     setCfg((c) => ({ ...c, ...patch }));
+  }, []);
+
+  /** Multi-market scanner: fetch a lookback-sized history snapshot for every
+   *  synthetic index on a short-lived public WebSocket, then hand each
+   *  snapshot to the navigator inside the Web Worker for evaluation. */
+  const runScan = useCallback(async () => {
+    if (scanningRef.current) return;
+    scanningRef.current = true;
+    setScanning(true);
+    const cfgNow = cfgRef.current;
+    const symbols = SYMBOLS.map((s) => s.value);
+    setScanRows(
+      symbols.map((sym) => ({ symbol: sym, pending: true, ok: false, score: 0, edge: 0, recProb: 0, action: "", rttMs: 0, latencyOk: false })),
+    );
+    const fetches = await fetchScanHistories(symbols, cfgNow.lookback);
+    scanPendingRef.current = 0;
+    fetches.forEach((f, idx) => {
+      if (!f.ok) {
+        setScanRows((prev) =>
+          prev.map((r) => (r.symbol === f.symbol ? { ...r, pending: false, ok: false, error: f.error } : r)),
+        );
+        return;
+      }
+      scanPendingRef.current++;
+      workerRef.current?.postMessage({
+        type: "scanEval",
+        id: idx,
+        symbol: f.symbol,
+        digits: f.digits,
+        prices: f.prices,
+        pip: f.pip,
+        duration: cfgNow.duration,
+        market: cfgNow.market,
+        barrier: cfgNow.barrier,
+        rttMs: f.rttMs,
+      });
+    });
+    if (scanPendingRef.current === 0) {
+      scanningRef.current = false;
+      setScanning(false);
+    }
   }, []);
 
   const applyToken = useCallback(() => {
@@ -794,7 +901,16 @@ export default function DigitsApp() {
           physics={context.pre.physics}
           topDigit={context.pre.topDigit}
         />
-        <NavigatorPanel result={navResult} alertElapsedMs={navElapsed} waiting={navWaiting} />
+        <NavigatorPanel
+          result={navResult}
+          alertElapsedMs={navElapsed}
+          waiting={navWaiting}
+          filled={navStatus.filled}
+          size={navStatus.size}
+          market={cfg.market}
+          barrier={cfg.barrier}
+        />
+        <ScannerPanel rows={scanRows} scanning={scanning} market={cfg.market} onScan={runScan} />
         <DigitGrid freq={derived.freq} total={derived.win.length} predict={cfg.predictDigit} />
 
         <SplitPanel
