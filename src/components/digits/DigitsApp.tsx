@@ -162,7 +162,15 @@ export default function DigitsApp() {
     });
     workerRef.current = worker;
     worker.postMessage({ type: "init", lookback: cfgRef.current.lookback, seed: [] });
-    worker.onmessage = (e: MessageEvent<{ type: string; report?: EngineReport; result?: EngineResult | null }>) => {
+    worker.onmessage = (e: MessageEvent<{
+      type: string;
+      report?: EngineReport;
+      result?: EngineResult | null;
+      filled?: number;
+      size?: number;
+      symbol?: string;
+      rttMs?: number;
+    }>) => {
       if (e.data?.type === "report" && e.data.report) {
         const report = e.data.report;
         setEngineReport(report);
