@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Subject } from "rxjs";
 import { auditTime } from "rxjs/operators";
 import { DerivClient, decimalsForSymbol, type AuthInfo, type ConnState, type ContractType } from "@/lib/deriv/derivClient";
+import { fetchScanHistories } from "@/lib/deriv/scanner";
+import { SYMBOLS } from "@/lib/deriv/types";
 import { DigitRing, FloatRing } from "@/lib/deriv/ring";
 import { loadConfig, loadToken, saveConfig, saveToken } from "@/lib/deriv/storage";
 import type { AppConfig, NetHealth, Signal } from "@/lib/deriv/types";
@@ -22,6 +24,7 @@ import {
   topNgrams,
   twoTickFollowups,
 } from "@/lib/deriv/stats";
+// eslint-disable-next-line @typescript-eslint/no-duplicate-imports
 import { allRulesAgree, enabledRuleCount, evaluateRules } from "@/lib/deriv/triggers";
 import type { EngineReport } from "@/lib/deriv/engine";
 import {
