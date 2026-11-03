@@ -872,6 +872,7 @@ export default function DigitsApp() {
           </div>
         </div>
         <EnsemblePanel
+          nav={navResult}
           ensemble={derived.ens}
           market={cfg.market}
           barrier={cfg.barrier}
@@ -879,8 +880,7 @@ export default function DigitsApp() {
           pHigh={derived.split.pHigh}
           rise={{ up: derived.rf.up, down: derived.rf.down }}
           safe={safe}
-          countdownMs={countdownMs}
-          purchaseInMs={purchaseInMs}
+          alertElapsedMs={navElapsed}
         />
         {(() => {
           const isMatches = cfg.market === "matches";
@@ -920,15 +920,14 @@ export default function DigitsApp() {
         />
         <ScannerPanel rows={scanRows} scanning={scanning} market={cfg.market} onScan={runScan} />
         <DigitGrid freq={derived.freq} total={derived.win.length} predict={cfg.predictDigit} />
+        <DigitBadges freq={derived.freq} total={derived.win.length} lastDigit={lastDigit} />
 
         <SplitPanel
-          pEven={derived.split.pEven}
-          pHigh={derived.split.pHigh}
+          nav={navResult}
+          fallback={{ pEven: derived.split.pEven, pHigh: derived.split.pHigh, riseUp: derived.rf.up, riseDown: derived.rf.down }}
           hot={derived.hc.hot}
           cold={derived.hc.cold}
           hotFreq={derived.hc.freq}
-          riseUp={derived.rf.up}
-          riseDown={derived.rf.down}
         />
         <RecentTicks digits={buf} />
         <MarkovMatrix matrix={derived.mk} lastDigit={lastDigit} predict={context.topDigit} />
@@ -952,6 +951,7 @@ export default function DigitsApp() {
           followPrefix={derived.followPrefix}
           followProbs={derived.follow.probs}
           followTotal={derived.follow.total}
+          followHorizon={Math.max(1, cfg.duration)}
         />
         <Controls
           cfg={cfg}
@@ -963,6 +963,7 @@ export default function DigitsApp() {
           onToggleArm={() => setArmed((a) => !a)}
         />
         <SignalsLog signals={signals} />
+        <SessionScorecard signals={signals} />
         <EngineLog
           entries={engineLog}
           coreSpeedMs={engineReport?.coreSpeedMs ?? 0}
