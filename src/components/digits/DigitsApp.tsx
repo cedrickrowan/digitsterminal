@@ -711,11 +711,8 @@ export default function DigitsApp() {
   const safe = pingMs > 0 && pingMs < pingLimit && lastGapNow <= gapBudgetNow;
 
   // Expected next-tick countdown (median inter-tick gap minus elapsed)
-  const tickInterval = cadenceOf(cfg.symbol, gapsRef.current!.median());
   const pip = clientRef.current?.getPipSize() ?? decimalsForSymbol(cfg.symbol);
   const serverTime = new Date(Date.now() + driftMs).toISOString().slice(11, 19);
-  const countdownMs = Math.round(Math.max(0, tickInterval - lastGapNow));
-  const purchaseInMs = countdownMs - cfg.latencyOffsetMs;
   // Navigator 700 ms human-response window (numeric countdown, no progress bar)
   const navReady = navResult?.alertDecision === "READY / MANUAL ALERT";
   const navElapsed = navReady && navReadyAtRef.current > 0 ? performance.now() - navReadyAtRef.current : 0;
