@@ -45,6 +45,8 @@ export interface Signal {
   entryTick?: number;
   resolvedDigit?: number;
   result?: "win" | "loss";
+  /** Engine-expected probability at signal time (scorecard baseline). */
+  expected?: number;
   mode: Mode;
 }
 

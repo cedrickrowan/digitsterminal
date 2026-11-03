@@ -8,9 +8,12 @@ interface Props {
   coldDigit: number;
   coldGap: number;
   coldProb: number;
-  followPrefix: [number, number] | null;
+  /** Trailing pattern digits the D-tick follow-up is conditioned on. */
+  followPrefix: number[] | null;
   followProbs: number[];
   followTotal: number;
+  /** Selected contract duration in ticks (the follow-up horizon). */
+  followHorizon: number;
 }
 
 function StatsPanelImpl(p: Props) {
@@ -27,10 +30,10 @@ function StatsPanelImpl(p: Props) {
         P(stay cold) = {(p.coldProb * 100).toFixed(2)}%
       </div>
       <div className="border-t border-border pt-2">
-        2-tick follow-up{" "}
+        D={p.followHorizon}-tick follow-up{" "}
         {p.followPrefix ? (
           <span className="font-mono">
-            [{p.followPrefix[0]}→{p.followPrefix[1]}]
+            [{p.followPrefix.join("")}]→+{p.followHorizon}
           </span>
         ) : (
           "—"
