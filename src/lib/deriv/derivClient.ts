@@ -77,7 +77,7 @@ export class DerivClient {
   private subId: string | null = null;
   private balSubId: string | null = null;
   private symbol = "R_100";
-  private historyCount = 100;
+  private historyCount = 900;
   private generation = 0;
   private pipSize = 2;
   private timeTimer: number | null = null;
@@ -338,7 +338,7 @@ export class DerivClient {
     return this.generation;
   }
 
-  subscribeTicks(symbol: string, count = 100) {
+  subscribeTicks(symbol: string, count = 900) {
     const symbolChanged = symbol !== this.symbol;
     this.symbol = symbol;
     this.historyCount = count;

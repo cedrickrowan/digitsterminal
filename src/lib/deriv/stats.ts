@@ -146,7 +146,6 @@ export function twoTickFollowups(
 }
 
 export function tailStreak(window: number[]): { digit: number; len: number } {
-  if (window.length === 0) return { digit: -1, len: 0 };
   const d = window[window.length - 1];
   let len = 1;
   for (let i = window.length - 2; i >= 0 && window[i] === d; i--) len++;

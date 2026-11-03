@@ -17,7 +17,7 @@ export interface AppConfig {
   predictDigit: number;
   duration: number;
   stake: number;
-  lookback: 25 | 50 | 100;
+  lookback: number; // any multiple of 3, 3..900 (see snapLookback)
   latencyOffsetMs: number;
   mode: Mode;
   market: Market;
@@ -53,7 +53,7 @@ export const DEFAULT_CONFIG: AppConfig = {
   predictDigit: 5,
   duration: 1,
   stake: 1,
-  lookback: 50,
+  lookback: 30,
   latencyOffsetMs: 1000,
   mode: "simulated",
   market: "matches",
