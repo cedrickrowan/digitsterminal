@@ -1,6 +1,9 @@
 import { memo } from "react";
 import type { AppConfig, Market, Mode, RuleToggles } from "@/lib/deriv/types";
 import { SYMBOLS } from "@/lib/deriv/types";
+import { snapLookback } from "@/lib/deriv/storage";
+
+const LOOKBACK_PRESETS = [3, 30, 60, 90, 150, 300, 600, 900];
 
 interface Props {
   cfg: AppConfig;
@@ -17,7 +20,7 @@ const RULE_META: { key: keyof RuleToggles; label: string; field?: keyof AppConfi
   { key: "markov", label: "Markov% >", field: "triggerMarkovAbove", suffix: "%" },
   { key: "streak", label: "Streak ≥", field: "triggerStreak" },
   { key: "prob", label: "Freq% <", field: "triggerProbBelow", suffix: "%" },
-  { key: "sequence", label: "2-tick% >", field: "triggerSequenceAbove", suffix: "%" },
+  { key: "sequence", label: "Follow-D% >", field: "triggerSequenceAbove", suffix: "%" },
   { key: "cold", label: "Cold P% <", field: "triggerColdProbBelow", suffix: "%" },
   { key: "deviation", label: "|Δ from 10%| >", field: "triggerDeviationPct", suffix: "%" },
 ];
@@ -66,16 +69,28 @@ function ControlsImpl({ cfg, onChange, connected, onConnect, onDisconnect, armed
           </select>
         </label>
         <label className="flex flex-col gap-1">
-          <span className="text-muted-foreground">Lookback</span>
-          <select
-            className="rounded border border-input bg-background px-2 py-1.5 font-mono"
-            value={cfg.lookback}
-            onChange={(e) => onChange({ lookback: Number(e.target.value) as 25 | 50 | 100 })}
-          >
-            <option value={25}>25</option>
-            <option value={50}>50</option>
-            <option value={100}>100</option>
-          </select>
+          <span className="text-muted-foreground">Lookback (×3, 3-900)</span>
+          <div className="flex gap-1">
+            <input
+              type="number" min={3} max={900} step={3}
+              className="w-16 rounded border border-input bg-background px-2 py-1.5 font-mono"
+              value={cfg.lookback}
+              onChange={(e) => onChange({ lookback: snapLookback(Number(e.target.value)) })}
+            />
+            <select
+              className="min-w-0 flex-1 rounded border border-input bg-background px-1 py-1.5 font-mono"
+              value={LOOKBACK_PRESETS.includes(cfg.lookback) ? cfg.lookback : ""}
+              onChange={(e) => {
+                const v = Number(e.target.value);
+                if (v) onChange({ lookback: v });
+              }}
+            >
+              <option value="">more…</option>
+              {LOOKBACK_PRESETS.map((v) => (
+                <option key={v} value={v}>{v}</option>
+              ))}
+            </select>
+          </div>
         </label>
         <label className="flex flex-col gap-1">
           <span className="text-muted-foreground">

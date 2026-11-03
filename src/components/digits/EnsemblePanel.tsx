@@ -1,8 +1,12 @@
 import { memo } from "react";
+import type { EngineResult } from "@/lib/deriv/navigator";
 import type { Ensemble } from "@/lib/deriv/stats";
 import type { Market } from "@/lib/deriv/types";
 
 interface Props {
+  /** Navigator output — the single mathematical engine state every panel reads. */
+  nav: EngineResult | null;
+  /** Legacy Bayesian ensemble, only used while the navigator buffer is seeding. */
   ensemble: Ensemble;
   market: Market;
   barrier: number;
@@ -10,8 +14,8 @@ interface Props {
   pHigh: number;
   rise: { up: number; down: number };
   safe: boolean;
-  countdownMs: number;
-  purchaseInMs: number; // suggested buy lead = countdownMs - latencyOffset
+  /** ms elapsed since the last navigator READY alert (0 when none pending). */
+  alertElapsedMs: number;
 }
 
 function Bar({ label, value, side }: { label: string; value: number; side: "left" | "right" }) {
@@ -30,37 +34,79 @@ function Bar({ label, value, side }: { label: string; value: number; side: "left
   );
 }
 
-function directionFor(p: Props): { side: string; conf: number; tone: "cyan" | "magenta" } {
+/** Unified decision view — matches the navigator's horizon math for the
+ *  selected market and duration D. Falls back to the legacy Bayesian fusion
+ *  only while the navigator buffer is still seeding. */
+function decisionFor(p: Props): { side: string; conf: number; tone: "cyan" | "magenta"; source: "navigator" | "legacy" } {
+  const nav = p.nav;
+  if (nav) {
+    if (p.market === "overunder" && nav.overUnder) {
+      const b = nav.overUnder;
+      return b.rec === "UNDER"
+        ? { side: `UNDER ${b.barrier}`, conf: b.pUnder, tone: "magenta", source: "navigator" }
+        : { side: `OVER ${b.barrier}`, conf: b.pOver, tone: "cyan", source: "navigator" };
+    }
+    if (p.market === "evenodd" && nav.evenOdd) {
+      const b = nav.evenOdd;
+      return b.rec === "ODD"
+        ? { side: "ODD", conf: b.pOdd, tone: "magenta", source: "navigator" }
+        : { side: "EVEN", conf: b.pEven, tone: "cyan", source: "navigator" };
+    }
+    if (p.market === "risefall" && nav.riseFall) {
+      const b = nav.riseFall;
+      return b.rec === "FALL"
+        ? { side: "FALL", conf: b.pFall, tone: "magenta", source: "navigator" }
+        : { side: "RISE", conf: b.pRise, tone: "cyan", source: "navigator" };
+    }
+    // Matches — exact DP horizon probabilities.
+    const d = nav.digits[nav.topTargetDigit] ?? nav.digits[0];
+    return { side: `MATCH ${nav.topTargetDigit}`, conf: d?.multiHitProb ?? nav.multiHitProb, tone: "cyan", source: "navigator" };
+  }
+  // Legacy fallback (navigator still seeding).
   switch (p.market) {
     case "overunder": {
       const pOver = 1 - p.ensemble.posterior.slice(0, p.barrier + 1).reduce((a, b) => a + b, 0);
       return pOver >= 0.5
-        ? { side: `OVER ${p.barrier}`, conf: pOver, tone: "cyan" }
-        : { side: `UNDER ${p.barrier}`, conf: 1 - pOver, tone: "magenta" };
+        ? { side: `OVER ${p.barrier}`, conf: pOver, tone: "cyan", source: "legacy" }
+        : { side: `UNDER ${p.barrier}`, conf: 1 - pOver, tone: "magenta", source: "legacy" };
     }
     case "evenodd":
       return p.pEven >= 0.5
-        ? { side: "EVEN", conf: p.pEven, tone: "cyan" }
-        : { side: "ODD", conf: 1 - p.pEven, tone: "magenta" };
-    case "risefall":
+        ? { side: "EVEN", conf: p.pEven, tone: "cyan", source: "legacy" }
+        : { side: "ODD", conf: 1 - p.pEven, tone: "magenta", source: "legacy" };
+    case "risefall": {
+      const total = Math.max(1, p.rise.up + p.rise.down);
       return p.rise.up >= p.rise.down
-        ? { side: "RISE", conf: p.rise.up / Math.max(1, p.rise.up + p.rise.down), tone: "cyan" }
-        : { side: "FALL", conf: p.rise.down / Math.max(1, p.rise.up + p.rise.down), tone: "magenta" };
+        ? { side: "RISE", conf: p.rise.up / total, tone: "cyan", source: "legacy" }
+        : { side: "FALL", conf: p.rise.down / total, tone: "magenta", source: "legacy" };
+    }
     default:
-      return {
-        side: `MATCH ${p.ensemble.topDigit}`,
-        conf: p.ensemble.confidence,
-        tone: "cyan",
-      };
+      return { side: `MATCH ${p.ensemble.topDigit}`, conf: p.ensemble.confidence, tone: "cyan", source: "legacy" };
   }
 }
 
 function EnsemblePanelImpl(p: Props) {
-  const dir = directionFor(p);
+  const dir = decisionFor(p);
+  // Horizon probability grid: navigator landing probabilities when live.
+  const posterior: number[] = p.nav ? p.nav.digits.map((d) => d.landingProb) : p.ensemble.posterior;
+  const highlightDigit = p.nav
+    ? p.market === "matches"
+      ? p.nav.topTargetDigit
+      : p.nav.digits.reduce((a, b) => (b.landingProb > a.landingProb ? b : a), p.nav.digits[0]).digit
+    : p.ensemble.topDigit;
+
+  // Strict 700 ms navigator window — synchronized with the audio alert.
+  const cutoff = p.nav?.executionCutoffMs ?? 700;
+  const ready = p.nav?.alertDecision === "READY / MANUAL ALERT";
+  const inWindow = ready && p.alertElapsedMs > 0 && p.alertElapsedMs < cutoff;
+  const remaining = Math.max(0, cutoff - p.alertElapsedMs);
+
   return (
     <div className="relative overflow-hidden rounded-lg border border-cyan/40 bg-gradient-to-b from-card to-background px-3 py-3 shadow-[0_0_24px_-8px_var(--color-cyan)]">
       <div className="mb-2 flex items-center justify-between">
-        <span className="text-[10px] uppercase tracking-widest text-cyan">Ensemble · Bayesian fusion</span>
+        <span className="text-[10px] uppercase tracking-widest text-cyan">
+          Unified decision · D={p.nav?.selectedDuration ?? "—"}
+        </span>
         <span
           className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${
             p.safe
@@ -85,7 +131,7 @@ function EnsemblePanelImpl(p: Props) {
           }}
         >
           <span className="absolute inset-0 animate-ping rounded-xl border border-current opacity-30" />
-          <span className={`font-mono text-2xl font-bold ${dir.tone === "cyan" ? "text-cyan" : "text-magenta"}`}>
+          <span className={`font-mono text-center text-lg font-bold leading-tight ${dir.tone === "cyan" ? "text-cyan" : "text-magenta"}`}>
             {dir.side}
           </span>
         </div>
@@ -109,35 +155,35 @@ function EnsemblePanelImpl(p: Props) {
             />
           </div>
           <div className="flex justify-between text-[10px] text-muted-foreground">
-            <span>Next tick in</span>
-            <span className="font-mono tabular-nums text-foreground">{Math.max(0, p.countdownMs)}ms</span>
-          </div>
-          <div className="flex justify-between text-[10px] text-muted-foreground">
-            <span>Buy now if ≤</span>
+            <span>{ready ? "700ms entry window" : "Alert state"}</span>
             <span
               className={`font-mono tabular-nums ${
-                p.purchaseInMs <= 0 ? "text-warning" : "text-cyan"
+                inWindow ? "text-success font-bold" : ready ? "text-danger" : "text-muted-foreground"
               }`}
             >
-              {p.purchaseInMs <= 0 ? "TOO LATE" : `${p.purchaseInMs}ms`}
+              {inWindow ? `SAFE / BUY NOW · ${remaining}ms` : ready ? "TOO LATE / ABORT" : "HOLD"}
             </span>
+          </div>
+          <div className="flex justify-between text-[10px] text-muted-foreground">
+            <span>Engine</span>
+            <span className="font-mono">{dir.source === "navigator" ? "navigator exact DP" : "legacy fusion (seeding)"}</span>
           </div>
         </div>
       </div>
 
       <div className="mt-3 grid grid-cols-10 gap-0.5">
-        {p.ensemble.posterior.map((q, i) => (
+        {posterior.map((q, i) => (
           <div
             key={i}
             className={`flex flex-col items-center rounded-sm border py-1 text-[10px] ${
-              i === p.ensemble.topDigit ? "border-cyan" : "border-border"
+              i === highlightDigit ? "border-cyan" : "border-border"
             }`}
             style={{
               backgroundColor: `color-mix(in oklab, var(--color-cyan) ${Math.min(70, q * 220)}%, transparent)`,
             }}
           >
             <span className="font-mono font-semibold leading-none">{i}</span>
-            <span className="font-mono tabular-nums">{Math.round(q * 100)}</span>
+            <span className="font-mono tabular-nums">{(q * 100).toFixed(1)}</span>
           </div>
         ))}
       </div>

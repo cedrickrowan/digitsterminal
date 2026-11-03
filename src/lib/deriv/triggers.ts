@@ -7,8 +7,8 @@ import {
   frequencies,
   gapsSinceLast,
   markov1,
+  sequenceFollowups,
   tailStreak,
-  twoTickFollowups,
 } from "./stats";
 
 export interface RuleContext {
@@ -63,14 +63,14 @@ export function evaluateRules({ window, cfg }: RuleContext): RuleHit[] {
     }
   }
 
-  if (cfg.rules.sequence && window.length >= 2) {
-    const a = window[window.length - 2];
-    const b = window[window.length - 1];
-    const { probs, total } = twoTickFollowups(window, a, b);
+  if (cfg.rules.sequence && window.length >= 1) {
+    const horizon = Math.max(1, cfg.duration);
+    const pattern = window.slice(-Math.min(horizon, window.length));
+    const { probs, total, pattern: prefix } = sequenceFollowups(window, pattern, horizon);
     if (total >= 3 && probs[cfg.predictDigit] * 100 > cfg.triggerSequenceAbove) {
       hits.push({
         rule: "sequence",
-        detail: `[${a}→${b}]→${cfg.predictDigit} ${(probs[cfg.predictDigit] * 100).toFixed(0)}%`,
+        detail: `[${prefix.join("")}]→+${horizon} ${(probs[cfg.predictDigit] * 100).toFixed(0)}%`,
       });
     }
   }

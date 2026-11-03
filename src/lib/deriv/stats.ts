@@ -145,6 +145,39 @@ export function twoTickFollowups(
   return { counts, total, probs };
 }
 
+// Empirical D-tick sequence follow-up: given the trailing `pattern` digits
+// (the last D observations, or as many as exist), tally which digit appears
+// D ticks after each historical occurrence of that pattern. This replaces the
+// hard-coded 2-tick bigram follow-up so the horizon matches the selected
+// contract duration D.
+export function sequenceFollowups(
+  window: number[],
+  pattern: number[],
+  d: number,
+): { counts: number[]; total: number; probs: number[]; pattern: number[] } {
+  const counts = new Array(10).fill(0);
+  let total = 0;
+  const plen = Math.min(pattern.length, window.length);
+  const prefix = plen > 0 ? pattern.slice(-plen) : [];
+  if (plen === 0 || d < 1) return { counts, total, probs: counts.map(() => 0), pattern: prefix };
+  const offset = plen - 1 + d; // index of the digit D ticks after the pattern
+  for (let i = 0; i + offset < window.length; i++) {
+    let match = true;
+    for (let k = 0; k < plen; k++) {
+      if (window[i + k] !== prefix[k]) {
+        match = false;
+        break;
+      }
+    }
+    if (match) {
+      counts[window[i + offset]]++;
+      total++;
+    }
+  }
+  const probs = counts.map((c) => (total ? c / total : 0));
+  return { counts, total, probs, pattern: prefix };
+}
+
 export function tailStreak(window: number[]): { digit: number; len: number } {
   if (window.length === 0) return { digit: -1, len: 0 };
   const d = window[window.length - 1];

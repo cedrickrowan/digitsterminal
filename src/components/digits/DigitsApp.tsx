@@ -22,7 +22,7 @@ import {
   shannonEntropy,
   splitStats,
   topNgrams,
-  twoTickFollowups,
+  sequenceFollowups,
 } from "@/lib/deriv/stats";
 // eslint-disable-next-line @typescript-eslint/no-duplicate-imports
 import { allRulesAgree, enabledRuleCount, evaluateRules } from "@/lib/deriv/triggers";
@@ -58,10 +58,12 @@ import { EngineLog } from "./EngineLog";
 import { PreArrivalPanel } from "./PreArrivalPanel";
 import { NavigatorPanel } from "./NavigatorPanel";
 import { ScannerPanel, type ScanRow } from "./ScannerPanel";
+import { DigitBadges } from "./DigitBadges";
+import { SessionScorecard } from "./SessionScorecard";
 import type { EngineResult } from "@/lib/deriv/navigator";
 
 
-const MAX_BUFFER = 500;
+const MAX_BUFFER = 900;
 
 export default function DigitsApp() {
   const [cfg, setCfg] = useState<AppConfig>(() => loadConfig());
@@ -220,10 +222,13 @@ export default function DigitsApp() {
         setNavResult(nav);
         const ready = nav?.alertDecision === "READY / MANUAL ALERT";
         if (ready && !navWasReadyRef.current) {
-          // New READY alert: start the 700 ms human-response window + audio lock.
+          // New READY alert: start the strict 700 ms human-response window,
+          // synchronized audio + visual flash for the whole window.
           navReadyAtRef.current = performance.now();
           navWasReadyRef.current = true;
           beep(1200, 260);
+          setFlash(true);
+          window.setTimeout(() => setFlash(false), Math.max(0, (nav?.executionCutoffMs ?? 700) - (performance.now() - navReadyAtRef.current)));
           setSignals((prev) => [
             ...prev.slice(-40),
             {
@@ -232,6 +237,7 @@ export default function DigitsApp() {
               reason: `NAV READY · ${nav!.marketAction || `digit ${nav!.topTargetDigit}`} · edge ${(nav!.marketEdge * 100).toFixed(1)}%`,
               predicted: nav!.topTargetDigit,
               market: cfgRef.current.market,
+              expected: nav!.marketRecProb,
               mode: cfgRef.current.mode,
             },
           ]);
@@ -336,6 +342,7 @@ export default function DigitsApp() {
       reason,
       predicted: cfgNow.predictDigit,
       market: cfgNow.market,
+      expected: confRef.current,
       mode: cfgNow.mode,
     };
 
@@ -475,7 +482,7 @@ export default function DigitsApp() {
           });
           // hard resubscribe so the server sends fresh state instead of us
           // replaying whatever the socket buffered.
-          clientRef.current?.subscribeTicks(cfgRef.current.symbol, 100);
+          clientRef.current?.subscribeTicks(cfgRef.current.symbol, 900);
           return;
         }
         // Cadence-aware: 1s indices ≈1000ms, plain indices ≈2000ms.
@@ -582,7 +589,7 @@ export default function DigitsApp() {
   useEffect(() => {
     if (!connected || !clientRef.current) return;
     resetAnalysis();
-    clientRef.current.subscribeTicks(cfg.symbol, 100);
+    clientRef.current.subscribeTicks(cfg.symbol, 900);
   }, [cfg.symbol, connected, resetAnalysis]);
 
   const tickKey = totalTicksRef.current;
@@ -600,10 +607,11 @@ export default function DigitsApp() {
     const gaps = gapsSinceLast(win);
     let coldDigit = 0;
     for (let i = 1; i < 10; i++) if (gaps[i] > gaps[coldDigit]) coldDigit = i;
-    const followPrefix: [number, number] | null =
-      buf.length >= 2 ? [buf[buf.length - 2], buf[buf.length - 1]] : null;
+    const followHorizon = Math.max(1, cfg.duration);
+    const followPrefix: number[] | null =
+      buf.length >= 1 ? buf.slice(-Math.min(followHorizon, buf.length)) : null;
     const follow = followPrefix
-      ? twoTickFollowups(win, followPrefix[0], followPrefix[1])
+      ? sequenceFollowups(win, followPrefix, followHorizon)
       : { probs: new Array(10).fill(0), total: 0, counts: [] };
     const mk = markov1(win);
     const split = splitStats(win);
@@ -703,11 +711,8 @@ export default function DigitsApp() {
   const safe = pingMs > 0 && pingMs < pingLimit && lastGapNow <= gapBudgetNow;
 
   // Expected next-tick countdown (median inter-tick gap minus elapsed)
-  const tickInterval = cadenceOf(cfg.symbol, gapsRef.current!.median());
   const pip = clientRef.current?.getPipSize() ?? decimalsForSymbol(cfg.symbol);
   const serverTime = new Date(Date.now() + driftMs).toISOString().slice(11, 19);
-  const countdownMs = Math.round(Math.max(0, tickInterval - lastGapNow));
-  const purchaseInMs = countdownMs - cfg.latencyOffsetMs;
   // Navigator 700 ms human-response window (numeric countdown, no progress bar)
   const navReady = navResult?.alertDecision === "READY / MANUAL ALERT";
   const navElapsed = navReady && navReadyAtRef.current > 0 ? performance.now() - navReadyAtRef.current : 0;
@@ -864,6 +869,7 @@ export default function DigitsApp() {
           </div>
         </div>
         <EnsemblePanel
+          nav={navResult}
           ensemble={derived.ens}
           market={cfg.market}
           barrier={cfg.barrier}
@@ -871,8 +877,7 @@ export default function DigitsApp() {
           pHigh={derived.split.pHigh}
           rise={{ up: derived.rf.up, down: derived.rf.down }}
           safe={safe}
-          countdownMs={countdownMs}
-          purchaseInMs={purchaseInMs}
+          alertElapsedMs={navElapsed}
         />
         {(() => {
           const isMatches = cfg.market === "matches";
@@ -912,15 +917,14 @@ export default function DigitsApp() {
         />
         <ScannerPanel rows={scanRows} scanning={scanning} market={cfg.market} onScan={runScan} />
         <DigitGrid freq={derived.freq} total={derived.win.length} predict={cfg.predictDigit} />
+        <DigitBadges freq={derived.freq} total={derived.win.length} lastDigit={lastDigit} />
 
         <SplitPanel
-          pEven={derived.split.pEven}
-          pHigh={derived.split.pHigh}
+          nav={navResult}
+          fallback={{ pEven: derived.split.pEven, pHigh: derived.split.pHigh, riseUp: derived.rf.up, riseDown: derived.rf.down }}
           hot={derived.hc.hot}
           cold={derived.hc.cold}
           hotFreq={derived.hc.freq}
-          riseUp={derived.rf.up}
-          riseDown={derived.rf.down}
         />
         <RecentTicks digits={buf} />
         <MarkovMatrix matrix={derived.mk} lastDigit={lastDigit} predict={context.topDigit} />
@@ -944,6 +948,7 @@ export default function DigitsApp() {
           followPrefix={derived.followPrefix}
           followProbs={derived.follow.probs}
           followTotal={derived.follow.total}
+          followHorizon={Math.max(1, cfg.duration)}
         />
         <Controls
           cfg={cfg}
@@ -955,6 +960,7 @@ export default function DigitsApp() {
           onToggleArm={() => setArmed((a) => !a)}
         />
         <SignalsLog signals={signals} />
+        <SessionScorecard signals={signals} />
         <EngineLog
           entries={engineLog}
           coreSpeedMs={engineReport?.coreSpeedMs ?? 0}

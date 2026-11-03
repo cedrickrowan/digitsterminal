@@ -217,15 +217,15 @@ export class DigitsEngine {
   private cusumAcc: number = 0;
 
   constructor(bufferSize: number = NAV_BUFFER_SIZE) {
-    const size = Math.round(clamp(bufferSize, 21, 200));
+    const size = Math.round(clamp(bufferSize, 3, 900));
     this.bufferSize = size;
     this.buffer = new Uint8Array(size);
-    // Diagnostic windows scale with the buffer so a 25-tick lookback behaves
-    // like a proportionally scaled 100-tick window.
-    this.microWindow = clamp(Math.round(size * 0.2), 10, 20); // 25→10, 50→10, 100→20
-    this.tailWindow = clamp(Math.round(size * 0.15), 6, 15); // 25→6, 50→8, 100→15
+    // Diagnostic windows scale with the buffer so any lookback size behaves
+    // like a proportionally scaled window (floors keep tiny buffers usable).
+    this.microWindow = clamp(Math.round(size * 0.2), 3, 20); // 25→5, 50→10, 100→20, 900→20
+    this.tailWindow = clamp(Math.round(size * 0.15), 3, 15); // 25→4, 50→8, 100→15
     this.recentWindow = size <= 25 ? 3 : 4; // immediate-repeat watch
-    this.countWindow = clamp(Math.round(size * 0.12), 6, 12); // 25→6, 50→12, 100→12
+    this.countWindow = clamp(Math.round(size * 0.12), 3, 12); // 25→3, 50→6, 100→12
   }
 
   get capacity(): number {
