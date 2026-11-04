@@ -19,6 +19,8 @@ export function loadConfig(): AppConfig {
       ...parsed,
       lookback: snapLookback(Number(parsed.lookback ?? DEFAULT_CONFIG.lookback)),
       rules: { ...DEFAULT_CONFIG.rules, ...(parsed.rules ?? {}) },
+      navRules: { ...DEFAULT_CONFIG.navRules, ...(parsed.navRules ?? {}) },
+      navThresholds: { ...DEFAULT_CONFIG.navThresholds, ...(parsed.navThresholds ?? {}) },
     };
   } catch {
     return DEFAULT_CONFIG;
