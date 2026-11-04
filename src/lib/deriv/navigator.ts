@@ -862,8 +862,9 @@ export class DigitsEngine {
     }
 
     // 10. Advisory risk engine (blueprint §8) — display-only, never executes.
-    //     Kelly: f* = (b·p − q) / b with p = top-pick multi-hit probability.
-    const pWin = digitMetrics[topPick].multiHitProb;
+    //     Kelly: f* = (b·p − q) / b with p = the alert target's multi-hit
+    //     probability (the digit the alert actually points at).
+    const pWin = tm.multiHitProb;
     const qLose = 1 - pWin;
     const kellyFraction = Math.max(0, (NAV_KELLY_ODDS * pWin - qLose) / NAV_KELLY_ODDS);
     //     Gambler's Ruin: P = 1 − (1 − (1−p)^n)^m over a n-tick drought, m units.
@@ -904,6 +905,10 @@ export class DigitsEngine {
       marketEdge,
       marketScore,
       marketRecProb,
+      navTargetDigit: targetDigit,
+      navTargetFresh: targetFresh,
+      navRulesEnabled,
+      navRuleHits,
       executionCutoffMs: NAV_EXECUTION_CUTOFF_MS,
       rttMs: Number.isFinite(actualRtt) ? actualRtt : 0,
       pingThresholdMs,
