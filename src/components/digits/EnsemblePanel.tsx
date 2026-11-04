@@ -58,9 +58,11 @@ function decisionFor(p: Props): { side: string; conf: number; tone: "cyan" | "ma
         ? { side: "FALL", conf: b.pFall, tone: "magenta", source: "navigator" }
         : { side: "RISE", conf: b.pRise, tone: "cyan", source: "navigator" };
     }
-    // Matches — exact DP horizon probabilities.
-    const d = nav.digits[nav.topTargetDigit] ?? nav.digits[0];
-    return { side: `MATCH ${nav.topTargetDigit}`, conf: d?.multiHitProb ?? nav.multiHitProb, tone: "cyan", source: "navigator" };
+    // Matches — exact DP horizon probabilities for the USER-SELECTED digit
+    // (the same digit the navigator alerts target, not an engine top-pick).
+    const tIdx = nav.navTargetDigit ?? nav.topTargetDigit;
+    const d = nav.digits[tIdx] ?? nav.digits[0];
+    return { side: `MATCH ${tIdx}`, conf: d?.multiHitProb ?? nav.multiHitProb, tone: "cyan", source: "navigator" };
   }
   // Legacy fallback (navigator still seeding).
   switch (p.market) {
@@ -91,7 +93,7 @@ function EnsemblePanelImpl(p: Props) {
   const posterior: number[] = p.nav ? p.nav.digits.map((d) => d.landingProb) : p.ensemble.posterior;
   const highlightDigit = p.nav
     ? p.market === "matches"
-      ? p.nav.topTargetDigit
+      ? p.nav.navTargetDigit
       : p.nav.digits.reduce((a, b) => (b.landingProb > a.landingProb ? b : a), p.nav.digits[0]).digit
     : p.ensemble.topDigit;
 
