@@ -13,6 +13,10 @@ interface Props {
   size: number;
   market: Market;
   barrier: number;
+  /** Live "Next tick in" countdown (ms until the next expected tick arrival). */
+  nextTickInMs: number;
+  /** "Buy now if ≤" lead window: countdown minus the latency offset; ≤0 → TOO LATE. */
+  purchaseInMs: number;
 }
 
 function pct(x: number): string {
@@ -178,7 +182,7 @@ function DirectionView({ b, duration }: { b: DirectionBlock; duration: number })
   );
 }
 
-function NavigatorPanelImpl({ result, alertElapsedMs, waiting, filled, size, market, barrier }: Props) {
+function NavigatorPanelImpl({ result, alertElapsedMs, waiting, filled, size, market, barrier, nextTickInMs, purchaseInMs }: Props) {
   const ready = result?.alertDecision === "READY / MANUAL ALERT";
   const inWindow = ready && alertElapsedMs <= (result?.executionCutoffMs ?? 700);
   const remaining = Math.max(0, (result?.executionCutoffMs ?? 700) - alertElapsedMs);
@@ -221,8 +225,21 @@ function NavigatorPanelImpl({ result, alertElapsedMs, waiting, filled, size, mar
               )}
             </div>
             {ready && (
-              <div className="font-mono text-[9px] text-muted-foreground">
-                {inWindow ? `SAFE / BUY NOW · ${result.executionCutoffMs}ms window` : "window expired"}
+              <div className="font-mono text-[9px]">
+                <div className="text-muted-foreground">
+                  {inWindow ? `SAFE / BUY NOW · ${result.executionCutoffMs}ms window` : "window expired"}
+                </div>
+                <div className="flex justify-between gap-2">
+                  <span>
+                    Next tick in <span className="text-foreground">{Math.max(0, nextTickInMs)}ms</span>
+                  </span>
+                  <span>
+                    Buy now if ≤{" "}
+                    <span className={purchaseInMs <= 0 ? "text-warning" : "text-foreground"}>
+                      {purchaseInMs <= 0 ? "TOO LATE" : `${Math.max(0, purchaseInMs)}ms`}
+                    </span>
+                  </span>
+                </div>
               </div>
             )}
           </div>
