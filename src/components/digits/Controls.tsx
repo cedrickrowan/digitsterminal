@@ -45,6 +45,15 @@ function ControlsImpl({ cfg, onChange, connected, onConnect, onDisconnect, armed
   const setRule = (k: keyof RuleToggles, v: boolean) =>
     onChange({ rules: { ...cfg.rules, [k]: v } });
 
+  const setNavRule = (k: keyof NavRuleToggles, v: boolean) =>
+    onChange({ navRules: { ...cfg.navRules, [k]: v } });
+
+  const setNavThreshold = (k: keyof NavThresholds, v: number) => {
+    const next = { ...cfg.navThresholds } as unknown as Record<string, number>;
+    next[k] = v;
+    onChange({ navThresholds: next as NavThresholds });
+  };
+
   return (
     <div className="space-y-2 rounded-lg border border-border bg-card px-3 py-2 text-xs">
       <div className="flex gap-1">
@@ -208,9 +217,7 @@ function ControlsImpl({ cfg, onChange, connected, onConnect, onDisconnect, armed
               <input
                 type="checkbox"
                 checked={cfg.navRules[r.key]}
-                onChange={(e) =>
-                  onChange({ navRules: { ...cfg.navRules, [r.key]: e.target.checked } })
-                }
+                onChange={(e) => setNavRule(r.key, e.target.checked)}
               />
               <span className="w-32 text-muted-foreground">{r.label}</span>
               {r.thr && (
@@ -221,9 +228,7 @@ function ControlsImpl({ cfg, onChange, connected, onConnect, onDisconnect, armed
                   max={100}
                   className="w-20 rounded border border-input bg-background px-2 py-1 font-mono"
                   value={cfg.navThresholds[r.thr]}
-                  onChange={(e) =>
-                    onChange({ navThresholds: { ...cfg.navThresholds, [r.thr]: Number(e.target.value) } })
-                  }
+                  onChange={(e) => setNavThreshold(r.thr!, Number(e.target.value))}
                 />
               )}
               {r.suffix && <span className="text-muted-foreground">{r.suffix}</span>}

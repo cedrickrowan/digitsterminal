@@ -2,7 +2,7 @@
 // Covers: strict AND over enabled rules, configurable thresholds (>= semantics),
 // alerts targeting the user-selected digit (never an autonomous top-pick),
 // the fixed ping gates (<350ms 1s / <500ms plain), and the no-rules fallback.
-import { DigitsEngine } from "./navigator";
+import { DigitsEngine, type EngineResult } from "./navigator";
 import type { NavRuleToggles, NavThresholds } from "./types";
 
 let failures = 0;
@@ -81,7 +81,7 @@ const r1sUnsafe = run(0, { ...allOff, multiHit: true }, { ...thr, multiHitPct: M
 check("1s index: 400ms RTT fails the 350ms gate", r1sUnsafe.pingThresholdMs === 350 && !r1sUnsafe.latencyGatePassed && r1sUnsafe.alertDecision === "HOLD / UNSAFE LATENCY");
 const rPlainOk = run(0, { ...allOff, multiHit: true }, { ...thr, multiHitPct: Math.max(0, Math.floor(p0 * 100)) }, "R_100", 400);
 check("plain index: 400ms RTT passes the 500ms gate", rPlainOk.pingThresholdMs === 500 && rPlainOk.latencyGatePassed && rPlainOk.alertDecision === "READY / MANUAL ALERT");
-const rNoRtt = run(0, { ...allOff, multiHit: true }, thr, "R_100", undefined as unknown as number);
+const rNoRtt = run(0, { ...allOff, multiHit: true }, thr, "R_100", NaN);
 check("missing RTT fails closed", !rNoRtt.latencyGatePassed && rNoRtt.alertDecision === "HOLD / UNSAFE LATENCY");
 
 if (failures > 0) {
