@@ -268,8 +268,8 @@ export default function DigitsApp() {
             {
               id: Date.now() + Math.random(),
               ts: Date.now(),
-              reason: `NAV READY · ${nav!.marketAction || `digit ${nav!.topTargetDigit}`} · edge ${(nav!.marketEdge * 100).toFixed(1)}%`,
-              predicted: nav!.topTargetDigit,
+              reason: `NAV READY · digit ${nav!.navTargetDigit} · rules ${nav!.navRulesEnabled ? "AND-met" : "default floor"} · edge ${(nav!.marketEdge * 100).toFixed(1)}%`,
+              predicted: nav!.navTargetDigit,
               market: cfgRef.current.market,
               expected: nav!.marketRecProb,
               mode: cfgRef.current.mode,
@@ -295,6 +295,7 @@ export default function DigitsApp() {
       workerRef.current = null;
       tickStreamRef.current = null;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Notify the worker when the user changes lookback: the analysis ring AND
