@@ -9,7 +9,7 @@
 
 import { DigitEngine, type EngineReport } from "./engine";
 import { DigitsEngine, NAV_BUFFER_SIZE, type EngineResult } from "./navigator";
-import type { AppConfig, Market, NavRuleToggles, NavRuleThresholds } from "./types";
+import type { AppConfig, Market, NavRuleToggles, NavThresholds } from "./types";
 
 type InMsg =
   | { type: "init"; lookback: number; seed: number[] }
@@ -31,7 +31,7 @@ type InMsg =
       rttMs: number;
       predictDigit?: number;
       navRules?: NavRuleToggles;
-      navThresholds?: NavRuleThresholds;
+      navThresholds?: NavThresholds;
     };
 
 type OutMsg =

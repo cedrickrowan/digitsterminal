@@ -22,7 +22,7 @@
 //
 // STRICTLY ANALYSIS ONLY — this engine never purchases or trades.
 
-import type { Market, NavRuleToggles, NavRuleThresholds } from "./types";
+import type { Market, NavRuleToggles, NavThresholds } from "./types";
 
 export interface EngineTickInput {
   price: number;
@@ -44,7 +44,7 @@ export interface EngineTickInput {
   /** Navigator trigger rule toggles (strict AND for Matches alerts). */
   navRules?: NavRuleToggles;
   /** Navigator trigger rule percent thresholds. */
-  navThresholds?: NavRuleThresholds;
+  navThresholds?: NavThresholds;
 }
 
 export interface DigitMetrics {
@@ -191,7 +191,7 @@ export const NAV_RULE_LABELS: Record<keyof NavRuleToggles, string> = {
 };
 
 /** Fallback thresholds when the caller supplies none (percent). */
-export const NAV_THRESHOLDS_DEFAULT: NavRuleThresholds = {
+export const NAV_THRESHOLDS_DEFAULT: NavThresholds = {
   multiHitPct: 7,
   pairRunPct: 3,
   landingPct: 12,
@@ -217,7 +217,7 @@ function buildNavRuleHits(
   tm: DigitMetrics,
   fresh: boolean,
   rules: NavRuleToggles | undefined,
-  thr: NavRuleThresholds | undefined,
+  thr: NavThresholds | undefined,
   parity: ParityBlock | null,
   ou: OverUnderBlock | null,
 ): NavRuleHit[] {

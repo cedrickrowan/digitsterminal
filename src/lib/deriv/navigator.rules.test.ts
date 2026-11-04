@@ -25,9 +25,9 @@ const prices = digits.map((_, i) => 1000 + i * 0.01);
 const allOff: NavRuleToggles = { multiHit: false, pairRun: false, landing: false, freshness: false, parity: false, barrier: false };
 const thr: NavThresholds = { multiHitPct: 7, pairRunPct: 3, landingPct: 12, parityPct: 55, barrierPct: 55 };
 
-function run(target: number, rules: NavRuleToggles, thresholds = thr, symbol = "R_100", rtt = 100) {
+function run(target: number, rules: NavRuleToggles, thresholds = thr, symbol = "R_100", rtt = 100): EngineResult {
   const eng = new DigitsEngine(25);
-  return eng.evaluateSnapshot(digits, prices, {
+  const r = eng.evaluateSnapshot(digits, prices, {
     price: prices[prices.length - 1],
     pip: 2,
     epoch: 0,
@@ -40,6 +40,8 @@ function run(target: number, rules: NavRuleToggles, thresholds = thr, symbol = "
     navRules: rules,
     navThresholds: thresholds,
   });
+  if (!r) throw new Error("engine returned null");
+  return r;
 }
 
 console.log("Digits Navigator trigger rules");
