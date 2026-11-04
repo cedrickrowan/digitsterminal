@@ -394,32 +394,9 @@ export default function DigitsApp() {
     const networkUnsafe = median >= pingLimitFor(cfgNow.symbol) || lastGap > gapBudget;
 
     if (cfgNow.mode === "alert") {
-      // Precision execution scheduler: aim the audible fire at
-      // (expected next tick) − (ping + drift + configured lag buffer),
-      // using performance.now() so we're immune to wall-clock jitter.
-      const now = performance.now();
-      const interval = cadenceOf(cfgNow.symbol, gapsRef.current!.median());
-      const sinceLast = lastArrivalRef.current ? now - lastArrivalRef.current : 0;
-      const nextTickIn = Math.max(0, interval - sinceLast);
-      const ping = median;
-      const drift = Math.abs(driftMsRef.current);
-      const lag = cfgNow.latencyOffsetMs;
-      const target = now + Math.max(0, nextTickIn - ping - drift - lag);
-      nextFireAtRef.current = target;
-      if (fireTimerRef.current !== null) clearTimeout(fireTimerRef.current);
-      fireTimerRef.current = window.setTimeout(() => {
-        const actual = performance.now();
-        const variance = actual - target;
-        beep();
-        setFlash(true);
-        setTimeout(() => setFlash(false), 180);
-        setExecDiag((prev) => {
-          const line = `fire · Δ${variance >= 0 ? "+" : ""}${variance.toFixed(1)}ms · ping ${ping.toFixed(0)} · drift ${drift.toFixed(0)} · lag ${lag}`;
-          const next = prev.length >= 30 ? prev.slice(-29) : prev.slice();
-          next.push(line);
-          return next;
-        });
-      }, Math.max(0, target - now));
+      // Single shared lead-up scheduler: one audible fire aimed at
+      // (expected next tick) − (ping + drift + configured lag buffer).
+      scheduleLeadUpFire();
       pushSignal(sig);
       return;
     }
