@@ -22,7 +22,7 @@
 //
 // STRICTLY ANALYSIS ONLY — this engine never purchases or trades.
 
-import type { Market } from "./types";
+import type { Market, NavRuleToggles, NavRuleThresholds } from "./types";
 
 export interface EngineTickInput {
   price: number;
@@ -38,6 +38,13 @@ export interface EngineTickInput {
   market?: Market;
   /** Barrier for the Over/Under engine (0..8). */
   barrier?: number;
+  /** User-selected prediction digit (Matches target) — alerts target this
+   *  digit instead of an autonomous engine top-pick. */
+  predictDigit?: number;
+  /** Navigator trigger rule toggles (strict AND for Matches alerts). */
+  navRules?: NavRuleToggles;
+  /** Navigator trigger rule percent thresholds. */
+  navThresholds?: NavRuleThresholds;
 }
 
 export interface DigitMetrics {
@@ -145,7 +152,14 @@ export interface EngineResult {
     | "READY / MANUAL ALERT"
     | "HOLD / NO SIGNAL"
     | "HOLD / UNSAFE LATENCY"
-    | "HOLD / DEAD ZONE";
+    | "HOLD / DEAD ZONE"
+    | "HOLD / RULES NOT MET";
+
+  /** Navigator trigger-rule evaluation for the user-selected digit. */
+  navTargetDigit: number;
+  navTargetFresh: boolean;
+  navRulesEnabled: boolean;
+  navRuleHits: NavRuleHit[];
 
   // Advisory risk (display-only — never executes)
   kellyFraction: number;
@@ -165,6 +179,116 @@ export const NAV_KELLY_ODDS = 9;
 /** Gambler's-ruin drought horizon (ticks without a hit) and bankroll units. */
 export const NAV_RUIN_DROUGHT_TICKS = 10;
 export const NAV_RUIN_BANKROLL_UNITS = 20;
+
+/** Display labels for the six Navigator trigger rules. */
+export const NAV_RULE_LABELS: Record<keyof NavRuleToggles, string> = {
+  multiHit: "Multi-hit ≥2 (D)",
+  pairRun: "Pair/Run (d,d)",
+  landing: "Landing t+D",
+  freshness: "Fresh (anti-tired)",
+  parity: "Parity confluence",
+  barrier: "O/U confluence",
+};
+
+/** Fallback thresholds when the caller supplies none (percent). */
+export const NAV_THRESHOLDS_DEFAULT: NavRuleThresholds = {
+  multiHitPct: 7,
+  pairRunPct: 3,
+  landingPct: 12,
+  parityPct: 55,
+  barrierPct: 55,
+};
+
+/** One Navigator trigger-rule evaluation line for the UI checklist. */
+export interface NavRuleHit {
+  rule: keyof NavRuleToggles;
+  label: string;
+  enabled: boolean;
+  pass: boolean;
+  detail: string;
+}
+
+const pctOf = (x: number) => `${(x * 100).toFixed(2)}%`;
+
+/** Evaluate the six Navigator trigger rules against the user-selected digit's
+ *  exact DP outputs. Disabled rules are reported but never block. */
+function buildNavRuleHits(
+  target: number,
+  tm: DigitMetrics,
+  fresh: boolean,
+  rules: NavRuleToggles | undefined,
+  thr: NavRuleThresholds | undefined,
+  parity: ParityBlock | null,
+  ou: OverUnderBlock | null,
+): NavRuleHit[] {
+  const t = thr ?? NAV_THRESHOLDS_DEFAULT;
+  const on = (k: keyof NavRuleToggles) => !!rules?.[k];
+  const hits: NavRuleHit[] = [
+    {
+      rule: "multiHit",
+      label: NAV_RULE_LABELS.multiHit,
+      enabled: on("multiHit"),
+      pass: tm.multiHitProb >= t.multiHitPct / 100,
+      detail: `≥2 hits ${pctOf(tm.multiHitProb)} ≥ ${t.multiHitPct}%`,
+    },
+    {
+      rule: "pairRun",
+      label: NAV_RULE_LABELS.pairRun,
+      enabled: on("pairRun"),
+      pass: tm.pairProb >= t.pairRunPct / 100,
+      detail: `pair ${pctOf(tm.pairProb)} ≥ ${t.pairRunPct}%`,
+    },
+    {
+      rule: "landing",
+      label: NAV_RULE_LABELS.landing,
+      enabled: on("landing"),
+      pass: tm.landingProb >= t.landingPct / 100,
+      detail: `t+D ${pctOf(tm.landingProb)} ≥ ${t.landingPct}%`,
+    },
+    {
+      rule: "freshness",
+      label: NAV_RULE_LABELS.freshness,
+      enabled: on("freshness"),
+      pass: fresh,
+      detail: fresh ? "FRESH · anti-tired ok" : "TIRED · suppressed",
+    },
+  ];
+  // Parity confluence: the target digit's parity must lead the M^D horizon.
+  const even = target % 2 === 0;
+  const pPar = parity ? (even ? parity.pEven : parity.pOdd) : 0;
+  hits.push({
+    rule: "parity",
+    label: NAV_RULE_LABELS.parity,
+    enabled: on("parity"),
+    pass: !!parity && pPar >= t.parityPct / 100,
+    detail: parity
+      ? `P(${even ? "EVEN" : "ODD"}) ${pctOf(pPar)} ≥ ${t.parityPct}%`
+      : "no parity block",
+  });
+  // Over/Under barrier confluence: the digit's side relative to the barrier
+  // must lead, outside the 10% dead zone, above the configured probability.
+  let barrierPass = false;
+  let barrierDetail = "no O/U block";
+  if (ou) {
+    if (target === ou.barrier) barrierDetail = `digit = barrier ${ou.barrier} · tie zone`;
+    else if (ou.deadZone) barrierDetail = `dead zone P(tie) ${pctOf(ou.pTie)} ≥ 10%`;
+    else if (target > ou.barrier) {
+      barrierPass = ou.rec === "OVER" && ou.pOver >= t.barrierPct / 100;
+      barrierDetail = `OVER ${pctOf(ou.pOver)} ≥ ${t.barrierPct}%`;
+    } else {
+      barrierPass = ou.rec === "UNDER" && ou.pUnder >= t.barrierPct / 100;
+      barrierDetail = `UNDER ${pctOf(ou.pUnder)} ≥ ${t.barrierPct}%`;
+    }
+  }
+  hits.push({
+    rule: "barrier",
+    label: NAV_RULE_LABELS.barrier,
+    enabled: on("barrier"),
+    pass: barrierPass,
+    detail: barrierDetail,
+  });
+  return hits;
+}
 
 const clamp = (x: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, x));
 
