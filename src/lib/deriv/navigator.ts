@@ -822,15 +822,35 @@ export class DigitsEngine {
       marketScore = marketEdge;
     }
 
+    // 8d. Navigator trigger rules — evaluated for the USER-SELECTED digit
+    //     (Matches alerts target cfg.predictDigit, never an autonomous
+    //     top-pick). All enabled rules must pass (strict AND).
+    const targetDigit = clamp(Math.round(input.predictDigit ?? 0), 0, 9);
+    const tm = digitMetrics[targetDigit];
+    const targetFresh = freshPool.includes(targetDigit);
+    const navRulesEnabled = !!input.navRules && Object.values(input.navRules).some(Boolean);
+    const navRuleHits = buildNavRuleHits(
+      targetDigit,
+      tm,
+      targetFresh,
+      input.navRules,
+      input.navThresholds,
+      evenOdd,
+      overUnder,
+    );
+    const matchesReady = navRulesEnabled
+      ? navRuleHits.every((h) => !h.enabled || h.pass)
+      : tm.multiHitProb >= NAV_MULTI_HIT_FLOOR && targetFresh;
+
     // 9. Alert decision — dual ping gates + market-aware probability floors.
     //    Manual-only: the engine never purchases; the UI rings a 700 ms
     //    human-response countdown.
-    const passesFloor = digitMetrics[topPick].multiHitProb >= NAV_MULTI_HIT_FLOOR;
     let alertDecision: EngineResult["alertDecision"] = "HOLD / NO SIGNAL";
     if (!pingOk) {
       alertDecision = "HOLD / UNSAFE LATENCY";
     } else if (market === "matches") {
-      if (passesFloor && freshPool.includes(topPick)) alertDecision = "READY / MANUAL ALERT";
+      if (matchesReady) alertDecision = "READY / MANUAL ALERT";
+      else if (navRulesEnabled) alertDecision = "HOLD / RULES NOT MET";
     } else if (market === "overunder") {
       if (overUnder?.deadZone) alertDecision = "HOLD / DEAD ZONE";
       else if (overUnder && overUnder.rec !== "HOLD" && marketEdge >= NAV_EDGE_FLOOR)
