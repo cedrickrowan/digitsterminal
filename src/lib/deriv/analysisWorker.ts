@@ -9,7 +9,7 @@
 
 import { DigitEngine, type EngineReport } from "./engine";
 import { DigitsEngine, NAV_BUFFER_SIZE, type EngineResult } from "./navigator";
-import type { AppConfig, Market } from "./types";
+import type { AppConfig, Market, NavRuleToggles, NavRuleThresholds } from "./types";
 
 type InMsg =
   | { type: "init"; lookback: number; seed: number[] }
@@ -29,6 +29,9 @@ type InMsg =
       market: Market;
       barrier: number;
       rttMs: number;
+      predictDigit?: number;
+      navRules?: NavRuleToggles;
+      navThresholds?: NavRuleThresholds;
     };
 
 type OutMsg =
@@ -100,6 +103,9 @@ self.onmessage = (e: MessageEvent<InMsg>) => {
           rttMs: msg.rttMs,
           market: msg.market,
           barrier: msg.barrier,
+          predictDigit: msg.predictDigit,
+          navRules: msg.navRules,
+          navThresholds: msg.navThresholds,
         });
       }
       post({ type: "scanResult", id: msg.id, symbol: msg.symbol, rttMs: msg.rttMs, result });
@@ -123,6 +129,9 @@ self.onmessage = (e: MessageEvent<InMsg>) => {
         digit: msg.digit,
         market: msg.cfg.market,
         barrier: msg.cfg.barrier,
+        predictDigit: msg.cfg.predictDigit,
+        navRules: msg.cfg.navRules,
+        navThresholds: msg.cfg.navThresholds,
       });
       if (navResult) {
         post({ type: "nav", result: navResult });
