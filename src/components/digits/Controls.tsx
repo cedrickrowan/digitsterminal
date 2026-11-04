@@ -51,7 +51,7 @@ function ControlsImpl({ cfg, onChange, connected, onConnect, onDisconnect, armed
   const setNavThreshold = (k: keyof NavThresholds, v: number) => {
     const next = { ...cfg.navThresholds } as unknown as Record<string, number>;
     next[k] = v;
-    onChange({ navThresholds: next as NavThresholds });
+    onChange({ navThresholds: next as unknown as NavThresholds });
   };
 
   return (
