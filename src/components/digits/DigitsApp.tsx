@@ -155,6 +155,39 @@ export default function DigitsApp() {
     return () => clearInterval(id);
   }, []);
 
+  /** SINGLE legacy lead-up scheduler — the only place an audible fire is
+   *  scheduled. Target = next expected tick arrival − (ping + drift +
+   *  configured latency offset), on performance.now() so wall-clock jitter
+   *  can't skew it. One pending fire at a time: re-arming clears the old
+   *  timer, so a navigator READY and a legacy trigger can never double-beep. */
+  const scheduleLeadUpFire = useCallback(() => {
+    const cfgNow = cfgRef.current;
+    const now = performance.now();
+    const interval = cadenceOf(cfgNow.symbol, gapsRef.current!.median());
+    const sinceLast = lastArrivalRef.current ? now - lastArrivalRef.current : 0;
+    const nextTickIn = Math.max(0, interval - sinceLast);
+    const ping = medianOf(pingMedianRef.current);
+    const drift = Math.abs(driftMsRef.current);
+    const lag = cfgNow.latencyOffsetMs;
+    const target = now + Math.max(0, nextTickIn - ping - drift - lag);
+    nextFireAtRef.current = target;
+    if (fireTimerRef.current !== null) clearTimeout(fireTimerRef.current);
+    fireTimerRef.current = window.setTimeout(() => {
+      fireTimerRef.current = null;
+      const actual = performance.now();
+      const variance = actual - target;
+      beep();
+      setFlash(true);
+      setTimeout(() => setFlash(false), 180);
+      setExecDiag((prev) => {
+        const line = `fire · Δ${variance >= 0 ? "+" : ""}${variance.toFixed(1)}ms · ping ${ping.toFixed(0)} · drift ${drift.toFixed(0)} · lag ${lag}`;
+        const next = prev.length >= 30 ? prev.slice(-29) : prev.slice();
+        next.push(line);
+        return next;
+      });
+    }, Math.max(0, target - now));
+  }, []);
+
   // Spin up the analysis Web Worker + RxJS tick stream once. The worker owns
   // the FIFO ring buffer, higher-order Markov, entropy-decay and time-seed
   // math so the mobile UI thread stays free.
@@ -223,10 +256,11 @@ export default function DigitsApp() {
         const ready = nav?.alertDecision === "READY / MANUAL ALERT";
         if (ready && !navWasReadyRef.current) {
           // New READY alert: start the strict 700 ms human-response window,
-          // synchronized audio + visual flash for the whole window.
+          // visual flash for the whole window + the SINGLE lead-up beep
+          // scheduled at next tick arrival − ping − drift − latency offset.
           navReadyAtRef.current = performance.now();
           navWasReadyRef.current = true;
-          beep(1200, 260);
+          scheduleLeadUpFire();
           setFlash(true);
           window.setTimeout(() => setFlash(false), Math.max(0, (nav?.executionCutoffMs ?? 700) - (performance.now() - navReadyAtRef.current)));
           setSignals((prev) => [
