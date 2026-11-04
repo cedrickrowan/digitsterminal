@@ -155,6 +155,39 @@ export default function DigitsApp() {
     return () => clearInterval(id);
   }, []);
 
+  /** SINGLE legacy lead-up scheduler — the only place an audible fire is
+   *  scheduled. Target = next expected tick arrival − (ping + drift +
+   *  configured latency offset), on performance.now() so wall-clock jitter
+   *  can't skew it. One pending fire at a time: re-arming clears the old
+   *  timer, so a navigator READY and a legacy trigger can never double-beep. */
+  const scheduleLeadUpFire = useCallback(() => {
+    const cfgNow = cfgRef.current;
+    const now = performance.now();
+    const interval = cadenceOf(cfgNow.symbol, gapsRef.current!.median());
+    const sinceLast = lastArrivalRef.current ? now - lastArrivalRef.current : 0;
+    const nextTickIn = Math.max(0, interval - sinceLast);
+    const ping = medianOf(pingMedianRef.current);
+    const drift = Math.abs(driftMsRef.current);
+    const lag = cfgNow.latencyOffsetMs;
+    const target = now + Math.max(0, nextTickIn - ping - drift - lag);
+    nextFireAtRef.current = target;
+    if (fireTimerRef.current !== null) clearTimeout(fireTimerRef.current);
+    fireTimerRef.current = window.setTimeout(() => {
+      fireTimerRef.current = null;
+      const actual = performance.now();
+      const variance = actual - target;
+      beep();
+      setFlash(true);
+      setTimeout(() => setFlash(false), 180);
+      setExecDiag((prev) => {
+        const line = `fire · Δ${variance >= 0 ? "+" : ""}${variance.toFixed(1)}ms · ping ${ping.toFixed(0)} · drift ${drift.toFixed(0)} · lag ${lag}`;
+        const next = prev.length >= 30 ? prev.slice(-29) : prev.slice();
+        next.push(line);
+        return next;
+      });
+    }, Math.max(0, target - now));
+  }, []);
+
   // Spin up the analysis Web Worker + RxJS tick stream once. The worker owns
   // the FIFO ring buffer, higher-order Markov, entropy-decay and time-seed
   // math so the mobile UI thread stays free.
@@ -223,10 +256,11 @@ export default function DigitsApp() {
         const ready = nav?.alertDecision === "READY / MANUAL ALERT";
         if (ready && !navWasReadyRef.current) {
           // New READY alert: start the strict 700 ms human-response window,
-          // synchronized audio + visual flash for the whole window.
+          // visual flash for the whole window + the SINGLE lead-up beep
+          // scheduled at next tick arrival − ping − drift − latency offset.
           navReadyAtRef.current = performance.now();
           navWasReadyRef.current = true;
-          beep(1200, 260);
+          scheduleLeadUpFire();
           setFlash(true);
           window.setTimeout(() => setFlash(false), Math.max(0, (nav?.executionCutoffMs ?? 700) - (performance.now() - navReadyAtRef.current)));
           setSignals((prev) => [
@@ -234,8 +268,8 @@ export default function DigitsApp() {
             {
               id: Date.now() + Math.random(),
               ts: Date.now(),
-              reason: `NAV READY · ${nav!.marketAction || `digit ${nav!.topTargetDigit}`} · edge ${(nav!.marketEdge * 100).toFixed(1)}%`,
-              predicted: nav!.topTargetDigit,
+              reason: `NAV READY · digit ${nav!.navTargetDigit} · rules ${nav!.navRulesEnabled ? "AND-met" : "default floor"} · edge ${(nav!.marketEdge * 100).toFixed(1)}%`,
+              predicted: nav!.navTargetDigit,
               market: cfgRef.current.market,
               expected: nav!.marketRecProb,
               mode: cfgRef.current.mode,
@@ -261,6 +295,7 @@ export default function DigitsApp() {
       workerRef.current = null;
       tickStreamRef.current = null;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Notify the worker when the user changes lookback: the analysis ring AND
@@ -359,32 +394,9 @@ export default function DigitsApp() {
     const networkUnsafe = median >= pingLimitFor(cfgNow.symbol) || lastGap > gapBudget;
 
     if (cfgNow.mode === "alert") {
-      // Precision execution scheduler: aim the audible fire at
-      // (expected next tick) − (ping + drift + configured lag buffer),
-      // using performance.now() so we're immune to wall-clock jitter.
-      const now = performance.now();
-      const interval = cadenceOf(cfgNow.symbol, gapsRef.current!.median());
-      const sinceLast = lastArrivalRef.current ? now - lastArrivalRef.current : 0;
-      const nextTickIn = Math.max(0, interval - sinceLast);
-      const ping = median;
-      const drift = Math.abs(driftMsRef.current);
-      const lag = cfgNow.latencyOffsetMs;
-      const target = now + Math.max(0, nextTickIn - ping - drift - lag);
-      nextFireAtRef.current = target;
-      if (fireTimerRef.current !== null) clearTimeout(fireTimerRef.current);
-      fireTimerRef.current = window.setTimeout(() => {
-        const actual = performance.now();
-        const variance = actual - target;
-        beep();
-        setFlash(true);
-        setTimeout(() => setFlash(false), 180);
-        setExecDiag((prev) => {
-          const line = `fire · Δ${variance >= 0 ? "+" : ""}${variance.toFixed(1)}ms · ping ${ping.toFixed(0)} · drift ${drift.toFixed(0)} · lag ${lag}`;
-          const next = prev.length >= 30 ? prev.slice(-29) : prev.slice();
-          next.push(line);
-          return next;
-        });
-      }, Math.max(0, target - now));
+      // Single shared lead-up scheduler: one audible fire aimed at
+      // (expected next tick) − (ping + drift + configured lag buffer).
+      scheduleLeadUpFire();
       pushSignal(sig);
       return;
     }
@@ -404,7 +416,7 @@ export default function DigitsApp() {
     setOpenEntry({ price: entryPrice, tick: totalTicksRef.current });
     setMatched(false);
     pushSignal({ ...sig, entryPrice, entryTick: totalTicksRef.current });
-  }, [pushSignal]);
+  }, [pushSignal, scheduleLeadUpFire]);
 
   const resolveSims = useCallback((latestDigit: number) => {
     const idx = totalTicksRef.current;
@@ -713,6 +725,11 @@ export default function DigitsApp() {
   // Expected next-tick countdown (median inter-tick gap minus elapsed)
   const pip = clientRef.current?.getPipSize() ?? decimalsForSymbol(cfg.symbol);
   const serverTime = new Date(Date.now() + driftMs).toISOString().slice(11, 19);
+  // Live "Next tick in" / "Buy now if ≤" countdown (restored): the lead window
+  // closes latencyOffsetMs before the next expected tick — TOO LATE past that.
+  const tickInterval = cadenceOf(cfg.symbol, gapsRef.current!.median());
+  const countdownMs = Math.round(Math.max(0, tickInterval - lastGapNow));
+  const purchaseInMs = countdownMs - cfg.latencyOffsetMs;
   // Navigator 700 ms human-response window (numeric countdown, no progress bar)
   const navReady = navResult?.alertDecision === "READY / MANUAL ALERT";
   const navElapsed = navReady && navReadyAtRef.current > 0 ? performance.now() - navReadyAtRef.current : 0;
@@ -757,6 +774,9 @@ export default function DigitsApp() {
         market: cfgNow.market,
         barrier: cfgNow.barrier,
         rttMs: f.rttMs,
+        predictDigit: cfgNow.predictDigit,
+        navRules: cfgNow.navRules,
+        navThresholds: cfgNow.navThresholds,
       });
     });
     if (scanPendingRef.current === 0) {
@@ -914,6 +934,8 @@ export default function DigitsApp() {
           size={navStatus.size}
           market={cfg.market}
           barrier={cfg.barrier}
+          nextTickInMs={countdownMs}
+          purchaseInMs={purchaseInMs}
         />
         <ScannerPanel rows={scanRows} scanning={scanning} market={cfg.market} onScan={runScan} />
         <DigitGrid freq={derived.freq} total={derived.win.length} predict={cfg.predictDigit} />

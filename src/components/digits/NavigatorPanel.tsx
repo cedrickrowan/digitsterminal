@@ -13,6 +13,10 @@ interface Props {
   size: number;
   market: Market;
   barrier: number;
+  /** Live "Next tick in" countdown (ms until the next expected tick arrival). */
+  nextTickInMs: number;
+  /** "Buy now if ≤" lead window: countdown minus the latency offset; ≤0 → TOO LATE. */
+  purchaseInMs: number;
 }
 
 function pct(x: number): string {
@@ -178,7 +182,7 @@ function DirectionView({ b, duration }: { b: DirectionBlock; duration: number })
   );
 }
 
-function NavigatorPanelImpl({ result, alertElapsedMs, waiting, filled, size, market, barrier }: Props) {
+function NavigatorPanelImpl({ result, alertElapsedMs, waiting, filled, size, market, barrier, nextTickInMs, purchaseInMs }: Props) {
   const ready = result?.alertDecision === "READY / MANUAL ALERT";
   const inWindow = ready && alertElapsedMs <= (result?.executionCutoffMs ?? 700);
   const remaining = Math.max(0, (result?.executionCutoffMs ?? 700) - alertElapsedMs);
@@ -221,8 +225,21 @@ function NavigatorPanelImpl({ result, alertElapsedMs, waiting, filled, size, mar
               )}
             </div>
             {ready && (
-              <div className="font-mono text-[9px] text-muted-foreground">
-                {inWindow ? `SAFE / BUY NOW · ${result.executionCutoffMs}ms window` : "window expired"}
+              <div className="font-mono text-[9px]">
+                <div className="text-muted-foreground">
+                  {inWindow ? `SAFE / BUY NOW · ${result.executionCutoffMs}ms window` : "window expired"}
+                </div>
+                <div className="flex justify-between gap-2">
+                  <span>
+                    Next tick in <span className="text-foreground">{Math.max(0, nextTickInMs)}ms</span>
+                  </span>
+                  <span>
+                    Buy now if ≤{" "}
+                    <span className={purchaseInMs <= 0 ? "text-warning" : "text-foreground"}>
+                      {purchaseInMs <= 0 ? "TOO LATE" : `${Math.max(0, purchaseInMs)}ms`}
+                    </span>
+                  </span>
+                </div>
               </div>
             )}
           </div>
@@ -231,22 +248,44 @@ function NavigatorPanelImpl({ result, alertElapsedMs, waiting, filled, size, mar
             <>
               <div className="mb-2 flex items-center gap-3">
                 <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full border-2 border-primary bg-primary/10 font-mono text-2xl font-extrabold tabular-nums text-primary">
-                  {result.topTargetDigit}
+                  {result.navTargetDigit}
                 </div>
                 <div className="grid flex-1 grid-cols-2 gap-x-3 font-mono text-[10px] tabular-nums">
                   <span className="text-muted-foreground">multi-hit ≥2</span>
-                  <span className="text-right font-bold">{pct(result.multiHitProb)}</span>
+                  <span className="text-right font-bold">{pct(result.digits[result.navTargetDigit]?.multiHitProb ?? 0)}</span>
                   <span className="text-muted-foreground">landing t+{result.selectedDuration}</span>
-                  <span className="text-right">{pct(result.topTargetProb)}</span>
+                  <span className="text-right">{pct(result.digits[result.navTargetDigit]?.landingProb ?? 0)}</span>
                   <span className="text-muted-foreground">consecutive D</span>
-                  <span className="text-right">{pct(result.consecProb)}</span>
+                  <span className="text-right">{pct(result.digits[result.navTargetDigit]?.consecProb ?? 0)}</span>
                   <span className="text-muted-foreground">adj pair</span>
-                  <span className="text-right">{pct(result.pairProb)}</span>
+                  <span className="text-right">{pct(result.digits[result.navTargetDigit]?.pairProb ?? 0)}</span>
                   <span className="text-muted-foreground">adj triple</span>
-                  <span className="text-right">{pct(result.tripleProb)}</span>
+                  <span className="text-right">{pct(result.digits[result.navTargetDigit]?.tripleProb ?? 0)}</span>
                   <span className="text-muted-foreground">≥3 hits</span>
-                  <span className="text-right">{pct(result.threeHitProb)}</span>
+                  <span className="text-right">{pct(result.digits[result.navTargetDigit]?.threeHitProb ?? 0)}</span>
                 </div>
+              </div>
+              {/* Navigator trigger rules — strict AND over the selected digit */}
+              <div className="mb-2 rounded border border-border px-2 py-1.5">
+                <div className="mb-1 text-[9px] uppercase tracking-widest text-muted-foreground">
+                  Trigger rules · strict AND{result.navRulesEnabled ? "" : " · none on → default floor"}
+                </div>
+                <div className="grid grid-cols-1 gap-0.5">
+                  {result.navRuleHits.map((h) => (
+                    <div
+                      key={h.rule}
+                      className={`flex items-center justify-between gap-2 font-mono text-[9px] ${h.enabled ? "" : "opacity-40"}`}
+                    >
+                      <span className={h.enabled ? (h.pass ? "text-success" : "text-danger") : "text-muted-foreground"}>
+                        {h.enabled ? (h.pass ? "✓" : "✗") : "·"} {h.label}
+                      </span>
+                      <span className="truncate text-muted-foreground">{h.detail}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div className="mb-1 text-center font-mono text-[9px] text-muted-foreground">
+                engine pick {result.topTargetDigit} · {pct(result.topTargetProb)} landing
               </div>
               <div className="mb-2 grid grid-cols-2 gap-2">
                 <Pool label="Fresh pool" digits={result.freshPool} tone="fresh" />

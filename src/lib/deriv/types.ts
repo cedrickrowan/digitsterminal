@@ -12,6 +12,32 @@ export interface RuleToggles {
   ensemble: boolean;
 }
 
+/** Digits Navigator trigger rules (Matches) — strict AND when enabled. */
+export interface NavRuleToggles {
+  /** Exact P(≥2 hits of the target digit in the D-tick horizon) above threshold. */
+  multiHit: boolean;
+  /** Exact P(≥1 adjacent pair d,d inside the horizon) above threshold. */
+  pairRun: boolean;
+  /** Exact P(landing on the target digit at tick t+D) above threshold. */
+  landing: boolean;
+  /** Anti-tired suppression: the target digit must sit in the fresh pool. */
+  freshness: boolean;
+  /** Parity confluence: the horizon parity of the target digit leads via M^D. */
+  parity: boolean;
+  /** Over/Under barrier confluence: the target digit's side leads and the
+   *  barrier tie is outside the 10% dead zone. */
+  barrier: boolean;
+}
+
+/** Percent thresholds for the Navigator trigger rules. */
+export interface NavThresholds {
+  multiHitPct: number;
+  pairRunPct: number;
+  landingPct: number;
+  parityPct: number;
+  barrierPct: number;
+}
+
 export interface AppConfig {
   symbol: string;
   predictDigit: number;
@@ -32,6 +58,8 @@ export interface AppConfig {
   safePingMs: number; // execution safety: max ping
   safeGapMs: number; // execution safety: max inter-tick gap
   rules: RuleToggles;
+  navRules: NavRuleToggles;
+  navThresholds: NavThresholds;
 }
 
 export interface Signal {
@@ -77,6 +105,23 @@ export const DEFAULT_CONFIG: AppConfig = {
     cold: false,
     deviation: false,
     ensemble: true,
+  },
+  // Navigator rule defaults mirror the previous engine behaviour: exact
+  // multi-hit ≥ 7% density floor + freshness (anti-tired) suppression.
+  navRules: {
+    multiHit: true,
+    pairRun: false,
+    landing: false,
+    freshness: true,
+    parity: false,
+    barrier: false,
+  },
+  navThresholds: {
+    multiHitPct: 7,
+    pairRunPct: 3,
+    landingPct: 12,
+    parityPct: 55,
+    barrierPct: 55,
   },
 };
 

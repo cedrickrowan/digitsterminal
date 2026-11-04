@@ -22,7 +22,7 @@
 //
 // STRICTLY ANALYSIS ONLY — this engine never purchases or trades.
 
-import type { Market } from "./types";
+import type { Market, NavRuleToggles, NavThresholds } from "./types";
 
 export interface EngineTickInput {
   price: number;
@@ -38,6 +38,13 @@ export interface EngineTickInput {
   market?: Market;
   /** Barrier for the Over/Under engine (0..8). */
   barrier?: number;
+  /** User-selected prediction digit (Matches target) — alerts target this
+   *  digit instead of an autonomous engine top-pick. */
+  predictDigit?: number;
+  /** Navigator trigger rule toggles (strict AND for Matches alerts). */
+  navRules?: NavRuleToggles;
+  /** Navigator trigger rule percent thresholds. */
+  navThresholds?: NavThresholds;
 }
 
 export interface DigitMetrics {
@@ -145,7 +152,14 @@ export interface EngineResult {
     | "READY / MANUAL ALERT"
     | "HOLD / NO SIGNAL"
     | "HOLD / UNSAFE LATENCY"
-    | "HOLD / DEAD ZONE";
+    | "HOLD / DEAD ZONE"
+    | "HOLD / RULES NOT MET";
+
+  /** Navigator trigger-rule evaluation for the user-selected digit. */
+  navTargetDigit: number;
+  navTargetFresh: boolean;
+  navRulesEnabled: boolean;
+  navRuleHits: NavRuleHit[];
 
   // Advisory risk (display-only — never executes)
   kellyFraction: number;
@@ -165,6 +179,116 @@ export const NAV_KELLY_ODDS = 9;
 /** Gambler's-ruin drought horizon (ticks without a hit) and bankroll units. */
 export const NAV_RUIN_DROUGHT_TICKS = 10;
 export const NAV_RUIN_BANKROLL_UNITS = 20;
+
+/** Display labels for the six Navigator trigger rules. */
+export const NAV_RULE_LABELS: Record<keyof NavRuleToggles, string> = {
+  multiHit: "Multi-hit ≥2 (D)",
+  pairRun: "Pair/Run (d,d)",
+  landing: "Landing t+D",
+  freshness: "Fresh (anti-tired)",
+  parity: "Parity confluence",
+  barrier: "O/U confluence",
+};
+
+/** Fallback thresholds when the caller supplies none (percent). */
+export const NAV_THRESHOLDS_DEFAULT: NavThresholds = {
+  multiHitPct: 7,
+  pairRunPct: 3,
+  landingPct: 12,
+  parityPct: 55,
+  barrierPct: 55,
+};
+
+/** One Navigator trigger-rule evaluation line for the UI checklist. */
+export interface NavRuleHit {
+  rule: keyof NavRuleToggles;
+  label: string;
+  enabled: boolean;
+  pass: boolean;
+  detail: string;
+}
+
+const pctOf = (x: number) => `${(x * 100).toFixed(2)}%`;
+
+/** Evaluate the six Navigator trigger rules against the user-selected digit's
+ *  exact DP outputs. Disabled rules are reported but never block. */
+function buildNavRuleHits(
+  target: number,
+  tm: DigitMetrics,
+  fresh: boolean,
+  rules: NavRuleToggles | undefined,
+  thr: NavThresholds | undefined,
+  parity: ParityBlock | null,
+  ou: OverUnderBlock | null,
+): NavRuleHit[] {
+  const t = thr ?? NAV_THRESHOLDS_DEFAULT;
+  const on = (k: keyof NavRuleToggles) => !!rules?.[k];
+  const hits: NavRuleHit[] = [
+    {
+      rule: "multiHit",
+      label: NAV_RULE_LABELS.multiHit,
+      enabled: on("multiHit"),
+      pass: tm.multiHitProb >= t.multiHitPct / 100,
+      detail: `≥2 hits ${pctOf(tm.multiHitProb)} ≥ ${t.multiHitPct}%`,
+    },
+    {
+      rule: "pairRun",
+      label: NAV_RULE_LABELS.pairRun,
+      enabled: on("pairRun"),
+      pass: tm.pairProb >= t.pairRunPct / 100,
+      detail: `pair ${pctOf(tm.pairProb)} ≥ ${t.pairRunPct}%`,
+    },
+    {
+      rule: "landing",
+      label: NAV_RULE_LABELS.landing,
+      enabled: on("landing"),
+      pass: tm.landingProb >= t.landingPct / 100,
+      detail: `t+D ${pctOf(tm.landingProb)} ≥ ${t.landingPct}%`,
+    },
+    {
+      rule: "freshness",
+      label: NAV_RULE_LABELS.freshness,
+      enabled: on("freshness"),
+      pass: fresh,
+      detail: fresh ? "FRESH · anti-tired ok" : "TIRED · suppressed",
+    },
+  ];
+  // Parity confluence: the target digit's parity must lead the M^D horizon.
+  const even = target % 2 === 0;
+  const pPar = parity ? (even ? parity.pEven : parity.pOdd) : 0;
+  hits.push({
+    rule: "parity",
+    label: NAV_RULE_LABELS.parity,
+    enabled: on("parity"),
+    pass: !!parity && pPar >= t.parityPct / 100,
+    detail: parity
+      ? `P(${even ? "EVEN" : "ODD"}) ${pctOf(pPar)} ≥ ${t.parityPct}%`
+      : "no parity block",
+  });
+  // Over/Under barrier confluence: the digit's side relative to the barrier
+  // must lead, outside the 10% dead zone, above the configured probability.
+  let barrierPass = false;
+  let barrierDetail = "no O/U block";
+  if (ou) {
+    if (target === ou.barrier) barrierDetail = `digit = barrier ${ou.barrier} · tie zone`;
+    else if (ou.deadZone) barrierDetail = `dead zone P(tie) ${pctOf(ou.pTie)} ≥ 10%`;
+    else if (target > ou.barrier) {
+      barrierPass = ou.rec === "OVER" && ou.pOver >= t.barrierPct / 100;
+      barrierDetail = `OVER ${pctOf(ou.pOver)} ≥ ${t.barrierPct}%`;
+    } else {
+      barrierPass = ou.rec === "UNDER" && ou.pUnder >= t.barrierPct / 100;
+      barrierDetail = `UNDER ${pctOf(ou.pUnder)} ≥ ${t.barrierPct}%`;
+    }
+  }
+  hits.push({
+    rule: "barrier",
+    label: NAV_RULE_LABELS.barrier,
+    enabled: on("barrier"),
+    pass: barrierPass,
+    detail: barrierDetail,
+  });
+  return hits;
+}
 
 const clamp = (x: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, x));
 
@@ -698,15 +822,35 @@ export class DigitsEngine {
       marketScore = marketEdge;
     }
 
+    // 8d. Navigator trigger rules — evaluated for the USER-SELECTED digit
+    //     (Matches alerts target cfg.predictDigit, never an autonomous
+    //     top-pick). All enabled rules must pass (strict AND).
+    const targetDigit = clamp(Math.round(input.predictDigit ?? 0), 0, 9);
+    const tm = digitMetrics[targetDigit];
+    const targetFresh = freshPool.includes(targetDigit);
+    const navRulesEnabled = !!input.navRules && Object.values(input.navRules).some(Boolean);
+    const navRuleHits = buildNavRuleHits(
+      targetDigit,
+      tm,
+      targetFresh,
+      input.navRules,
+      input.navThresholds,
+      evenOdd,
+      overUnder,
+    );
+    const matchesReady = navRulesEnabled
+      ? navRuleHits.every((h) => !h.enabled || h.pass)
+      : tm.multiHitProb >= NAV_MULTI_HIT_FLOOR && targetFresh;
+
     // 9. Alert decision — dual ping gates + market-aware probability floors.
     //    Manual-only: the engine never purchases; the UI rings a 700 ms
     //    human-response countdown.
-    const passesFloor = digitMetrics[topPick].multiHitProb >= NAV_MULTI_HIT_FLOOR;
     let alertDecision: EngineResult["alertDecision"] = "HOLD / NO SIGNAL";
     if (!pingOk) {
       alertDecision = "HOLD / UNSAFE LATENCY";
     } else if (market === "matches") {
-      if (passesFloor && freshPool.includes(topPick)) alertDecision = "READY / MANUAL ALERT";
+      if (matchesReady) alertDecision = "READY / MANUAL ALERT";
+      else if (navRulesEnabled) alertDecision = "HOLD / RULES NOT MET";
     } else if (market === "overunder") {
       if (overUnder?.deadZone) alertDecision = "HOLD / DEAD ZONE";
       else if (overUnder && overUnder.rec !== "HOLD" && marketEdge >= NAV_EDGE_FLOOR)
@@ -718,8 +862,9 @@ export class DigitsEngine {
     }
 
     // 10. Advisory risk engine (blueprint §8) — display-only, never executes.
-    //     Kelly: f* = (b·p − q) / b with p = top-pick multi-hit probability.
-    const pWin = digitMetrics[topPick].multiHitProb;
+    //     Kelly: f* = (b·p − q) / b with p = the alert target's multi-hit
+    //     probability (the digit the alert actually points at).
+    const pWin = tm.multiHitProb;
     const qLose = 1 - pWin;
     const kellyFraction = Math.max(0, (NAV_KELLY_ODDS * pWin - qLose) / NAV_KELLY_ODDS);
     //     Gambler's Ruin: P = 1 − (1 − (1−p)^n)^m over a n-tick drought, m units.
@@ -760,6 +905,10 @@ export class DigitsEngine {
       marketEdge,
       marketScore,
       marketRecProb,
+      navTargetDigit: targetDigit,
+      navTargetFresh: targetFresh,
+      navRulesEnabled,
+      navRuleHits,
       executionCutoffMs: NAV_EXECUTION_CUTOFF_MS,
       rttMs: Number.isFinite(actualRtt) ? actualRtt : 0,
       pingThresholdMs,

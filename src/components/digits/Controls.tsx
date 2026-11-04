@@ -1,5 +1,5 @@
 import { memo } from "react";
-import type { AppConfig, Market, Mode, RuleToggles } from "@/lib/deriv/types";
+import type { AppConfig, Market, Mode, NavRuleToggles, NavThresholds, RuleToggles } from "@/lib/deriv/types";
 import { SYMBOLS } from "@/lib/deriv/types";
 import { snapLookback } from "@/lib/deriv/storage";
 
@@ -32,9 +32,27 @@ const MARKETS: { key: Market; label: string }[] = [
   { key: "risefall", label: "Rise/Fall" },
 ];
 
+const NAV_RULE_META: { key: keyof NavRuleToggles; label: string; thr?: keyof NavThresholds; suffix?: string }[] = [
+  { key: "multiHit", label: "Multi-hit ≥2 (D)", thr: "multiHitPct", suffix: "%" },
+  { key: "pairRun", label: "Pair/Run (d,d)", thr: "pairRunPct", suffix: "%" },
+  { key: "landing", label: "Landing t+D", thr: "landingPct", suffix: "%" },
+  { key: "freshness", label: "Fresh (anti-tired)" },
+  { key: "parity", label: "Parity confluence", thr: "parityPct", suffix: "%" },
+  { key: "barrier", label: "O/U confluence", thr: "barrierPct", suffix: "%" },
+];
+
 function ControlsImpl({ cfg, onChange, connected, onConnect, onDisconnect, armed, onToggleArm }: Props) {
   const setRule = (k: keyof RuleToggles, v: boolean) =>
     onChange({ rules: { ...cfg.rules, [k]: v } });
+
+  const setNavRule = (k: keyof NavRuleToggles, v: boolean) =>
+    onChange({ navRules: { ...cfg.navRules, [k]: v } });
+
+  const setNavThreshold = (k: keyof NavThresholds, v: number) => {
+    const next = { ...cfg.navThresholds } as unknown as Record<string, number>;
+    next[k] = v;
+    onChange({ navThresholds: next as unknown as NavThresholds });
+  };
 
   return (
     <div className="space-y-2 rounded-lg border border-border bg-card px-3 py-2 text-xs">
@@ -183,6 +201,34 @@ function ControlsImpl({ cfg, onChange, connected, onConnect, onDisconnect, armed
                   className="w-20 rounded border border-input bg-background px-2 py-1 font-mono"
                   value={cfg[r.field] as number}
                   onChange={(e) => onChange({ [r.field as string]: Number(e.target.value) } as Partial<AppConfig>)}
+                />
+              )}
+              {r.suffix && <span className="text-muted-foreground">{r.suffix}</span>}
+            </label>
+          ))}
+        </div>
+      </div>
+
+      <div className="border-t border-border pt-2">
+        <div className="mb-1 text-[10px] uppercase tracking-widest text-cyan">Navigator rules · Matches (strict AND)</div>
+        <div className="grid grid-cols-1 gap-1">
+          {NAV_RULE_META.map((r) => (
+            <label key={r.key} className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={cfg.navRules[r.key]}
+                onChange={(e) => setNavRule(r.key, e.target.checked)}
+              />
+              <span className="w-32 text-muted-foreground">{r.label}</span>
+              {r.thr && (
+                <input
+                  type="number"
+                  step={0.5}
+                  min={0}
+                  max={100}
+                  className="w-20 rounded border border-input bg-background px-2 py-1 font-mono"
+                  value={cfg.navThresholds[r.thr]}
+                  onChange={(e) => setNavThreshold(r.thr!, Number(e.target.value))}
                 />
               )}
               {r.suffix && <span className="text-muted-foreground">{r.suffix}</span>}
