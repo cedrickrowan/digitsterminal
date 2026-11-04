@@ -416,7 +416,7 @@ export default function DigitsApp() {
     setOpenEntry({ price: entryPrice, tick: totalTicksRef.current });
     setMatched(false);
     pushSignal({ ...sig, entryPrice, entryTick: totalTicksRef.current });
-  }, [pushSignal]);
+  }, [pushSignal, scheduleLeadUpFire]);
 
   const resolveSims = useCallback((latestDigit: number) => {
     const idx = totalTicksRef.current;
@@ -725,6 +725,11 @@ export default function DigitsApp() {
   // Expected next-tick countdown (median inter-tick gap minus elapsed)
   const pip = clientRef.current?.getPipSize() ?? decimalsForSymbol(cfg.symbol);
   const serverTime = new Date(Date.now() + driftMs).toISOString().slice(11, 19);
+  // Live "Next tick in" / "Buy now if ≤" countdown (restored): the lead window
+  // closes latencyOffsetMs before the next expected tick — TOO LATE past that.
+  const tickInterval = cadenceOf(cfg.symbol, gapsRef.current!.median());
+  const countdownMs = Math.round(Math.max(0, tickInterval - lastGapNow));
+  const purchaseInMs = countdownMs - cfg.latencyOffsetMs;
   // Navigator 700 ms human-response window (numeric countdown, no progress bar)
   const navReady = navResult?.alertDecision === "READY / MANUAL ALERT";
   const navElapsed = navReady && navReadyAtRef.current > 0 ? performance.now() - navReadyAtRef.current : 0;
@@ -769,6 +774,9 @@ export default function DigitsApp() {
         market: cfgNow.market,
         barrier: cfgNow.barrier,
         rttMs: f.rttMs,
+        predictDigit: cfgNow.predictDigit,
+        navRules: cfgNow.navRules,
+        navThresholds: cfgNow.navThresholds,
       });
     });
     if (scanPendingRef.current === 0) {
@@ -926,6 +934,8 @@ export default function DigitsApp() {
           size={navStatus.size}
           market={cfg.market}
           barrier={cfg.barrier}
+          nextTickInMs={countdownMs}
+          purchaseInMs={purchaseInMs}
         />
         <ScannerPanel rows={scanRows} scanning={scanning} market={cfg.market} onScan={runScan} />
         <DigitGrid freq={derived.freq} total={derived.win.length} predict={cfg.predictDigit} />
