@@ -961,6 +961,17 @@ export default function DigitsApp() {
           safe={safe}
           alertElapsedMs={navElapsed}
         />
+        <NavigatorPanel
+          result={navResult}
+          alertElapsedMs={navElapsed}
+          waiting={navWaiting}
+          filled={navStatus.filled}
+          size={navStatus.size}
+          market={cfg.market}
+          barrier={cfg.barrier}
+          nextTickInMs={countdownMs}
+          purchaseInMs={purchaseInMs}
+        />
         <details className="md:col-span-2 rounded-md border border-border bg-card px-3 py-2">
           <summary className="cursor-pointer list-none font-mono text-[11px] font-semibold uppercase tracking-wider text-cyan">
             ▼ ANALYTICS DETAIL
@@ -991,17 +1002,6 @@ export default function DigitsApp() {
           forecasts={context.pre.forecasts}
           physics={context.pre.physics}
           topDigit={context.pre.topDigit}
-        />
-        <NavigatorPanel
-          result={navResult}
-          alertElapsedMs={navElapsed}
-          waiting={navWaiting}
-          filled={navStatus.filled}
-          size={navStatus.size}
-          market={cfg.market}
-          barrier={cfg.barrier}
-          nextTickInMs={countdownMs}
-          purchaseInMs={purchaseInMs}
         />
         <ScannerPanel rows={scanRows} scanning={scanning} market={cfg.market} onScan={runScan} />
         <DigitGrid freq={derived.freq} total={derived.win.length} predict={cfg.predictDigit} />
