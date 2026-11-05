@@ -1,0 +1,4 @@
+- [ ] Restore legacy ENSEMBLE - BAYESIAN FUSION layout with collapsible analytics details.
+- [ ] Restore exact live countdown rows and update ticker to 30 fps.
+- [ ] Cancel pending lead-up audio on new ticks, non-READY, and TOO LATE states.
+- [ ] Verify selected-digit strict-AND alerts, fixed ping gates, 700 ms cutoff, and tests.
