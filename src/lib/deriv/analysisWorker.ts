@@ -136,6 +136,8 @@ self.onmessage = (e: MessageEvent<InMsg>) => {
       if (navResult) {
         post({ type: "nav", result: navResult });
       } else {
+        // Explicitly clear stale READY state when the navigator has no result.
+        post({ type: "nav", result: null });
         postNavStatus();
       }
       break;
