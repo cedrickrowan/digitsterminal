@@ -179,8 +179,8 @@ export default function DigitsApp() {
     const drift = Math.abs(driftMsRef.current);
     const lag = cfgNow.latencyOffsetMs;
     const target = now + Math.max(0, nextTickIn - ping - drift - lag);
-    nextFireAtRef.current = target;
     cancelLeadUpFire();
+    nextFireAtRef.current = target;
     fireTimerRef.current = window.setTimeout(() => {
       fireTimerRef.current = null;
       const currentNav = navResultRef.current;
@@ -215,7 +215,7 @@ export default function DigitsApp() {
         return next;
       });
     }, Math.max(0, target - now));
-  }, []);
+  }, [cancelLeadUpFire]);
 
   // Spin up the analysis Web Worker + RxJS tick stream once. The worker owns
   // the FIFO ring buffer, higher-order Markov, entropy-decay and time-seed
@@ -247,6 +247,13 @@ export default function DigitsApp() {
       }
       if (e.data?.type === "navStatus") {
         setNavStatus({ filled: e.data.filled ?? 0, size: e.data.size ?? 0 });
+        if ((e.data.filled ?? 0) < (e.data.size ?? 0)) {
+          cancelLeadUpFire();
+          navResultRef.current = null;
+          navWasReadyRef.current = false;
+          navReadyAtRef.current = 0;
+          setNavResult(null);
+        }
         return;
       }
       if (e.data?.type === "scanResult" && e.data.symbol) {
@@ -284,13 +291,13 @@ export default function DigitsApp() {
         navResultRef.current = nav;
         setNavResult(nav);
         const ready = nav?.alertDecision === "READY / MANUAL ALERT";
+        if (ready) scheduleLeadUpFire();
         if (ready && !navWasReadyRef.current) {
           // New READY alert: start the strict 700 ms human-response window,
           // visual flash for the whole window + the SINGLE lead-up beep
           // scheduled at next tick arrival − ping − drift − latency offset.
           navReadyAtRef.current = performance.now();
           navWasReadyRef.current = true;
-          scheduleLeadUpFire();
           setFlash(true);
           window.setTimeout(() => setFlash(false), Math.max(0, (nav?.executionCutoffMs ?? 700) - (performance.now() - navReadyAtRef.current)));
           setSignals((prev) => [
@@ -329,7 +336,7 @@ export default function DigitsApp() {
       tickStreamRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [cancelLeadUpFire, scheduleLeadUpFire]);
 
   // Notify the worker when the user changes lookback: the analysis ring AND
   // the navigator buffer both resize, and the navigator is re-seeded from the
