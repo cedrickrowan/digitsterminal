@@ -491,7 +491,10 @@ export default function DigitsApp() {
   const handleConnect = useCallback(() => {
     const client = new DerivClient({
       onOpen: () => setConnected(true),
-      onClose: () => setConnected(false),
+      onClose: () => {
+        cancelLeadUpFire();
+        setConnected(false);
+      },
       onStatus: (state, attempt, detail) => {
         setConnState(state);
         setConnDetail(detail ? `${detail}` : attempt > 0 ? `attempt ${attempt}` : "");
@@ -634,6 +637,7 @@ export default function DigitsApp() {
   useEffect(() => {
     const onVis = () => {
       if (document.visibilityState === "hidden") {
+        cancelLeadUpFire();
         hiddenSinceRef.current = performance.now();
       } else if (document.visibilityState === "visible") {
         // Keep marker set; onTick will use it to detect the wake-burst.
@@ -642,7 +646,7 @@ export default function DigitsApp() {
     };
     document.addEventListener("visibilitychange", onVis);
     return () => document.removeEventListener("visibilitychange", onVis);
-  }, [handleConnect]);
+  }, [cancelLeadUpFire, handleConnect]);
 
   // Symbol switch: wipe every statistic so the new volatility is analysed
   // from a completely fresh state (no cross-instrument contamination).
