@@ -124,6 +124,7 @@ export default function DigitsApp() {
   const scanPendingRef = useRef(0);
   const navReadyAtRef = useRef(0); // performance.now() of the last READY alert
   const navWasReadyRef = useRef(false);
+  const navResultRef = useRef<EngineResult | null>(null);
   // Execution diagnostics — post-tick timing variance vs the scheduled fire.
   const [execDiag, setExecDiag] = useState<string[]>([]);
   const nextFireAtRef = useRef<number>(0); // performance.now() target for next scheduled fire
@@ -149,10 +150,18 @@ export default function DigitsApp() {
     localStorage.setItem("cdt-theme", theme);
   }, [theme]);
 
-  // Countdown ticker @ 5fps — light, only updates a single number/bar.
+  // Countdown ticker at 30fps for smooth live timing on mobile displays.
   useEffect(() => {
-    const id = window.setInterval(() => setTick((t) => (t + 1) & 0x3fffffff), 200);
+    const id = window.setInterval(() => setTick((t) => (t + 1) & 0x3fffffff), 33);
     return () => clearInterval(id);
+  }, []);
+
+  const cancelLeadUpFire = useCallback(() => {
+    if (fireTimerRef.current !== null) {
+      window.clearTimeout(fireTimerRef.current);
+      fireTimerRef.current = null;
+    }
+    nextFireAtRef.current = 0;
   }, []);
 
   /** SINGLE legacy lead-up scheduler — the only place an audible fire is
@@ -171,9 +180,29 @@ export default function DigitsApp() {
     const lag = cfgNow.latencyOffsetMs;
     const target = now + Math.max(0, nextTickIn - ping - drift - lag);
     nextFireAtRef.current = target;
-    if (fireTimerRef.current !== null) clearTimeout(fireTimerRef.current);
+    cancelLeadUpFire();
     fireTimerRef.current = window.setTimeout(() => {
       fireTimerRef.current = null;
+      const currentNav = navResultRef.current;
+      const elapsedSinceReady = navWasReadyRef.current && navReadyAtRef.current > 0
+        ? performance.now() - navReadyAtRef.current
+        : Number.POSITIVE_INFINITY;
+      const currentInterval = cadenceOf(cfgRef.current.symbol, gapsRef.current.median());
+      const currentSinceTick = lastArrivalRef.current
+        ? performance.now() - lastArrivalRef.current
+        : currentInterval;
+      const currentBuyWindow = currentInterval - currentSinceTick - cfgRef.current.latencyOffsetMs;
+      const currentPing = medianOf(pingMedianRef.current);
+      if (
+        currentNav?.alertDecision !== "READY / MANUAL ALERT" ||
+        elapsedSinceReady >= (currentNav.executionCutoffMs ?? 700) ||
+        currentBuyWindow <= 0 ||
+        currentPing <= 0 ||
+        currentPing >= currentNav.pingThresholdMs
+      ) {
+        nextFireAtRef.current = 0;
+        return;
+      }
       const actual = performance.now();
       const variance = actual - target;
       beep();
@@ -252,6 +281,7 @@ export default function DigitsApp() {
       }
       if (e.data?.type === "nav") {
         const nav = e.data.result ?? null;
+        navResultRef.current = nav;
         setNavResult(nav);
         const ready = nav?.alertDecision === "READY / MANUAL ALERT";
         if (ready && !navWasReadyRef.current) {
@@ -276,8 +306,11 @@ export default function DigitsApp() {
             },
           ]);
         } else if (!ready && navWasReadyRef.current) {
+          cancelLeadUpFire();
           navReadyAtRef.current = 0;
           navWasReadyRef.current = false;
+        } else if (!ready) {
+          cancelLeadUpFire();
         }
       }
     };
@@ -341,13 +374,15 @@ export default function DigitsApp() {
     setNavResult(null);
     navReadyAtRef.current = 0;
     navWasReadyRef.current = false;
+    navResultRef.current = null;
+    cancelLeadUpFire();
     setOpenEntry(null);
     setMatched(false);
     setLastPrice(null);
     setStale(false);
     workerRef.current?.postMessage({ type: "reset", lookback: cfgRef.current.lookback });
     scheduleRender();
-  }, [scheduleRender]);
+  }, [cancelLeadUpFire, scheduleRender]);
 
   const evaluateAndMaybeFire = useCallback(() => {
     const cfgNow = cfgRef.current;
@@ -473,6 +508,8 @@ export default function DigitsApp() {
         // Isolation guard: a late packet from the previous volatility must
         // never enter this instrument's statistics.
         if (sym !== cfgRef.current.symbol) return;
+        // A fresh arrival invalidates a timer scheduled for the previous tick.
+        cancelLeadUpFire();
         const prev = lastArrivalRef.current;
         const gap = prev ? arrival - prev : 0;
         lastArrivalRef.current = arrival;
@@ -569,7 +606,7 @@ export default function DigitsApp() {
     clientRef.current = client;
     client.connect();
     if (token) client.setToken(token);
-  }, [evaluateAndMaybeFire, pushSignal, resolveSims, scheduleRender, token]);
+  }, [cancelLeadUpFire, evaluateAndMaybeFire, pushSignal, resolveSims, scheduleRender, token]);
 
   const handleDisconnect = useCallback(() => {
     clientRef.current?.disconnect();
@@ -733,6 +770,15 @@ export default function DigitsApp() {
   // Navigator 700 ms human-response window (numeric countdown, no progress bar)
   const navReady = navResult?.alertDecision === "READY / MANUAL ALERT";
   const navElapsed = navReady && navReadyAtRef.current > 0 ? performance.now() - navReadyAtRef.current : 0;
+  useEffect(() => {
+    if (!navReady) {
+      cancelLeadUpFire();
+      return;
+    }
+    if (navElapsed >= (navResult?.executionCutoffMs ?? 700) || purchaseInMs <= 0) {
+      cancelLeadUpFire();
+    }
+  }, [cancelLeadUpFire, navElapsed, navReady, navResult?.executionCutoffMs, purchaseInMs, tick]);
   const navWaiting = navStatus.filled < navStatus.size;
   // suppress unused-tick warning
   void tick;
@@ -893,6 +939,7 @@ export default function DigitsApp() {
           ensemble={derived.ens}
           market={cfg.market}
           barrier={cfg.barrier}
+          predictDigit={cfg.predictDigit}
           pEven={derived.split.pEven}
           pHigh={derived.split.pHigh}
           rise={{ up: derived.rf.up, down: derived.rf.down }}
