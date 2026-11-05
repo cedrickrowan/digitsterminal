@@ -184,8 +184,8 @@ function DirectionView({ b, duration }: { b: DirectionBlock; duration: number })
 
 function NavigatorPanelImpl({ result, alertElapsedMs, waiting, filled, size, market, barrier, nextTickInMs, purchaseInMs }: Props) {
   const ready = result?.alertDecision === "READY / MANUAL ALERT";
-  const inWindow = ready && alertElapsedMs <= (result?.executionCutoffMs ?? 700);
-  const remaining = Math.max(0, (result?.executionCutoffMs ?? 700) - alertElapsedMs);
+  const inWindow = ready && alertElapsedMs >= 0 && alertElapsedMs < (result?.executionCutoffMs ?? 700);
+  const remaining = Math.ceil(Math.max(0, (result?.executionCutoffMs ?? 700) - alertElapsedMs));
 
   const decisionTone = inWindow
     ? "border-success text-success bg-success/10"
@@ -228,17 +228,6 @@ function NavigatorPanelImpl({ result, alertElapsedMs, waiting, filled, size, mar
               <div className="font-mono text-[9px]">
                 <div className="text-muted-foreground">
                   {inWindow ? `SAFE / BUY NOW · ${result.executionCutoffMs}ms window` : "window expired"}
-                </div>
-                <div className="flex justify-between gap-2">
-                  <span>
-                    Next tick in <span className="text-foreground">{Math.max(0, nextTickInMs)}ms</span>
-                  </span>
-                  <span>
-                    Buy now if ≤{" "}
-                    <span className={purchaseInMs <= 0 ? "text-warning" : "text-foreground"}>
-                      {purchaseInMs <= 0 ? "TOO LATE" : `${Math.max(0, purchaseInMs)}ms`}
-                    </span>
-                  </span>
                 </div>
               </div>
             )}
@@ -335,6 +324,17 @@ function NavigatorPanelImpl({ result, alertElapsedMs, waiting, filled, size, mar
           </div>
         </>
       )}
+      <div className="mt-2 flex flex-wrap justify-between gap-x-3 gap-y-1 border-t border-border pt-2 font-mono text-[10px] tabular-nums">
+        <span>
+          Next tick in <span className="text-foreground">{Math.max(0, nextTickInMs)}ms</span>
+        </span>
+        <span>
+          Buy now if ≤{" "}
+          <span className={purchaseInMs <= 0 ? "text-danger font-bold" : "text-foreground"}>
+            {purchaseInMs <= 0 ? "TOO LATE" : `${Math.max(0, purchaseInMs)}ms`}
+          </span>
+        </span>
+      </div>
     </div>
   );
 }

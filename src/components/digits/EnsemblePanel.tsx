@@ -10,6 +10,8 @@ interface Props {
   ensemble: Ensemble;
   market: Market;
   barrier: number;
+  /** Matches always follows the user's configured target, including while seeding. */
+  predictDigit: number;
   pEven: number;
   pHigh: number;
   rise: { up: number; down: number };
@@ -82,8 +84,15 @@ function decisionFor(p: Props): { side: string; conf: number; tone: "cyan" | "ma
         ? { side: "RISE", conf: p.rise.up / total, tone: "cyan", source: "legacy" }
         : { side: "FALL", conf: p.rise.down / total, tone: "magenta", source: "legacy" };
     }
-    default:
-      return { side: `MATCH ${p.ensemble.topDigit}`, conf: p.ensemble.confidence, tone: "cyan", source: "legacy" };
+    default: {
+      const target = p.predictDigit;
+      return {
+        side: `MATCH ${target}`,
+        conf: p.ensemble.posterior[target] ?? 0,
+        tone: "cyan",
+        source: "legacy",
+      };
+    }
   }
 }
 
@@ -95,19 +104,19 @@ function EnsemblePanelImpl(p: Props) {
     ? p.market === "matches"
       ? p.nav.navTargetDigit
       : p.nav.digits.reduce((a, b) => (b.landingProb > a.landingProb ? b : a), p.nav.digits[0]).digit
-    : p.ensemble.topDigit;
+      : p.market === "matches" ? p.predictDigit : p.ensemble.topDigit;
 
   // Strict 700 ms navigator window — synchronized with the audio alert.
   const cutoff = p.nav?.executionCutoffMs ?? 700;
   const ready = p.nav?.alertDecision === "READY / MANUAL ALERT";
-  const inWindow = ready && p.alertElapsedMs > 0 && p.alertElapsedMs < cutoff;
+  const inWindow = ready && p.alertElapsedMs >= 0 && p.alertElapsedMs < cutoff;
   const remaining = Math.max(0, cutoff - p.alertElapsedMs);
 
   return (
     <div className="relative overflow-hidden rounded-lg border border-cyan/40 bg-gradient-to-b from-card to-background px-3 py-3 shadow-[0_0_24px_-8px_var(--color-cyan)]">
       <div className="mb-2 flex items-center justify-between">
         <span className="text-[10px] uppercase tracking-widest text-cyan">
-          Unified decision · D={p.nav?.selectedDuration ?? "—"}
+          ENSEMBLE - BAYESIAN FUSION · D={p.nav?.selectedDuration ?? "—"}
         </span>
         <span
           className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${
@@ -173,7 +182,7 @@ function EnsemblePanelImpl(p: Props) {
         </div>
       </div>
 
-      <div className="mt-3 grid grid-cols-10 gap-0.5">
+      <div className="mt-3 grid grid-cols-10 gap-0.5 border-t border-border pt-2">
         {posterior.map((q, i) => (
           <div
             key={i}
