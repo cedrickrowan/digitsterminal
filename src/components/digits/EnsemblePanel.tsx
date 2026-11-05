@@ -109,7 +109,7 @@ function EnsemblePanelImpl(p: Props) {
   // Strict 700 ms navigator window — synchronized with the audio alert.
   const cutoff = p.nav?.executionCutoffMs ?? 700;
   const ready = p.nav?.alertDecision === "READY / MANUAL ALERT";
-  const inWindow = ready && p.alertElapsedMs < cutoff;
+  const inWindow = ready && p.alertElapsedMs >= 0 && p.alertElapsedMs < cutoff;
   const remaining = Math.max(0, cutoff - p.alertElapsedMs);
 
   return (
