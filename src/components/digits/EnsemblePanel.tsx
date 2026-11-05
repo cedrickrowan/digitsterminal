@@ -182,27 +182,22 @@ function EnsemblePanelImpl(p: Props) {
         </div>
       </div>
 
-      <details className="mt-3 border-t border-border pt-2">
-        <summary className="cursor-pointer list-none font-mono text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-          ▼ DIGIT DISTRIBUTION
-        </summary>
-        <div className="mt-2 grid grid-cols-10 gap-0.5">
-          {posterior.map((q, i) => (
-            <div
-              key={i}
-              className={`flex flex-col items-center rounded-sm border py-1 text-[10px] ${
-                i === highlightDigit ? "border-cyan" : "border-border"
-              }`}
-              style={{
-                backgroundColor: `color-mix(in oklab, var(--color-cyan) ${Math.min(70, q * 220)}%, transparent)`,
-              }}
-            >
-              <span className="font-mono font-semibold leading-none">{i}</span>
-              <span className="font-mono tabular-nums">{(q * 100).toFixed(1)}</span>
-            </div>
-          ))}
-        </div>
-      </details>
+      <div className="mt-3 grid grid-cols-10 gap-0.5 border-t border-border pt-2">
+        {posterior.map((q, i) => (
+          <div
+            key={i}
+            className={`flex flex-col items-center rounded-sm border py-1 text-[10px] ${
+              i === highlightDigit ? "border-cyan" : "border-border"
+            }`}
+            style={{
+              backgroundColor: `color-mix(in oklab, var(--color-cyan) ${Math.min(70, q * 220)}%, transparent)`,
+            }}
+          >
+            <span className="font-mono font-semibold leading-none">{i}</span>
+            <span className="font-mono tabular-nums">{(q * 100).toFixed(1)}</span>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
