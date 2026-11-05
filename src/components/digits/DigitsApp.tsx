@@ -187,7 +187,7 @@ export default function DigitsApp() {
       const elapsedSinceReady = navWasReadyRef.current && navReadyAtRef.current > 0
         ? performance.now() - navReadyAtRef.current
         : Number.POSITIVE_INFINITY;
-      const currentInterval = cadenceOf(cfgRef.current.symbol, gapsRef.current.median());
+      const currentInterval = cadenceOf(cfgRef.current.symbol, gapsRef.current?.median() ?? 0);
       const currentSinceTick = lastArrivalRef.current
         ? performance.now() - lastArrivalRef.current
         : currentInterval;
@@ -195,6 +195,8 @@ export default function DigitsApp() {
       const currentPing = medianOf(pingMedianRef.current);
       if (
         currentNav?.alertDecision !== "READY / MANUAL ALERT" ||
+        currentNav.symbol !== cfgRef.current.symbol ||
+        (cfgRef.current.market === "matches" && currentNav.navTargetDigit !== cfgRef.current.predictDigit) ||
         elapsedSinceReady >= (currentNav.executionCutoffMs ?? 700) ||
         currentBuyWindow <= 0 ||
         currentPing <= 0 ||
@@ -329,6 +331,7 @@ export default function DigitsApp() {
       worker.postMessage({ type: "tick", digit, ts, cfg: cfgRef.current, rttMs: rtt, quote, pip });
     });
     return () => {
+      cancelLeadUpFire();
       sub.unsubscribe();
       stream.complete();
       worker.terminate();
@@ -616,10 +619,11 @@ export default function DigitsApp() {
   }, [cancelLeadUpFire, evaluateAndMaybeFire, pushSignal, resolveSims, scheduleRender, token]);
 
   const handleDisconnect = useCallback(() => {
+    cancelLeadUpFire();
     clientRef.current?.disconnect();
     clientRef.current = null;
     setConnected(false);
-  }, []);
+  }, [cancelLeadUpFire]);
 
   useEffect(() => {
     handleConnect();
