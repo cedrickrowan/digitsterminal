@@ -184,7 +184,7 @@ function EnsemblePanelImpl(p: Props) {
 
       <details className="mt-3 border-t border-border pt-2">
         <summary className="cursor-pointer list-none font-mono text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-          ▼ ANALYTICS DETAIL
+          ▼ DIGIT DISTRIBUTION
         </summary>
         <div className="mt-2 grid grid-cols-10 gap-0.5">
           {posterior.map((q, i) => (
