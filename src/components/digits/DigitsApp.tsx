@@ -946,6 +946,10 @@ export default function DigitsApp() {
           safe={safe}
           alertElapsedMs={navElapsed}
         />
+        <details className="md:col-span-2 rounded-md border border-border bg-card px-3 py-2">
+          <summary className="cursor-pointer list-none font-mono text-[11px] font-semibold uppercase tracking-wider text-cyan">
+            ▼ ANALYTICS DETAIL
+          </summary>
         {(() => {
           const isMatches = cfg.market === "matches";
           const displayDigit = isMatches ? cfg.predictDigit : context.topDigit;
@@ -1038,6 +1042,7 @@ export default function DigitsApp() {
           entropyDecay={engineReport?.entropyDecay ?? 0}
           bitmask={engineReport?.bitmask ?? 0}
         />
+        </details>
         <div className="rounded-md border border-border bg-card px-3 py-2 text-[11px]">
           <div className="mb-1 flex items-center justify-between">
             <span className="font-semibold">Execution Diagnostics</span>
