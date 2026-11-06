@@ -14,7 +14,7 @@ import type { AppConfig, Market, NavRuleToggles, NavThresholds } from "./types";
 type InMsg =
   | { type: "init"; lookback: number; seed: number[] }
   | { type: "lookback"; lookback: number }
-  | { type: "tick"; digit: number; ts: number; quote: number; pip: number; cfg: AppConfig; rttMs?: number }
+  | { type: "tick"; digit: number; ts: number; tickId: number; quote: number; pip: number; cfg: AppConfig; rttMs?: number }
   | { type: "reset"; lookback: number }
   | { type: "navSeed"; digits: number[]; size?: number }
   | { type: "navLookback"; size: number }
@@ -123,6 +123,7 @@ self.onmessage = (e: MessageEvent<InMsg>) => {
         price: msg.quote,
         pip: msg.pip,
         epoch: msg.ts,
+        tickId: msg.tickId,
         duration: msg.cfg.duration,
         symbol: msg.cfg.symbol,
         rttMs: msg.rttMs,

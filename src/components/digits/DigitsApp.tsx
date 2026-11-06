@@ -61,6 +61,7 @@ import { ScannerPanel, type ScanRow } from "./ScannerPanel";
 import { DigitBadges } from "./DigitBadges";
 import { SessionScorecard } from "./SessionScorecard";
 import type { EngineResult } from "@/lib/deriv/navigator";
+import { isFeedSafe, isNavigatorAlertEligible } from "@/lib/deriv/alertSafety";
 
 
 const MAX_BUFFER = 900;
@@ -75,6 +76,10 @@ export default function DigitsApp() {
   const [pingMs, setPingMs] = useState(0);
   const [driftMs, setDriftMs] = useState(0);
   const [stale, setStale] = useState(false);
+  const connectedRef = useRef(connected);
+  const staleRef = useRef(stale);
+  connectedRef.current = connected;
+  staleRef.current = stale;
   const [signals, setSignals] = useState<Signal[]>([]);
   const [lastPrice, setLastPrice] = useState<number | null>(null);
   const [openEntry, setOpenEntry] = useState<{ price: number; tick: number } | null>(null);
@@ -109,7 +114,7 @@ export default function DigitsApp() {
   const renderScheduled = useRef(false);
   // Background analysis engine (Web Worker) + reactive tick stream
   const workerRef = useRef<Worker | null>(null);
-  const tickStreamRef = useRef<Subject<{ digit: number; ts: number; rtt: number; quote: number; pip: number }> | null>(null);
+  const tickStreamRef = useRef<Subject<{ digit: number; ts: number; tickId: number; rtt: number; quote: number; pip: number }> | null>(null);
   const hiddenSinceRef = useRef<number>(0);
   const [engineReport, setEngineReport] = useState<EngineReport | null>(null);
   const [engineLog, setEngineLog] = useState<string[]>([]);
@@ -129,9 +134,10 @@ export default function DigitsApp() {
   const [execDiag, setExecDiag] = useState<string[]>([]);
   const nextFireAtRef = useRef<number>(0); // performance.now() target for next scheduled fire
   const fireTimerRef = useRef<number | null>(null);
+  const alertTickIdRef = useRef(0);
   // LIFO tick coalescer — if multiple tick packets are queued in the same
   // task, only the newest wins. Older packets are discarded before analysis.
-  const pendingTickRef = useRef<{ digit: number; quote: number; arrival: number; epoch: number } | null>(null);
+  const pendingTickRef = useRef<{ digit: number; quote: number; arrival: number; epoch: number; tickId: number } | null>(null);
   const coalesceScheduledRef = useRef(false);
   // ticker for countdown updates
   const [tick, setTick] = useState(0);
@@ -172,7 +178,7 @@ export default function DigitsApp() {
   const scheduleLeadUpFire = useCallback(() => {
     const cfgNow = cfgRef.current;
     const now = performance.now();
-    const interval = cadenceOf(cfgNow.symbol, gapsRef.current!.median());
+    const interval = cadenceOf(cfgNow.symbol, gapsRef.current?.median() ?? 0);
     const sinceLast = lastArrivalRef.current ? now - lastArrivalRef.current : 0;
     const nextTickIn = Math.max(0, interval - sinceLast);
     const ping = medianOf(pingMedianRef.current);
@@ -193,10 +199,23 @@ export default function DigitsApp() {
         : currentInterval;
       const currentBuyWindow = currentInterval - currentSinceTick - cfgRef.current.latencyOffsetMs;
       const currentPing = medianOf(pingMedianRef.current);
+      const currentCfg = cfgRef.current;
+      const currentGapBudget = Math.max(
+        currentCfg.safeGapMs,
+        cadenceOf(currentCfg.symbol, gapsRef.current?.median() ?? 0) * 1.6,
+      );
+      const feedSafe = isFeedSafe({
+        connected: connectedRef.current,
+        staleGap: staleRef.current,
+        symbol: currentCfg.symbol,
+        rttMs: medianOf(pingMedianRef.current),
+        lastArrivalAt: lastArrivalRef.current,
+        now: performance.now(),
+        gapBudgetMs: currentGapBudget,
+      });
       if (
-        currentNav?.alertDecision !== "READY / MANUAL ALERT" ||
-        currentNav.symbol !== cfgRef.current.symbol ||
-        (cfgRef.current.market === "matches" && currentNav.navTargetDigit !== cfgRef.current.predictDigit) ||
+        !currentNav ||
+        !isNavigatorAlertEligible(currentNav, currentCfg, feedSafe, totalTicksRef.current) ||
         elapsedSinceReady >= (currentNav.executionCutoffMs ?? 700) ||
         currentBuyWindow <= 0 ||
         currentPing <= 0 ||
@@ -290,18 +309,41 @@ export default function DigitsApp() {
       }
       if (e.data?.type === "nav") {
         const nav = e.data.result ?? null;
-        navResultRef.current = nav;
-        setNavResult(nav);
-        const ready = nav?.alertDecision === "READY / MANUAL ALERT";
-        if (ready) scheduleLeadUpFire();
-        if (ready && !navWasReadyRef.current) {
+        if (nav && nav.tickId !== totalTicksRef.current) return;
+        const currentCfg = cfgRef.current;
+        const currentGapBudget = Math.max(
+          currentCfg.safeGapMs,
+          cadenceOf(currentCfg.symbol, gapsRef.current?.median() ?? 0) * 1.6,
+        );
+        const feedSafe = isFeedSafe({
+          connected: connectedRef.current,
+          staleGap: staleRef.current,
+          symbol: currentCfg.symbol,
+          rttMs: medianOf(pingMedianRef.current),
+          lastArrivalAt: lastArrivalRef.current,
+          now: performance.now(),
+          gapBudgetMs: currentGapBudget,
+        });
+        const wasReady = navWasReadyRef.current;
+        const ready = isNavigatorAlertEligible(nav, currentCfg, feedSafe, totalTicksRef.current);
+        const displayNav = nav && !feedSafe && nav.alertDecision === "READY / MANUAL ALERT"
+          ? { ...nav, alertDecision: "HOLD / UNSAFE LATENCY" as const }
+          : nav;
+        navResultRef.current = displayNav;
+        setNavResult(displayNav);
+        if (ready) {
+          // A fresh worker result for a new tick starts a fresh response window.
+          navReadyAtRef.current = performance.now();
+          alertTickIdRef.current = nav?.tickId ?? 0;
+          navWasReadyRef.current = true;
+          setFlash(true);
+          scheduleLeadUpFire();
+          window.setTimeout(() => setFlash(false), Math.max(0, (nav?.executionCutoffMs ?? 700) - (performance.now() - navReadyAtRef.current)));
+        }
+        if (ready && !wasReady) {
           // New READY alert: start the strict 700 ms human-response window,
           // visual flash for the whole window + the SINGLE lead-up beep
           // scheduled at next tick arrival − ping − drift − latency offset.
-          navReadyAtRef.current = performance.now();
-          navWasReadyRef.current = true;
-          setFlash(true);
-          window.setTimeout(() => setFlash(false), Math.max(0, (nav?.executionCutoffMs ?? 700) - (performance.now() - navReadyAtRef.current)));
           setSignals((prev) => [
             ...prev.slice(-40),
             {
@@ -324,11 +366,11 @@ export default function DigitsApp() {
       }
     };
 
-    const stream = new Subject<{ digit: number; ts: number; rtt: number; quote: number; pip: number }>();
+    const stream = new Subject<{ digit: number; ts: number; tickId: number; rtt: number; quote: number; pip: number }>();
     tickStreamRef.current = stream;
     // auditTime coalesces bursts so a wake-up backlog can't spam the worker.
-    const sub = stream.pipe(auditTime(0)).subscribe(({ digit, ts, rtt, quote, pip }) => {
-      worker.postMessage({ type: "tick", digit, ts, cfg: cfgRef.current, rttMs: rtt, quote, pip });
+    const sub = stream.pipe(auditTime(0)).subscribe(({ digit, ts, tickId, rtt, quote, pip }) => {
+      worker.postMessage({ type: "tick", digit, ts, tickId, cfg: cfgRef.current, rttMs: rtt, quote, pip });
     });
     return () => {
       cancelLeadUpFire();
@@ -396,6 +438,9 @@ export default function DigitsApp() {
 
   const evaluateAndMaybeFire = useCallback(() => {
     const cfgNow = cfgRef.current;
+    // Navigator is the sole source of alert-mode READY; legacy triggers may
+    // still drive simulated entries but cannot bypass Navigator confluence.
+    if (cfgNow.mode === "alert") return;
     const win = bufRef.current!.lastN(cfgNow.lookback);
     if (win.length < 10) return;
 
@@ -432,19 +477,19 @@ export default function DigitsApp() {
     }
 
     const median = medianOf(pingMedianRef.current);
-    const lastGap = lastArrivalRef.current ? performance.now() - lastArrivalRef.current : 0;
+    const lastGap = lastArrivalRef.current ? performance.now() - lastArrivalRef.current : Number.POSITIVE_INFINITY;
     // Slow feeds (2s indices, polled fallback) legitimately exceed the raw
     // 800ms guard — scale the gap budget to the observed tick cadence.
     const gapBudget = Math.max(cfgNow.safeGapMs, cadenceOf(cfgNow.symbol, gapsRef.current!.median()) * 1.6);
-    const networkUnsafe = median >= pingLimitFor(cfgNow.symbol) || lastGap > gapBudget;
-
-    if (cfgNow.mode === "alert") {
-      // Single shared lead-up scheduler: one audible fire aimed at
-      // (expected next tick) − (ping + drift + configured lag buffer).
-      scheduleLeadUpFire();
-      pushSignal(sig);
-      return;
-    }
+    const networkUnsafe = !isFeedSafe({
+      connected: connectedRef.current,
+      staleGap: staleRef.current,
+      symbol: cfgNow.symbol,
+      rttMs: median,
+      lastArrivalAt: lastArrivalRef.current,
+      now: performance.now(),
+      gapBudgetMs: gapBudget,
+    });
 
     if (networkUnsafe) {
       pushSignal({ ...sig, reason: reason + " (aborted: net)" });
@@ -574,7 +619,7 @@ export default function DigitsApp() {
         // LIFO coalescer — if the main thread was busy and multiple ticks
         // stacked up in the task queue, only the newest packet drives
         // downstream analysis. Buffer/history still records every digit.
-        pendingTickRef.current = { digit, quote, arrival, epoch: 0 };
+        pendingTickRef.current = { digit, quote, arrival, epoch: 0, tickId: totalTicksRef.current };
         if (!coalesceScheduledRef.current) {
           coalesceScheduledRef.current = true;
           queueMicrotask(() => {
@@ -586,6 +631,7 @@ export default function DigitsApp() {
             tickStreamRef.current?.next({
               digit: latest.digit,
               ts: performance.now(),
+              tickId: latest.tickId,
               rtt: medianOf(pingMedianRef.current),
               quote: latest.quote,
               pip: clientRef.current?.getPipSize() ?? decimalsForSymbol(cfgRef.current.symbol),
@@ -960,6 +1006,18 @@ export default function DigitsApp() {
           rise={{ up: derived.rf.up, down: derived.rf.down }}
           safe={safe}
           alertElapsedMs={navElapsed}
+          nextTickInMs={countdownMs}
+          purchaseInMs={purchaseInMs}
+        />
+        <PredictedDigit
+          digit={cfg.market === "matches" ? cfg.predictDigit : context.topDigit}
+          entryPrice={openEntry?.price ?? null}
+          lastPrice={lastPrice}
+          pip={pip}
+          matched={matched}
+          armed={armed}
+          confidence={Math.min(1, (context.weighted[cfg.market === "matches" ? cfg.predictDigit : context.topDigit] ?? 0) * (engineReport?.confidenceAdjust ?? 1))}
+          highlight={cfg.market === "matches" && (context.weighted[cfg.predictDigit] ?? 0) * (engineReport?.confidenceAdjust ?? 1) >= 0.7}
         />
         <NavigatorPanel
           result={navResult}
@@ -969,34 +1027,13 @@ export default function DigitsApp() {
           size={navStatus.size}
           market={cfg.market}
           barrier={cfg.barrier}
-          nextTickInMs={countdownMs}
-          purchaseInMs={purchaseInMs}
         />
         <details className="md:col-span-2 rounded-md border border-border bg-card px-3 py-2">
           <summary className="cursor-pointer list-none font-mono text-[11px] font-semibold uppercase tracking-wider text-cyan">
             ▼ ANALYTICS DETAIL
           </summary>
         {(() => {
-          const isMatches = cfg.market === "matches";
-          const displayDigit = isMatches ? cfg.predictDigit : context.topDigit;
-          const baseConf = isMatches
-            ? context.weighted[cfg.predictDigit] ?? 0
-            : context.weighted[context.topDigit] ?? 0;
-          // Entropy-decay boost from the background engine — bounded [0.8, 1.25].
-          const conf = Math.min(1, baseConf * (engineReport?.confidenceAdjust ?? 1));
-          const highlight = isMatches && conf >= 0.7;
-          return (
-            <PredictedDigit
-              digit={displayDigit}
-              entryPrice={openEntry?.price ?? null}
-              lastPrice={lastPrice}
-              pip={pip}
-              matched={matched}
-              armed={armed}
-              confidence={conf}
-              highlight={highlight}
-            />
-          );
+          return null;
         })()}
         <PreArrivalPanel
           forecasts={context.pre.forecasts}

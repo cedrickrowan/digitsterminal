@@ -18,6 +18,8 @@ interface Props {
   safe: boolean;
   /** ms elapsed since the last navigator READY alert (0 when none pending). */
   alertElapsedMs: number;
+  nextTickInMs: number;
+  purchaseInMs: number;
 }
 
 function Bar({ label, value, side }: { label: string; value: number; side: "left" | "right" }) {
@@ -60,11 +62,9 @@ function decisionFor(p: Props): { side: string; conf: number; tone: "cyan" | "ma
         ? { side: "FALL", conf: b.pFall, tone: "magenta", source: "navigator" }
         : { side: "RISE", conf: b.pRise, tone: "cyan", source: "navigator" };
     }
-    // Matches — exact DP horizon probabilities for the USER-SELECTED digit
-    // (the same digit the navigator alerts target, not an engine top-pick).
-    const tIdx = nav.navTargetDigit ?? nav.topTargetDigit;
-    const d = nav.digits[tIdx] ?? nav.digits[0];
-    return { side: `MATCH ${tIdx}`, conf: d?.multiHitProb ?? nav.multiHitProb, tone: "cyan", source: "navigator" };
+    // The fusion card shows the engine's current landing top-pick; the selected
+    // digit remains in its dedicated card immediately below.
+    return { side: `MATCH ${nav.topTargetDigit}`, conf: nav.topTargetProb, tone: "cyan", source: "navigator" };
   }
   // Legacy fallback (navigator still seeding).
   switch (p.market) {
@@ -101,10 +101,8 @@ function EnsemblePanelImpl(p: Props) {
   // Horizon probability grid: navigator landing probabilities when live.
   const posterior: number[] = p.nav ? p.nav.digits.map((d) => d.landingProb) : p.ensemble.posterior;
   const highlightDigit = p.nav
-    ? p.market === "matches"
-      ? p.nav.navTargetDigit
-      : p.nav.digits.reduce((a, b) => (b.landingProb > a.landingProb ? b : a), p.nav.digits[0]).digit
-      : p.market === "matches" ? p.predictDigit : p.ensemble.topDigit;
+    ? p.nav.topTargetDigit
+    : p.market === "matches" ? p.ensemble.topDigit : p.ensemble.topDigit;
 
   // Strict 700 ms navigator window — synchronized with the audio alert.
   const cutoff = p.nav?.executionCutoffMs ?? 700;
@@ -148,7 +146,7 @@ function EnsemblePanelImpl(p: Props) {
         </div>
         <div className="min-w-0 flex-1 space-y-1">
           <div className="flex justify-between text-[11px] text-muted-foreground">
-            <span>Confidence</span>
+            <span>{p.market === "matches" ? "Landing confidence" : "Confidence"}</span>
             <span className={`font-mono ${dir.tone === "cyan" ? "text-cyan" : "text-magenta"}`}>
               {(dir.conf * 100).toFixed(1)}%
             </span>
@@ -164,6 +162,16 @@ function EnsemblePanelImpl(p: Props) {
                     : "0 0 10px var(--color-magenta)",
               }}
             />
+          </div>
+          <div className="flex justify-between text-[10px] text-muted-foreground">
+            <span>Next tick in</span>
+            <span className="font-mono tabular-nums">{Math.max(0, p.nextTickInMs)}ms</span>
+          </div>
+          <div className="flex justify-between text-[10px] text-muted-foreground">
+            <span>Buy now if ≤</span>
+            <span className={`font-mono tabular-nums ${p.purchaseInMs <= 0 ? "text-danger font-bold" : "text-cyan"}`}>
+              {p.purchaseInMs <= 0 ? "TOO LATE" : `${p.purchaseInMs}ms`}
+            </span>
           </div>
           <div className="flex justify-between text-[10px] text-muted-foreground">
             <span>{ready ? "700ms entry window" : "Alert state"}</span>

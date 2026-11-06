@@ -1,4 +1,7 @@
 - [x] Restore the ENSEMBLE - BAYESIAN FUSION panel and collapsible analytics detail.
 - [x] Restore persistent live countdown rows and refresh them at 30 fps.
 - [x] Cancel lead-up audio on new ticks, non-READY states, expired windows, disconnects, and resets; validate eligibility before firing.
+- [ ] Align Navigator and legacy alert eligibility, renew the 700 ms window for fresh READY results, and reject stale/gapped feeds.
+- [ ] Show the top Matches prediction and its landing confidence in the fusion card, with countdown rows; keep the selected digit card directly below.
+- [ ] Normalize Over/Under side probabilities and remove Kelly/ruin calculations and the two excluded 1s symbols.
 - [ ] Verify the signed-in live alert flow; preview is currently restricted to the login screen, so authenticated end-to-end confirmation is blocked.

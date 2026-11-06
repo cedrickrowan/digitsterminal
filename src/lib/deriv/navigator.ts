@@ -2,7 +2,7 @@
 // NOTHING IS TRUNCATED — every formula from the uploaded corrected engine draft
 // is implemented exactly, plus the master-blueprint diagnostics that the draft
 // referenced (AMI across lags 1..7, LZW compression ratio, CUSUM/Page-Hinkley
-// regime shift, Kelly criterion and Gambler's-Ruin advisory).
+// regime shift diagnostics).
 //
 // NEW in v3 (no shortcuts — every step kept):
 //  • DYNAMIC BUFFER: the engine buffer scales to the selected Lookback
@@ -23,11 +23,14 @@
 // STRICTLY ANALYSIS ONLY — this engine never purchases or trades.
 
 import type { Market, NavRuleToggles, NavThresholds } from "./types";
+import { alertDecisionSignature } from "./alertSafety";
 
 export interface EngineTickInput {
   price: number;
   pip: number;
   epoch: number;
+  /** Monotonic live tick identity, used to reject delayed worker results. */
+  tickId?: number;
   duration: number; // Horizon D in ticks (1..10)
   symbol: string;
   rttMs?: number;
@@ -102,6 +105,9 @@ export interface DirectionBlock {
 
 export interface EngineResult {
   symbol: string;
+  market: Market;
+  tickId: number;
+  decisionSignature: string;
   currentTick: number;
   currentPrice: string;
   selectedDuration: number;
@@ -161,9 +167,6 @@ export interface EngineResult {
   navRulesEnabled: boolean;
   navRuleHits: NavRuleHit[];
 
-  // Advisory risk (display-only — never executes)
-  kellyFraction: number;
-  ruinProb: number;
   analyzeMs: number;
 }
 
@@ -174,11 +177,6 @@ export const NAV_MULTI_HIT_FLOOR = 0.07; // 7.0% provisional density floor (Matc
 export const NAV_EDGE_FLOOR = 0.08; // 8% edge over the random baseline (Over/Under · Even/Odd · Rise/Fall)
 export const NAV_TIE_DEAD_ZONE = 0.10; // barrier tie probability >= 10% blocks the signal
 export const NAV_EXECUTION_CUTOFF_MS = 700;
-/** Advisory Kelly payout odds for a digit Matches contract (~9x). */
-export const NAV_KELLY_ODDS = 9;
-/** Gambler's-ruin drought horizon (ticks without a hit) and bankroll units. */
-export const NAV_RUIN_DROUGHT_TICKS = 10;
-export const NAV_RUIN_BANKROLL_UNITS = 20;
 
 /** Display labels for the six Navigator trigger rules. */
 export const NAV_RULE_LABELS: Record<keyof NavRuleToggles, string> = {
@@ -861,18 +859,21 @@ export class DigitsEngine {
       if (riseFall && riseFall.rec !== "HOLD" && marketEdge >= NAV_EDGE_FLOOR) alertDecision = "READY / MANUAL ALERT";
     }
 
-    // 10. Advisory risk engine (blueprint §8) — display-only, never executes.
-    //     Kelly: f* = (b·p − q) / b with p = the alert target's multi-hit
-    //     probability (the digit the alert actually points at).
-    const pWin = tm.multiHitProb;
-    const qLose = 1 - pWin;
-    const kellyFraction = Math.max(0, (NAV_KELLY_ODDS * pWin - qLose) / NAV_KELLY_ODDS);
-    //     Gambler's Ruin: P = 1 − (1 − (1−p)^n)^m over a n-tick drought, m units.
-    const droughtNoHit = Math.pow(1 - pWin, NAV_RUIN_DROUGHT_TICKS);
-    const ruinProb = 1 - Math.pow(1 - droughtNoHit, NAV_RUIN_BANKROLL_UNITS);
+    const decisionSignature = alertDecisionSignature({
+      symbol: input.symbol,
+      market,
+      duration: D,
+      predictDigit: targetDigit,
+      barrier,
+      navRules: input.navRules,
+      navThresholds: input.navThresholds,
+    });
 
     return {
       symbol: input.symbol,
+      market,
+      tickId: input.tickId ?? -1,
+      decisionSignature,
       currentTick: currDigit,
       currentPrice: fmtPrice,
       selectedDuration: D,
@@ -914,8 +915,6 @@ export class DigitsEngine {
       pingThresholdMs,
       latencyGatePassed: pingOk,
       alertDecision,
-      kellyFraction,
-      ruinProb,
       analyzeMs: performance.now() - t0,
     };
   }
@@ -926,32 +925,39 @@ export class DigitsEngine {
    *  momentum (ΔP) for each side against the full-buffer baseline. */
   private computeOverUnder(currOffset: number, barrier: number): OverUnderBlock {
     const N = this.bufferSize;
-    let pOver = 0.0;
-    let pUnder = 0.0;
+    let rawOver = 0.0;
+    let rawUnder = 0.0;
     for (let d = 0; d < 10; d++) {
       const p = this.TD[currOffset + d];
-      if (d > barrier) pOver += p;
-      else if (d < barrier) pUnder += p;
+      if (d > barrier) rawOver += p;
+      else if (d < barrier) rawUnder += p;
     }
     const pTie = this.TD[currOffset + barrier];
+    const sideTotal = rawOver + rawUnder;
+    const pOver = sideTotal > 0 ? rawOver / sideTotal : 0;
+    const pUnder = sideTotal > 0 ? rawUnder / sideTotal : 0;
 
-    let baseOver = 0;
-    let baseUnder = 0;
+    let baseOverCount = 0;
+    let baseUnderCount = 0;
     for (let d = 0; d < 10; d++) {
-      if (d > barrier) baseOver += this.freq100[d];
-      else if (d < barrier) baseUnder += this.freq100[d];
+      if (d > barrier) baseOverCount += this.freq100[d];
+      else if (d < barrier) baseUnderCount += this.freq100[d];
     }
-    const baselineOver = baseOver / N;
-    const baselineUnder = baseUnder / N;
+    const baseSideTotal = baseOverCount + baseUnderCount;
+    const baselineOver = baseSideTotal > 0 ? baseOverCount / baseSideTotal : 0;
+    const baselineUnder = baseSideTotal > 0 ? baseUnderCount / baseSideTotal : 0;
 
-    let microOver = 0;
-    let microUnder = 0;
+    let microOverCount = 0;
+    let microUnderCount = 0;
     for (let d = 0; d < 10; d++) {
-      if (d > barrier) microOver += this.freqMicro[d];
-      else if (d < barrier) microUnder += this.freqMicro[d];
+      if (d > barrier) microOverCount += this.freqMicro[d];
+      else if (d < barrier) microUnderCount += this.freqMicro[d];
     }
-    const momentumOver = microOver / this.microWindow - baselineOver;
-    const momentumUnder = microUnder / this.microWindow - baselineUnder;
+    const microSideTotal = microOverCount + microUnderCount;
+    const microOver = microSideTotal > 0 ? microOverCount / microSideTotal : 0;
+    const microUnder = microSideTotal > 0 ? microUnderCount / microSideTotal : 0;
+    const momentumOver = microOver - baselineOver;
+    const momentumUnder = microUnder - baselineUnder;
 
     const deadZone = pTie >= NAV_TIE_DEAD_ZONE;
     let rec: OverUnderBlock["rec"] = "HOLD";
