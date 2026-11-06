@@ -3,8 +3,8 @@ import type { AppConfig, NavRuleToggles, NavThresholds } from "./types";
 
 export type AlertDecisionConfig = Pick<
   AppConfig,
-  "symbol" | "market" | "duration" | "predictDigit" | "barrier" | "navRules" | "navThresholds"
->;
+  "symbol" | "market" | "duration" | "predictDigit" | "barrier"
+> & Partial<Pick<AppConfig, "navRules" | "navThresholds">>;
 
 export interface FeedSafetyInput {
   connected: boolean;
@@ -37,8 +37,8 @@ export function isFeedSafe(input: FeedSafetyInput): boolean {
 
 export function alertDecisionSignature(
   config: AlertDecisionConfig,
-  rules: NavRuleToggles = config.navRules,
-  thresholds: NavThresholds = config.navThresholds,
+  rules: NavRuleToggles | undefined = config.navRules,
+  thresholds: NavThresholds | undefined = config.navThresholds,
 ): string {
   return JSON.stringify([
     config.symbol,
@@ -46,8 +46,8 @@ export function alertDecisionSignature(
     config.duration,
     config.predictDigit,
     config.barrier,
-    [rules.multiHit, rules.pairRun, rules.landing, rules.freshness, rules.parity, rules.barrier],
-    [thresholds.multiHitPct, thresholds.pairRunPct, thresholds.landingPct, thresholds.parityPct, thresholds.barrierPct],
+    rules ? [rules.multiHit, rules.pairRun, rules.landing, rules.freshness, rules.parity, rules.barrier] : null,
+    thresholds ? [thresholds.multiHitPct, thresholds.pairRunPct, thresholds.landingPct, thresholds.parityPct, thresholds.barrierPct] : null,
   ]);
 }
 
@@ -72,8 +72,10 @@ export function isNavigatorAlertEligible(
 
   if (config.market === "matches") {
     if (result.navTargetDigit !== config.predictDigit) return false;
-    return (Object.keys(config.navRules) as Array<keyof NavRuleToggles>).every((rule) => {
-      if (!config.navRules[rule]) return true;
+    const rules = config.navRules;
+    if (!rules) return false;
+    return (Object.keys(rules) as Array<keyof NavRuleToggles>).every((rule) => {
+      if (!rules[rule]) return true;
       const hit = result.navRuleHits.find((item) => item.rule === rule);
       return hit?.enabled === true && hit.pass;
     });
