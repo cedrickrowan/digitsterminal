@@ -516,7 +516,7 @@ export class DerivClient {
 const FALLBACK_DECIMALS: Record<string, number> = {
   R_10: 3, R_25: 3, R_50: 4, R_75: 4, R_100: 2,
   "1HZ10V": 2, "1HZ15V": 3, "1HZ25V": 2, "1HZ30V": 3, "1HZ50V": 2,
-  "1HZ75V": 2, "1HZ90V": 3, "1HZ100V": 2, "1HZ150V": 2, "1HZ250V": 5,
+  "1HZ75V": 2, "1HZ90V": 3, "1HZ100V": 2,
 };
 
 export function decimalsForSymbol(symbol: string): number {

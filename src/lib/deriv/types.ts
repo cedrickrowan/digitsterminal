@@ -140,6 +140,4 @@ export const SYMBOLS = [
   { value: "1HZ75V", label: "Volatility 75 (1s)" },
   { value: "1HZ90V", label: "Volatility 90 (1s)" },
   { value: "1HZ100V", label: "Volatility 100 (1s)" },
-  { value: "1HZ150V", label: "Volatility 150 (1s)" },
-  { value: "1HZ250V", label: "Volatility 250 (1s)" },
 ];

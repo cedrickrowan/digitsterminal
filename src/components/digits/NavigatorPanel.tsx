@@ -13,10 +13,6 @@ interface Props {
   size: number;
   market: Market;
   barrier: number;
-  /** Live "Next tick in" countdown (ms until the next expected tick arrival). */
-  nextTickInMs: number;
-  /** "Buy now if ≤" lead window: countdown minus the latency offset; ≤0 → TOO LATE. */
-  purchaseInMs: number;
 }
 
 function pct(x: number): string {
@@ -182,7 +178,7 @@ function DirectionView({ b, duration }: { b: DirectionBlock; duration: number })
   );
 }
 
-function NavigatorPanelImpl({ result, alertElapsedMs, waiting, filled, size, market, barrier, nextTickInMs, purchaseInMs }: Props) {
+function NavigatorPanelImpl({ result, alertElapsedMs, waiting, filled, size, market, barrier }: Props) {
   const ready = result?.alertDecision === "READY / MANUAL ALERT";
   const inWindow = ready && alertElapsedMs >= 0 && alertElapsedMs < (result?.executionCutoffMs ?? 700);
   const remaining = Math.ceil(Math.max(0, (result?.executionCutoffMs ?? 700) - alertElapsedMs));
@@ -312,8 +308,6 @@ function NavigatorPanelImpl({ result, alertElapsedMs, waiting, filled, size, mar
               value={result.amiLags.map((v) => v.toFixed(2)).join(" ")}
               title={`Algorithmic mutual information across lags 1..${result.amiLags.length} (Miller-Madow corrected, scaled to buffer)`}
             />
-            <Diag label="Kelly f* (advisory)" value={pct(result.kellyFraction)} title="Advisory Kelly fraction — never executes" />
-            <Diag label="Ruin P (advisory)" value={pct(result.ruinProb)} title="Gambler's-ruin drought probability — advisory" />
             <Diag
               label="RTT / gate"
               value={`${Math.round(result.rttMs)} / <${result.pingThresholdMs}ms`}
@@ -324,17 +318,6 @@ function NavigatorPanelImpl({ result, alertElapsedMs, waiting, filled, size, mar
           </div>
         </>
       )}
-      <div className="mt-2 flex flex-wrap justify-between gap-x-3 gap-y-1 border-t border-border pt-2 font-mono text-[10px] tabular-nums">
-        <span>
-          Next tick in <span className="text-foreground">{Math.max(0, nextTickInMs)}ms</span>
-        </span>
-        <span>
-          Buy now if ≤{" "}
-          <span className={purchaseInMs <= 0 ? "text-danger font-bold" : "text-foreground"}>
-            {purchaseInMs <= 0 ? "TOO LATE" : `${Math.max(0, purchaseInMs)}ms`}
-          </span>
-        </span>
-      </div>
     </div>
   );
 }
