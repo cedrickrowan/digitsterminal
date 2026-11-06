@@ -1,5 +1,5 @@
 import type { EngineResult } from "./navigator";
-import type { AppConfig, Market, NavRuleToggles, NavThresholds } from "./types";
+import type { AppConfig, NavRuleToggles, NavThresholds } from "./types";
 
 export type AlertDecisionConfig = Pick<
   AppConfig,
@@ -55,6 +55,7 @@ export function isNavigatorAlertEligible(
   result: EngineResult | null,
   config: AlertDecisionConfig,
   feedSafe: boolean,
+  currentTickId?: number,
 ): boolean {
   if (
     !result ||
@@ -63,7 +64,8 @@ export function isNavigatorAlertEligible(
     result.symbol !== config.symbol ||
     result.market !== config.market ||
     result.selectedDuration !== config.duration ||
-    result.decisionSignature !== alertDecisionSignature(config)
+    result.decisionSignature !== alertDecisionSignature(config) ||
+    (currentTickId !== undefined && result.tickId !== currentTickId)
   ) {
     return false;
   }
@@ -80,5 +82,3 @@ export function isNavigatorAlertEligible(
   if (config.market === "overunder") return result.overUnder?.barrier === config.barrier;
   return true;
 }
-
-export type MarketName = Market;
