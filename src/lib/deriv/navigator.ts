@@ -2,7 +2,7 @@
 // NOTHING IS TRUNCATED — every formula from the uploaded corrected engine draft
 // is implemented exactly, plus the master-blueprint diagnostics that the draft
 // referenced (AMI across lags 1..7, LZW compression ratio, CUSUM/Page-Hinkley
-// regime shift, Kelly criterion and Gambler's-Ruin advisory).
+// regime shift diagnostics).
 //
 // NEW in v3 (no shortcuts — every step kept):
 //  • DYNAMIC BUFFER: the engine buffer scales to the selected Lookback
@@ -23,11 +23,14 @@
 // STRICTLY ANALYSIS ONLY — this engine never purchases or trades.
 
 import type { Market, NavRuleToggles, NavThresholds } from "./types";
+import { alertDecisionSignature } from "./alertSafety";
 
 export interface EngineTickInput {
   price: number;
   pip: number;
   epoch: number;
+  /** Monotonic live tick identity, used to reject delayed worker results. */
+  tickId?: number;
   duration: number; // Horizon D in ticks (1..10)
   symbol: string;
   rttMs?: number;
@@ -102,6 +105,9 @@ export interface DirectionBlock {
 
 export interface EngineResult {
   symbol: string;
+  market: Market;
+  tickId: number;
+  decisionSignature: string;
   currentTick: number;
   currentPrice: string;
   selectedDuration: number;
@@ -161,9 +167,6 @@ export interface EngineResult {
   navRulesEnabled: boolean;
   navRuleHits: NavRuleHit[];
 
-  // Advisory risk (display-only — never executes)
-  kellyFraction: number;
-  ruinProb: number;
   analyzeMs: number;
 }
 
@@ -174,11 +177,6 @@ export const NAV_MULTI_HIT_FLOOR = 0.07; // 7.0% provisional density floor (Matc
 export const NAV_EDGE_FLOOR = 0.08; // 8% edge over the random baseline (Over/Under · Even/Odd · Rise/Fall)
 export const NAV_TIE_DEAD_ZONE = 0.10; // barrier tie probability >= 10% blocks the signal
 export const NAV_EXECUTION_CUTOFF_MS = 700;
-/** Advisory Kelly payout odds for a digit Matches contract (~9x). */
-export const NAV_KELLY_ODDS = 9;
-/** Gambler's-ruin drought horizon (ticks without a hit) and bankroll units. */
-export const NAV_RUIN_DROUGHT_TICKS = 10;
-export const NAV_RUIN_BANKROLL_UNITS = 20;
 
 /** Display labels for the six Navigator trigger rules. */
 export const NAV_RULE_LABELS: Record<keyof NavRuleToggles, string> = {
