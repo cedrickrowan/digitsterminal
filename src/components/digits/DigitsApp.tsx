@@ -61,6 +61,7 @@ import { ScannerPanel, type ScanRow } from "./ScannerPanel";
 import { DigitBadges } from "./DigitBadges";
 import { SessionScorecard } from "./SessionScorecard";
 import type { EngineResult } from "@/lib/deriv/navigator";
+import { alertDecisionSignature, isFeedSafe, isNavigatorAlertEligible } from "@/lib/deriv/alertSafety";
 
 
 const MAX_BUFFER = 900;
@@ -129,6 +130,7 @@ export default function DigitsApp() {
   const [execDiag, setExecDiag] = useState<string[]>([]);
   const nextFireAtRef = useRef<number>(0); // performance.now() target for next scheduled fire
   const fireTimerRef = useRef<number | null>(null);
+  const alertTickIdRef = useRef(0);
   // LIFO tick coalescer — if multiple tick packets are queued in the same
   // task, only the newest wins. Older packets are discarded before analysis.
   const pendingTickRef = useRef<{ digit: number; quote: number; arrival: number; epoch: number } | null>(null);
@@ -172,7 +174,7 @@ export default function DigitsApp() {
   const scheduleLeadUpFire = useCallback(() => {
     const cfgNow = cfgRef.current;
     const now = performance.now();
-    const interval = cadenceOf(cfgNow.symbol, gapsRef.current!.median());
+    const interval = cadenceOf(cfgNow.symbol, gapsRef.current?.median() ?? 0);
     const sinceLast = lastArrivalRef.current ? now - lastArrivalRef.current : 0;
     const nextTickIn = Math.max(0, interval - sinceLast);
     const ping = medianOf(pingMedianRef.current);
@@ -193,10 +195,22 @@ export default function DigitsApp() {
         : currentInterval;
       const currentBuyWindow = currentInterval - currentSinceTick - cfgRef.current.latencyOffsetMs;
       const currentPing = medianOf(pingMedianRef.current);
+      const currentCfg = cfgRef.current;
+      const currentGapBudget = Math.max(
+        currentCfg.safeGapMs,
+        cadenceOf(currentCfg.symbol, gapsRef.current?.median() ?? 0) * 1.6,
+      );
+      const feedSafe = isFeedSafe({
+        connected: connectedRef.current,
+        staleGap: staleRef.current,
+        symbol: currentCfg.symbol,
+        rttMs: medianOf(pingMedianRef.current),
+        lastArrivalAt: lastArrivalRef.current,
+        now: performance.now(),
+        gapBudgetMs: currentGapBudget,
+      });
       if (
-        currentNav?.alertDecision !== "READY / MANUAL ALERT" ||
-        currentNav.symbol !== cfgRef.current.symbol ||
-        (cfgRef.current.market === "matches" && currentNav.navTargetDigit !== cfgRef.current.predictDigit) ||
+        !isNavigatorAlertEligible(currentNav, currentCfg, feedSafe, totalTicksRef.current) ||
         elapsedSinceReady >= (currentNav.executionCutoffMs ?? 700) ||
         currentBuyWindow <= 0 ||
         currentPing <= 0 ||
@@ -290,18 +304,36 @@ export default function DigitsApp() {
       }
       if (e.data?.type === "nav") {
         const nav = e.data.result ?? null;
+        if (nav && nav.tickId !== totalTicksRef.current) return;
         navResultRef.current = nav;
+        const currentCfg = cfgRef.current;
+        const currentGapBudget = Math.max(
+          currentCfg.safeGapMs,
+          cadenceOf(currentCfg.symbol, gapsRef.current?.median() ?? 0) * 1.6,
+        );
+        const feedSafe = isFeedSafe({
+          connected: connectedRef.current,
+          staleGap: staleRef.current,
+          symbol: currentCfg.symbol,
+          rttMs: medianOf(pingMedianRef.current),
+          lastArrivalAt: lastArrivalRef.current,
+          now: performance.now(),
+          gapBudgetMs: currentGapBudget,
+        });
+        const ready = isNavigatorAlertEligible(nav, currentCfg, feedSafe, totalTicksRef.current);
         setNavResult(nav);
-        const ready = nav?.alertDecision === "READY / MANUAL ALERT";
-        if (ready) scheduleLeadUpFire();
+        if (ready) {
+          // A fresh worker result for a new tick starts a fresh response window.
+          navReadyAtRef.current = performance.now();
+          alertTickIdRef.current = nav?.tickId ?? 0;
+          navWasReadyRef.current = true;
+          setFlash(true);
+          scheduleLeadUpFire();
+        }
         if (ready && !navWasReadyRef.current) {
           // New READY alert: start the strict 700 ms human-response window,
           // visual flash for the whole window + the SINGLE lead-up beep
           // scheduled at next tick arrival − ping − drift − latency offset.
-          navReadyAtRef.current = performance.now();
-          navWasReadyRef.current = true;
-          setFlash(true);
-          window.setTimeout(() => setFlash(false), Math.max(0, (nav?.executionCutoffMs ?? 700) - (performance.now() - navReadyAtRef.current)));
           setSignals((prev) => [
             ...prev.slice(-40),
             {
@@ -328,7 +360,7 @@ export default function DigitsApp() {
     tickStreamRef.current = stream;
     // auditTime coalesces bursts so a wake-up backlog can't spam the worker.
     const sub = stream.pipe(auditTime(0)).subscribe(({ digit, ts, rtt, quote, pip }) => {
-      worker.postMessage({ type: "tick", digit, ts, cfg: cfgRef.current, rttMs: rtt, quote, pip });
+        worker.postMessage({ type: "tick", digit, ts, tickId: totalTicksRef.current, cfg: cfgRef.current, rttMs: rtt, quote, pip });
     });
     return () => {
       cancelLeadUpFire();
