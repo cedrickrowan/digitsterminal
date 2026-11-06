@@ -1,4 +1,4 @@
-import { DEFAULT_CONFIG, type AppConfig } from "./types";
+import { DEFAULT_CONFIG, SYMBOLS, type AppConfig } from "./types";
 
 const KEY = "deriv-digits-config-v2";
 
@@ -17,6 +17,9 @@ export function loadConfig(): AppConfig {
     return {
       ...DEFAULT_CONFIG,
       ...parsed,
+      symbol: SYMBOLS.some((item) => item.value === parsed.symbol)
+        ? parsed.symbol
+        : DEFAULT_CONFIG.symbol,
       lookback: snapLookback(Number(parsed.lookback ?? DEFAULT_CONFIG.lookback)),
       rules: { ...DEFAULT_CONFIG.rules, ...(parsed.rules ?? {}) },
       navRules: { ...DEFAULT_CONFIG.navRules, ...(parsed.navRules ?? {}) },
