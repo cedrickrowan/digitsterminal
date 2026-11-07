@@ -350,7 +350,7 @@ export class DigitsEngine {
   private cusumAcc: number = 0;
 
   constructor(bufferSize: number = NAV_BUFFER_SIZE) {
-    const size = Math.round(clamp(bufferSize, 3, 900));
+    const size = Math.round(clamp(bufferSize, 2, 600));
     this.bufferSize = size;
     this.buffer = new Uint8Array(size);
     // Diagnostic windows scale with the buffer so any lookback size behaves
