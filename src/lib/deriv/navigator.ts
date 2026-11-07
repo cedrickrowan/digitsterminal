@@ -783,7 +783,7 @@ export class DigitsEngine {
     else if (zRun > 1.96) regime = "MEAN_REVERTING";
 
     const market = input.market ?? "matches";
-    const barrier = clamp(Math.round(input.barrier ?? 4), 0, 8);
+    const barrier = clamp(Math.round(input.barrier ?? 4), 0, 9);
 
     // 8b. Market-specific horizon blocks (v3)
     const overUnder = this.computeOverUnder(currOffset, barrier);
