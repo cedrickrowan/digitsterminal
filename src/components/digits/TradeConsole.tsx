@@ -154,7 +154,7 @@ function TradeConsoleImpl({
           <div className="flex items-center gap-1">
             <button type="button" className="h-6 w-6 rounded border border-input font-mono" onClick={() => onBarrierChange(Math.max(0, barrier - 1))}>−</button>
             <span className="w-5 text-center font-mono text-sm font-bold text-cyan">{barrier}</span>
-            <button type="button" className="h-6 w-6 rounded border border-input font-mono" onClick={() => onBarrierChange(Math.min(8, barrier + 1))}>+</button>
+            <button type="button" className="h-6 w-6 rounded border border-input font-mono" onClick={() => onBarrierChange(Math.min(9, barrier + 1))}>+</button>
           </div>
         </div>
         <Btn
