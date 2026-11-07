@@ -30,6 +30,7 @@ interface Props {
 
 const MARKET_LABEL: Record<Market, string> = {
   matches: "Matches",
+  differs: "Differs",
   overunder: "Over/Under",
   evenodd: "Even/Odd",
   risefall: "Rise/Fall",
