@@ -1,6 +1,6 @@
 export type Mode = "alert" | "simulated" | "live";
 export type NetHealth = "green" | "yellow" | "red";
-export type Market = "matches" | "overunder" | "evenodd" | "risefall";
+export type Market = "matches" | "differs" | "overunder" | "evenodd" | "risefall";
 
 export interface RuleToggles {
   streak: boolean;
@@ -27,6 +27,10 @@ export interface NavRuleToggles {
   /** Over/Under barrier confluence: the target digit's side leads and the
    *  barrier tie is outside the 10% dead zone. */
   barrier: boolean;
+  lowEntropy: boolean;
+  antiRepeat: boolean;
+  frequencyEnvelope: boolean;
+  markovD: boolean;
 }
 
 /** Percent thresholds for the Navigator trigger rules. */
@@ -36,6 +40,12 @@ export interface NavThresholds {
   landingPct: number;
   parityPct: number;
   barrierPct: number;
+  entropyZMax: number;
+  frequencyMinPct: number;
+  frequencyMaxPct: number;
+  markovDPct: number;
+  differsProbabilityCeilingPct: number;
+  differsColdGapMin: number;
 }
 
 export interface AppConfig {
@@ -115,6 +125,10 @@ export const DEFAULT_CONFIG: AppConfig = {
     freshness: true,
     parity: false,
     barrier: false,
+    lowEntropy: false,
+    antiRepeat: false,
+    frequencyEnvelope: false,
+    markovD: false,
   },
   navThresholds: {
     multiHitPct: 7,
@@ -122,6 +136,12 @@ export const DEFAULT_CONFIG: AppConfig = {
     landingPct: 12,
     parityPct: 55,
     barrierPct: 55,
+    entropyZMax: -1,
+    frequencyMinPct: 0,
+    frequencyMaxPct: 20,
+    markovDPct: 12,
+    differsProbabilityCeilingPct: 12,
+    differsColdGapMin: 5,
   },
 };
 

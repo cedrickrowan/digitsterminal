@@ -5,3 +5,7 @@
 - [ ] Show the top Matches prediction and its landing confidence in the fusion card, with countdown rows; keep the selected digit card directly below.
 - [ ] Normalize Over/Under side probabilities and remove Kelly/ruin calculations and the two excluded 1s symbols.
 - [ ] Verify the signed-in live alert flow; preview is currently restricted to the login screen, so authenticated end-to-end confirmation is blocked.
+- [ ] Unify legacy and Navigator triggers into one configurable strict-AND rules panel, including entropy, anti-repeat, frequency-envelope, and D-step Markov rules.
+- [ ] Implement Over/Under boundary and middle-barrier probability structures, clamping, tie HOLD rules, and market-specific recommendation confluence.
+- [ ] Make ARM gate every audio and visual alert; invert Differs trigger semantics and streamline worker processing without duplicating analysis.
+- [ ] Add concrete regression tests and run project tests plus build diagnostics; report any verification limits honestly.
