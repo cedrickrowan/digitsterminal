@@ -22,8 +22,32 @@ for (let i = 0; i < 24; i++) digits.push(i % 4);
 digits.push(7);
 const prices = digits.map((_, i) => 1000 + i * 0.01);
 
-const allOff: NavRuleToggles = { multiHit: false, pairRun: false, landing: false, freshness: false, parity: false, barrier: false };
-const thr: NavThresholds = { multiHitPct: 7, pairRunPct: 3, landingPct: 12, parityPct: 55, barrierPct: 55 };
+const allOff: NavRuleToggles = {
+  multiHit: false,
+  pairRun: false,
+  landing: false,
+  freshness: false,
+  parity: false,
+  barrier: false,
+  lowEntropy: false,
+  antiRepeat: false,
+  frequencyEnvelope: false,
+  markovD: false,
+};
+const thr: NavThresholds = {
+  multiHitPct: 7,
+  pairRunPct: 3,
+  landingPct: 12,
+  parityPct: 55,
+  barrierPct: 55,
+  entropyZMax: -1,
+  frequencyMinPct: 0,
+  frequencyMaxPct: 20,
+  markovDPct: 12,
+  differsProbabilityCeilingPct: 12,
+  differsColdGapMin: 5,
+};
+
 
 function run(target: number, rules: NavRuleToggles, thresholds = thr, symbol = "R_100", rtt = 100): EngineResult {
   const eng = new DigitsEngine(25);
