@@ -178,7 +178,7 @@ export const NAV_EDGE_FLOOR = 0.08; // 8% edge over the random baseline (Over/Un
 export const NAV_TIE_DEAD_ZONE = 0.10; // barrier tie probability >= 10% blocks the signal
 export const NAV_EXECUTION_CUTOFF_MS = 700;
 
-/** Display labels for the six Navigator trigger rules. */
+/** Display labels for the Navigator trigger rules. */
 export const NAV_RULE_LABELS: Record<keyof NavRuleToggles, string> = {
   multiHit: "Multi-hit ≥2 (D)",
   pairRun: "Pair/Run (d,d)",
@@ -186,6 +186,10 @@ export const NAV_RULE_LABELS: Record<keyof NavRuleToggles, string> = {
   freshness: "Fresh (anti-tired)",
   parity: "Parity confluence",
   barrier: "O/U confluence",
+  lowEntropy: "Low Entropy",
+  antiRepeat: "Anti-Repeat",
+  frequencyEnvelope: "Frequency Envelope",
+  markovD: "Markov D-Step",
 };
 
 /** Fallback thresholds when the caller supplies none (percent). */
@@ -195,7 +199,14 @@ export const NAV_THRESHOLDS_DEFAULT: NavThresholds = {
   landingPct: 12,
   parityPct: 55,
   barrierPct: 55,
+  entropyZMax: -1,
+  frequencyMinPct: 0,
+  frequencyMaxPct: 20,
+  markovDPct: 12,
+  differsProbabilityCeilingPct: 12,
+  differsColdGapMin: 5,
 };
+
 
 /** One Navigator trigger-rule evaluation line for the UI checklist. */
 export interface NavRuleHit {
