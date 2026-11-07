@@ -39,7 +39,7 @@ export interface EngineTickInput {
   digit?: number;
   /** Selected market type — drives the market-specific decision block. */
   market?: Market;
-  /** Barrier for the Over/Under engine (0..8). */
+  /** Barrier for the Over/Under engine (0..9). */
   barrier?: number;
   /** User-selected prediction digit (Matches target) — alerts target this
    *  digit instead of an autonomous engine top-pick. */
