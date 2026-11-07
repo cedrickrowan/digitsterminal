@@ -112,14 +112,14 @@ function ControlsImpl({ cfg, onChange, connected, onConnect, onDisconnect, armed
         </label>
         <label className="flex flex-col gap-1">
           <span className="text-muted-foreground">
-            {cfg.market === "overunder" ? "Barrier (0-8)" : "Predict digit"}
+            {cfg.market === "overunder" ? "Barrier (0-9)" : "Predict digit"}
           </span>
           {cfg.market === "overunder" ? (
             <input
-              type="number" min={0} max={8}
+              type="number" min={0} max={9}
               className="rounded border border-input bg-background px-2 py-1.5 font-mono"
               value={cfg.barrier}
-              onChange={(e) => onChange({ barrier: Math.max(0, Math.min(8, Number(e.target.value))) })}
+              onChange={(e) => onChange({ barrier: Math.max(0, Math.min(9, Number(e.target.value))) })}
             />
           ) : (
             <input
