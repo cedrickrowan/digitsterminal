@@ -974,24 +974,41 @@ export class DigitsEngine {
     let rec: OverUnderBlock["rec"] = "HOLD";
     let prob = 0;
     let velocity = 0;
-    if (!deadZone) {
-      // The side gaining momentum while the opposite side loses probability.
-      const overScore = pOver + Math.max(0, momentumOver);
-      const underScore = pUnder + Math.max(0, momentumUnder);
-      if (overScore >= underScore) {
-        rec = "OVER";
-        prob = pOver;
-        velocity = momentumOver;
+        if (!deadZone) {
+      if (barrier === 0) {
+        // Boundary 0: Deriv allows Over 0 only (digits 1-9 win, 0 loses)
+        if (momentumOver > 0 && pOver > baselineOver) {
+          rec = "OVER";
+          prob = pOver;
+          velocity = momentumOver;
+        }
+      } else if (barrier === 9) {
+        // Boundary 9: Deriv allows Under 9 only (digits 0-8 win, 9 loses)
+        if (momentumUnder > 0 && pUnder > baselineUnder) {
+          rec = "UNDER";
+          prob = pUnder;
+          velocity = momentumUnder;
+        }
       } else {
-        rec = "UNDER";
-        prob = pUnder;
-        velocity = momentumUnder;
-      }
-      // Flat market guard: no edge and no momentum separation → hold.
-      if (Math.abs(pOver - pUnder) < 0.01 && Math.abs(momentumOver - momentumUnder) < 0.03) {
-        rec = "HOLD";
+        // Middle barriers 1..8: 3-way probabilities (Over, Under, Tie)
+        const overScore = pOver + Math.max(0, momentumOver);
+        const underScore = pUnder + Math.max(0, momentumUnder);
+        if (overScore >= underScore) {
+          rec = "OVER";
+          prob = pOver;
+          velocity = momentumOver;
+        } else {
+          rec = "UNDER";
+          prob = pUnder;
+          velocity = momentumUnder;
+        }
+        // Flat market guard: no edge and no momentum separation → hold.
+        if (Math.abs(pOver - pUnder) < 0.01 && Math.abs(momentumOver - momentumUnder) < 0.03) {
+          rec = "HOLD";
+        }
       }
     }
+
     return {
       barrier,
       pOver,
