@@ -1000,11 +1000,17 @@ export class DigitsEngine {
     };
   }
 
-  /** Over/Under horizon engine (v3):
-   *  P(Over) = Σ_{d>barrier} [M^D]_{s0,d}, P(Under) = Σ_{d<barrier} [M^D]_{s0,d},
-   *  tie risk P(d = barrier) with a 10% dead-zone filter, and micro-window
-   *  momentum (ΔP) for each side against the full-buffer baseline. */
-   private computeOverUnder(currOffset: number, barrier: number): OverUnderBlock {
+    /** Over/Under horizon engine (v3):
+   *  3-way contract probabilities for 1..8:
+   *    P(Under) = Σ_{d < barrier} [M^D]_{s0,d}
+   *    P(Over)  = Σ_{d > barrier} [M^D]_{s0,d}
+   *    P(Tie)   = [M^D]_{s0,barrier} (House edge: both Over and Under lose)
+   *  Sum is strictly 100%.
+   *  Boundaries:
+   *    Barrier 0: Over 0 only (digits 1-9 win, 0 loses). P(Under) = 0.
+   *    Barrier 9: Under 9 only (digits 0-8 win, 9 loses). P(Over) = 0.
+   */
+  private computeOverUnder(currOffset: number, barrier: number): OverUnderBlock {
     const N = this.bufferSize;
     let rawOver = 0.0;
     let rawUnder = 0.0;
@@ -1014,7 +1020,7 @@ export class DigitsEngine {
       else if (d < barrier) rawUnder += p;
     }
     const pTie = this.TD[currOffset + barrier];
-    
+
     // Exact contract probabilities (without inflating out the tie)
     const pOver = rawOver;
     const pUnder = rawUnder;
@@ -1039,44 +1045,64 @@ export class DigitsEngine {
     const momentumOver = microOver - baselineOver;
     const momentumUnder = microUnder - baselineUnder;
 
-    // Boundaries 0 and 9 are 2-way contracts that bypass the tie dead-zone
-    const deadZone = (barrier === 0 || barrier === 9) ? false : pTie >= NAV_TIE_DEAD_ZONE;
+    // Dead Zone Filter: Any barrier tie (or single boundary losing digit) >= 10% blocks trades
+    const deadZone = pTie >= NAV_TIE_DEAD_ZONE;
     let rec: OverUnderBlock["rec"] = "HOLD";
     let prob = 0;
     let velocity = 0;
 
-    if (!deadZone) {
-      if (barrier === 0) {
-        // Boundary 0: Deriv allows Over 0 only (digits 1-9 win, 0 loses)
-        if (momentumOver >= 0 && pOver >= baselineOver) {
-          rec = "OVER";
-          prob = pOver;
-          velocity = momentumOver;
-        }
-      } else if (barrier === 9) {
-        // Boundary 9: Deriv allows Under 9 only (digits 0-8 win, 9 loses)
-        if (momentumUnder >= 0 && pUnder >= baselineUnder) {
+    if (barrier === 0) {
+      // Boundary 0: 2-way contract. Deriv allows Over 0 only (digits 1-9 win, 0 loses)
+      prob = pOver;
+      velocity = momentumOver;
+      if (!deadZone && pOver >= 0.85 && (momentumOver >= 0 || pOver >= baselineOver)) {
+        rec = "OVER";
+      }
+    } else if (barrier === 9) {
+      // Boundary 9: 2-way contract. Deriv allows Under 9 only (digits 0-8 win, 9 loses)
+      prob = pUnder;
+      velocity = momentumUnder;
+      if (!deadZone && pUnder >= 0.85 && (momentumUnder >= 0 || pUnder >= baselineUnder)) {
+        rec = "UNDER";
+      }
+    } else {
+      // Middle barriers 1..8: 3-way probabilities (Tie loses both sides)
+      // Imbalance Trigger: Only trade Under X if P(Under) > 65% AND P(Barrier) < 7%
+      // Symmetrically: Only trade Over X if P(Over) > 65% AND P(Barrier) < 7%
+      const canUnder = pUnder > 0.65 && pTie < 0.07;
+      const canOver = pOver > 0.65 && pTie < 0.07;
+
+      if (!deadZone) {
+        if (canUnder && (!canOver || pUnder >= pOver)) {
           rec = "UNDER";
           prob = pUnder;
           velocity = momentumUnder;
-        }
-      } else {
-        // Middle barriers 1..8: 3-way probabilities (Tie loses both sides)
-        const overScore = pOver + Math.max(0, momentumOver);
-        const underScore = pUnder + Math.max(0, momentumUnder);
-        if (overScore >= underScore) {
+        } else if (canOver && (!canUnder || pOver >= pUnder)) {
           rec = "OVER";
           prob = pOver;
           velocity = momentumOver;
         } else {
-          rec = "UNDER";
-          prob = pUnder;
-          velocity = momentumUnder;
+          // Score comparison if within acceptable tie risk (<10%) and edge is present
+          const overScore = pOver + Math.max(0, momentumOver);
+          const underScore = pUnder + Math.max(0, momentumUnder);
+          if (overScore > underScore && pOver - baselineOver >= 0.05) {
+            rec = "OVER";
+            prob = pOver;
+            velocity = momentumOver;
+          } else if (underScore > overScore && pUnder - baselineUnder >= 0.05) {
+            rec = "UNDER";
+            prob = pUnder;
+            velocity = momentumUnder;
+          } else {
+            rec = "HOLD";
+            prob = Math.max(pOver, pUnder);
+            velocity = pOver >= pUnder ? momentumOver : momentumUnder;
+          }
         }
-        // Flat market guard: no edge and no momentum separation → hold
-        if (Math.abs(pOver - pUnder) < 0.01 && Math.abs(momentumOver - momentumUnder) < 0.03) {
-          rec = "HOLD";
-        }
+      } else {
+        rec = "HOLD";
+        prob = Math.max(pOver, pUnder);
+        velocity = pOver >= pUnder ? momentumOver : momentumUnder;
       }
     }
 
@@ -1095,6 +1121,7 @@ export class DigitsEngine {
       velocity,
     };
   }
+
 
   /** Even/Odd horizon engine (v3): P(Even) = Σ_{even d} [M^D]_{s0,d} via
    *  matrix exponentiation, corroborated by the Wald–Wolfowitz runs Z and
