@@ -947,8 +947,6 @@ export class DigitsEngine {
           }
         }
       }
-    }
-
     } else if (market === "evenodd") {
       if (evenOdd && evenOdd.rec !== "HOLD" && marketEdge >= NAV_EDGE_FLOOR) alertDecision = "READY / MANUAL ALERT";
     } else if (market === "risefall") {
