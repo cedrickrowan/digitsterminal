@@ -27,10 +27,12 @@ const RULE_META: { key: keyof RuleToggles; label: string; field?: keyof AppConfi
 
 const MARKETS: { key: Market; label: string }[] = [
   { key: "matches", label: "Matches" },
+  { key: "differs", label: "Differs" },
   { key: "overunder", label: "Over/Under" },
   { key: "evenodd", label: "Even/Odd" },
   { key: "risefall", label: "Rise/Fall" },
 ];
+
 
 const NAV_RULE_META: { key: keyof NavRuleToggles; label: string; thr?: keyof NavThresholds; suffix?: string }[] = [
   { key: "multiHit", label: "Multi-hit ≥2 (D)", thr: "multiHitPct", suffix: "%" },
