@@ -46,8 +46,8 @@ export function alertDecisionSignature(
     config.duration,
     config.predictDigit,
     config.barrier,
-    rules ? [rules.multiHit, rules.pairRun, rules.landing, rules.freshness, rules.parity, rules.barrier] : null,
-    thresholds ? [thresholds.multiHitPct, thresholds.pairRunPct, thresholds.landingPct, thresholds.parityPct, thresholds.barrierPct] : null,
+    rules ? Object.values(rules) : null,
+    thresholds ? Object.values(thresholds) : null,
   ]);
 }
 
@@ -70,7 +70,7 @@ export function isNavigatorAlertEligible(
     return false;
   }
 
-  if (config.market === "matches") {
+  if (config.market === "matches" || config.market === "differs") {
     if (result.navTargetDigit !== config.predictDigit) return false;
     const rules = config.navRules;
     if (!rules) return false;
