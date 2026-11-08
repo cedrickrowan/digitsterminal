@@ -228,16 +228,17 @@ function ControlsImpl({ cfg, onChange, connected, onConnect, onDisconnect, armed
               />
               <span className="w-32 text-muted-foreground">{r.label}</span>
               {r.thr && (
-                <input
-                  type="number"
-                  step={0.5}
-                  min={0}
-                  max={100}
-                  className="w-20 rounded border border-input bg-background px-2 py-1 font-mono"
-                  value={cfg.navThresholds[r.thr]}
-                  onChange={(e) => setNavThreshold(r.thr!, Number(e.target.value))}
-                />
-              )}
+  <input
+    type="number"
+    step={r.step ?? 0.5}
+    min={r.suffix === "%" ? 0 : undefined}
+    max={r.suffix === "%" ? 100 : undefined}
+    className="w-20 rounded border border-input bg-background px-2 py-1 font-mono"
+    value={cfg.navThresholds[r.thr]}
+    onChange={(e) => setNavThreshold(r.thr!, Number(e.target.value))}
+  />
+)}
+
               {r.suffix && <span className="text-muted-foreground">{r.suffix}</span>}
             </label>
           ))}
