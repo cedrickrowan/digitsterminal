@@ -49,12 +49,46 @@ function decisionFor(p: Props): { side: string; conf: number; tone: "cyan" | "ma
       const landing = nav.digits[target]?.landingProb ?? 0.1;
       return { side: `DIFFERS ${target}`, conf: 1 - landing, tone: "magenta", source: "navigator" };
     }
-    if (p.market === "overunder" && nav.overUnder) {
+        if (p.market === "overunder" && nav.overUnder) {
       const b = nav.overUnder;
+      if (b.barrier === 9) {
+        return {
+          side: b.rec === "HOLD" ? "HOLD" : `UNDER 9`,
+          conf: b.pUnder,
+          tone: "magenta",
+          source: "navigator",
+        };
+      }
+      if (b.barrier === 0) {
+        return {
+          side: b.rec === "HOLD" ? "HOLD" : `OVER 0`,
+          conf: b.pOver,
+          tone: "cyan",
+          source: "navigator",
+        };
+      }
+      if (b.deadZone) {
+        return {
+          side: `DEAD ZONE (${b.barrier})`,
+          conf: b.pTie,
+          tone: "magenta",
+          source: "navigator",
+        };
+      }
+      if (b.rec === "HOLD") {
+        const leadUnder = b.pUnder >= b.pOver;
+        return {
+          side: "HOLD",
+          conf: leadUnder ? b.pUnder : b.pOver,
+          tone: leadUnder ? "magenta" : "cyan",
+          source: "navigator",
+        };
+      }
       return b.rec === "UNDER"
         ? { side: `UNDER ${b.barrier}`, conf: b.pUnder, tone: "magenta", source: "navigator" }
         : { side: `OVER ${b.barrier}`, conf: b.pOver, tone: "cyan", source: "navigator" };
     }
+
     if (p.market === "evenodd" && nav.evenOdd) {
       const b = nav.evenOdd;
       return b.rec === "ODD"
