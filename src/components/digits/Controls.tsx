@@ -34,14 +34,19 @@ const MARKETS: { key: Market; label: string }[] = [
 ];
 
 
-const NAV_RULE_META: { key: keyof NavRuleToggles; label: string; thr?: keyof NavThresholds; suffix?: string }[] = [
+const NAV_RULE_META: { key: keyof NavRuleToggles; label: string; thr?: keyof NavThresholds; suffix?: string; step?: number }[] = [
   { key: "multiHit", label: "Multi-hit ≥2 (D)", thr: "multiHitPct", suffix: "%" },
   { key: "pairRun", label: "Pair/Run (d,d)", thr: "pairRunPct", suffix: "%" },
   { key: "landing", label: "Landing t+D", thr: "landingPct", suffix: "%" },
   { key: "freshness", label: "Fresh (anti-tired)" },
   { key: "parity", label: "Parity confluence", thr: "parityPct", suffix: "%" },
   { key: "barrier", label: "O/U confluence", thr: "barrierPct", suffix: "%" },
+  { key: "lowEntropy", label: "Low-entropy regime", thr: "entropyZMax", step: 0.1 },
+  { key: "antiRepeat", label: "Anti-repeat filter" },
+  { key: "frequencyEnvelope", label: "Freq envelope min%", thr: "frequencyMinPct", suffix: "%" },
+  { key: "markovD", label: "D-Step Markov", thr: "markovDPct", suffix: "%" },
 ];
+
 
 function ControlsImpl({ cfg, onChange, connected, onConnect, onDisconnect, armed, onToggleArm }: Props) {
   const setRule = (k: keyof RuleToggles, v: boolean) =>
