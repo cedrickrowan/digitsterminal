@@ -229,6 +229,137 @@ function buildNavRuleHits(
   thr: NavThresholds | undefined,
   parity: ParityBlock | null,
   ou: OverUnderBlock | null,
+  currDigit: number,
+  targetFreq: number,
+  bufferSize: number,
+  zRun: number,
+  pMarkovDTarget: number,
+): NavRuleHit[] {
+  const t = thr ?? NAV_THRESHOLDS_DEFAULT;
+  const on = (k: keyof NavRuleToggles) => !!rules?.[k];
+  const hits: NavRuleHit[] = [
+    {
+      rule: "multiHit",
+      label: NAV_RULE_LABELS.multiHit,
+      enabled: on("multiHit"),
+      pass: tm.multiHitProb >= t.multiHitPct / 100,
+      detail: `≥2 hits ${pctOf(tm.multiHitProb)} ≥ ${t.multiHitPct}%`,
+    },
+    {
+      rule: "pairRun",
+      label: NAV_RULE_LABELS.pairRun,
+      enabled: on("pairRun"),
+      pass: tm.pairProb >= t.pairRunPct / 100,
+      detail: `pair ${pctOf(tm.pairProb)} ≥ ${t.pairRunPct}%`,
+    },
+    {
+      rule: "landing",
+      label: NAV_RULE_LABELS.landing,
+      enabled: on("landing"),
+      pass: tm.landingProb >= t.landingPct / 100,
+      detail: `t+D ${pctOf(tm.landingProb)} ≥ ${t.landingPct}%`,
+    },
+    {
+      rule: "freshness",
+      label: NAV_RULE_LABELS.freshness,
+      enabled: on("freshness"),
+      pass: fresh,
+      detail: fresh ? "FRESH · anti-tired ok" : "TIRED · suppressed",
+    },
+  ];
+
+  // Parity confluence
+  const even = target % 2 === 0;
+  const pPar = parity ? (even ? parity.pEven : parity.pOdd) : 0;
+  hits.push({
+    rule: "parity",
+    label: NAV_RULE_LABELS.parity,
+    enabled: on("parity"),
+    pass: !!parity && pPar >= t.parityPct / 100,
+    detail: parity
+      ? `P(${even ? "EVEN" : "ODD"}) ${pctOf(pPar)} ≥ ${t.parityPct}%`
+      : "no parity block",
+  });
+
+  // Over/Under barrier confluence
+  let barrierPass = false;
+  let barrierDetail = "no O/U block";
+  if (ou) {
+    if (ou.barrier === 0) {
+      barrierPass = target > 0 && ou.rec === "OVER";
+      barrierDetail = `OVER 0 target ${target > 0 ? "ok" : "losing"}`;
+    } else if (ou.barrier === 9) {
+      barrierPass = target < 9 && ou.rec === "UNDER";
+      barrierDetail = `UNDER 9 target ${target < 9 ? "ok" : "losing"}`;
+    } else if (target === ou.barrier) {
+      barrierDetail = `digit = barrier ${ou.barrier} · tie zone`;
+    } else if (ou.deadZone) {
+      barrierDetail = `dead zone P(tie) ${pctOf(ou.pTie)} ≥ 10%`;
+    } else if (target > ou.barrier) {
+      barrierPass = ou.rec === "OVER" && ou.pOver >= t.barrierPct / 100;
+      barrierDetail = `OVER ${pctOf(ou.pOver)} ≥ ${t.barrierPct}%`;
+    } else {
+      barrierPass = ou.rec === "UNDER" && ou.pUnder >= t.barrierPct / 100;
+      barrierDetail = `UNDER ${pctOf(ou.pUnder)} ≥ ${t.barrierPct}%`;
+    }
+  }
+  hits.push({
+    rule: "barrier",
+    label: NAV_RULE_LABELS.barrier,
+    enabled: on("barrier"),
+    pass: barrierPass,
+    detail: barrierDetail,
+  });
+
+  // 1. Low-entropy regime
+  hits.push({
+    rule: "lowEntropy",
+    label: NAV_RULE_LABELS.lowEntropy,
+    enabled: on("lowEntropy"),
+    pass: zRun <= t.entropyZMax,
+    detail: `Z-run ${zRun.toFixed(2)} ≤ ${t.entropyZMax}`,
+  });
+
+  // 2. Anti-repeat filter
+  const isRepeat = target === currDigit;
+  hits.push({
+    rule: "antiRepeat",
+    label: NAV_RULE_LABELS.antiRepeat,
+    enabled: on("antiRepeat"),
+    pass: !isRepeat || on("pairRun"),
+    detail: isRepeat ? (on("pairRun") ? "repeat allowed by pairRun" : `repeat blocked (last = ${currDigit})`) : "no repeat ok",
+  });
+
+  // 3. Frequency envelope
+  const freqPct = bufferSize > 0 ? (targetFreq / bufferSize) * 100 : 10;
+  hits.push({
+    rule: "frequencyEnvelope",
+    label: NAV_RULE_LABELS.frequencyEnvelope,
+    enabled: on("frequencyEnvelope"),
+    pass: freqPct >= t.frequencyMinPct && freqPct <= t.frequencyMaxPct,
+    detail: `freq ${freqPct.toFixed(1)}% ∈ [${t.frequencyMinPct}%, ${t.frequencyMaxPct}%]`,
+  });
+
+  // 4. D-step Markov
+  const markovPct = pMarkovDTarget * 100;
+  hits.push({
+    rule: "markovD",
+    label: NAV_RULE_LABELS.markovD,
+    enabled: on("markovD"),
+    pass: markovPct >= t.markovDPct,
+    detail: `M^D ${markovPct.toFixed(1)}% ≥ ${t.markovDPct}%`,
+  });
+
+  return hits;
+}
+
+  target: number,
+  tm: DigitMetrics,
+  fresh: boolean,
+  rules: NavRuleToggles | undefined,
+  thr: NavThresholds | undefined,
+  parity: ParityBlock | null,
+  ou: OverUnderBlock | null,
 ): NavRuleHit[] {
   const t = thr ?? NAV_THRESHOLDS_DEFAULT;
   const on = (k: keyof NavRuleToggles) => !!rules?.[k];
@@ -838,6 +969,7 @@ export class DigitsEngine {
     const tm = digitMetrics[targetDigit];
     const targetFresh = freshPool.includes(targetDigit);
     const navRulesEnabled = !!input.navRules && Object.values(input.navRules).some(Boolean);
+       const pMarkovDTarget = this.TD[currOffset + targetDigit];
     const navRuleHits = buildNavRuleHits(
       targetDigit,
       tm,
@@ -846,7 +978,13 @@ export class DigitsEngine {
       input.navThresholds,
       evenOdd,
       overUnder,
+      currDigit,
+      this.freq100[targetDigit],
+      N,
+      zRun,
+      pMarkovDTarget,
     );
+ 
     const matchesReady = navRulesEnabled
       ? navRuleHits.every((h) => !h.enabled || h.pass)
       : tm.multiHitProb >= NAV_MULTI_HIT_FLOOR && targetFresh;
@@ -854,13 +992,22 @@ export class DigitsEngine {
     // 9. Alert decision — dual ping gates + market-aware probability floors.
     //    Manual-only: the engine never purchases; the UI rings a 700 ms
     //    human-response countdown.
-    let alertDecision: EngineResult["alertDecision"] = "HOLD / NO SIGNAL";
+        let alertDecision: EngineResult["alertDecision"] = "HOLD / NO SIGNAL";
     if (!pingOk) {
       alertDecision = "HOLD / UNSAFE LATENCY";
     } else if (market === "matches") {
       if (matchesReady) alertDecision = "READY / MANUAL ALERT";
       else if (navRulesEnabled) alertDecision = "HOLD / RULES NOT MET";
+    } else if (market === "differs") {
+      const differsCeiling = (input.navThresholds?.differsProbabilityCeilingPct ?? 12) / 100;
+      const differsColdGapMin = input.navThresholds?.differsColdGapMin ?? 5;
+      const targetLanding = tm.landingProb;
+      const targetColdGap = N - 1 - (this.buffer.lastIndexOf(targetDigit));
+      const differsReady = targetLanding <= differsCeiling && targetColdGap >= differsColdGapMin;
+      if (differsReady) alertDecision = "READY / MANUAL ALERT";
+      else alertDecision = "HOLD / RULES NOT MET";
     } else if (market === "overunder") {
+
       if (overUnder?.deadZone) alertDecision = "HOLD / DEAD ZONE";
       else if (overUnder && overUnder.rec !== "HOLD" && marketEdge >= NAV_EDGE_FLOOR)
         alertDecision = "READY / MANUAL ALERT";
@@ -934,7 +1081,98 @@ export class DigitsEngine {
    *  P(Over) = Σ_{d>barrier} [M^D]_{s0,d}, P(Under) = Σ_{d<barrier} [M^D]_{s0,d},
    *  tie risk P(d = barrier) with a 10% dead-zone filter, and micro-window
    *  momentum (ΔP) for each side against the full-buffer baseline. */
-  private computeOverUnder(currOffset: number, barrier: number): OverUnderBlock {
+   private computeOverUnder(currOffset: number, barrier: number): OverUnderBlock {
+    const N = this.bufferSize;
+    let rawOver = 0.0;
+    let rawUnder = 0.0;
+    for (let d = 0; d < 10; d++) {
+      const p = this.TD[currOffset + d];
+      if (d > barrier) rawOver += p;
+      else if (d < barrier) rawUnder += p;
+    }
+    const pTie = this.TD[currOffset + barrier];
+    
+    // Exact contract probabilities (without inflating out the tie)
+    const pOver = rawOver;
+    const pUnder = rawUnder;
+
+    let baseOverCount = 0;
+    let baseUnderCount = 0;
+    for (let d = 0; d < 10; d++) {
+      if (d > barrier) baseOverCount += this.freq100[d];
+      else if (d < barrier) baseUnderCount += this.freq100[d];
+    }
+    const baselineOver = N > 0 ? baseOverCount / N : 0;
+    const baselineUnder = N > 0 ? baseUnderCount / N : 0;
+
+    let microOverCount = 0;
+    let microUnderCount = 0;
+    for (let d = 0; d < 10; d++) {
+      if (d > barrier) microOverCount += this.freqMicro[d];
+      else if (d < barrier) microUnderCount += this.freqMicro[d];
+    }
+    const microOver = this.microWindow > 0 ? microOverCount / this.microWindow : 0;
+    const microUnder = this.microWindow > 0 ? microUnderCount / this.microWindow : 0;
+    const momentumOver = microOver - baselineOver;
+    const momentumUnder = microUnder - baselineUnder;
+
+    // Boundaries 0 and 9 are 2-way contracts that bypass the tie dead-zone
+    const deadZone = (barrier === 0 || barrier === 9) ? false : pTie >= NAV_TIE_DEAD_ZONE;
+    let rec: OverUnderBlock["rec"] = "HOLD";
+    let prob = 0;
+    let velocity = 0;
+
+    if (!deadZone) {
+      if (barrier === 0) {
+        // Boundary 0: Deriv allows Over 0 only (digits 1-9 win, 0 loses)
+        if (momentumOver >= 0 && pOver >= baselineOver) {
+          rec = "OVER";
+          prob = pOver;
+          velocity = momentumOver;
+        }
+      } else if (barrier === 9) {
+        // Boundary 9: Deriv allows Under 9 only (digits 0-8 win, 9 loses)
+        if (momentumUnder >= 0 && pUnder >= baselineUnder) {
+          rec = "UNDER";
+          prob = pUnder;
+          velocity = momentumUnder;
+        }
+      } else {
+        // Middle barriers 1..8: 3-way probabilities (Tie loses both sides)
+        const overScore = pOver + Math.max(0, momentumOver);
+        const underScore = pUnder + Math.max(0, momentumUnder);
+        if (overScore >= underScore) {
+          rec = "OVER";
+          prob = pOver;
+          velocity = momentumOver;
+        } else {
+          rec = "UNDER";
+          prob = pUnder;
+          velocity = momentumUnder;
+        }
+        // Flat market guard: no edge and no momentum separation → hold
+        if (Math.abs(pOver - pUnder) < 0.01 && Math.abs(momentumOver - momentumUnder) < 0.03) {
+          rec = "HOLD";
+        }
+      }
+    }
+
+    return {
+      barrier,
+      pOver,
+      pUnder,
+      pTie,
+      baselineOver,
+      baselineUnder,
+      deadZone,
+      momentumOver,
+      momentumUnder,
+      rec,
+      prob,
+      velocity,
+    };
+  }
+ 
     const N = this.bufferSize;
     let rawOver = 0.0;
     let rawUnder = 0.0;
