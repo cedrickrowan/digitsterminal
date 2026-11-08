@@ -929,11 +929,26 @@ export class DigitsEngine {
       const differsReady = targetLanding <= differsCeiling && targetColdGap >= differsColdGapMin;
       if (differsReady) alertDecision = "READY / MANUAL ALERT";
       else alertDecision = "HOLD / RULES NOT MET";
-    } else if (market === "overunder") {
+        } else if (market === "overunder") {
+      if (overUnder?.deadZone) {
+        alertDecision = "HOLD / DEAD ZONE";
+      } else if (overUnder && overUnder.rec !== "HOLD") {
+        if (barrier === 0 || barrier === 9) {
+          // Boundary 2-way contracts: ready if losing digit < 10% and probability >= 85%
+          if (overUnder.pTie < NAV_TIE_DEAD_ZONE && overUnder.prob >= 0.85) {
+            alertDecision = "READY / MANUAL ALERT";
+          }
+        } else {
+          // Middle 3-way contracts: Imbalance trigger (P > 65% and P(Tie) < 7%) OR edge >= 8%
+          const isImbalance = overUnder.prob > 0.65 && overUnder.pTie < 0.07;
+          const isEdgeOk = marketEdge >= NAV_EDGE_FLOOR && overUnder.pTie < NAV_TIE_DEAD_ZONE;
+          if (isImbalance || isEdgeOk) {
+            alertDecision = "READY / MANUAL ALERT";
+          }
+        }
+      }
+    }
 
-      if (overUnder?.deadZone) alertDecision = "HOLD / DEAD ZONE";
-      else if (overUnder && overUnder.rec !== "HOLD" && marketEdge >= NAV_EDGE_FLOOR)
-        alertDecision = "READY / MANUAL ALERT";
     } else if (market === "evenodd") {
       if (evenOdd && evenOdd.rec !== "HOLD" && marketEdge >= NAV_EDGE_FLOOR) alertDecision = "READY / MANUAL ALERT";
     } else if (market === "risefall") {
