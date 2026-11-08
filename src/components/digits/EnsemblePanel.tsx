@@ -44,6 +44,11 @@ function Bar({ label, value, side }: { label: string; value: number; side: "left
 function decisionFor(p: Props): { side: string; conf: number; tone: "cyan" | "magenta"; source: "navigator" | "legacy" } {
   const nav = p.nav;
   if (nav) {
+    if (p.market === "differs") {
+      const target = p.predictDigit;
+      const landing = nav.digits[target]?.landingProb ?? 0.1;
+      return { side: `DIFFERS ${target}`, conf: 1 - landing, tone: "magenta", source: "navigator" };
+    }
     if (p.market === "overunder" && nav.overUnder) {
       const b = nav.overUnder;
       return b.rec === "UNDER"
@@ -62,12 +67,20 @@ function decisionFor(p: Props): { side: string; conf: number; tone: "cyan" | "ma
         ? { side: "FALL", conf: b.pFall, tone: "magenta", source: "navigator" }
         : { side: "RISE", conf: b.pRise, tone: "cyan", source: "navigator" };
     }
-    // The fusion card shows the engine's current landing top-pick; the selected
-    // digit remains in its dedicated card immediately below.
     return { side: `MATCH ${nav.topTargetDigit}`, conf: nav.topTargetProb, tone: "cyan", source: "navigator" };
   }
   // Legacy fallback (navigator still seeding).
   switch (p.market) {
+    case "differs": {
+      const target = p.predictDigit;
+      const prob = p.ensemble.posterior[target] ?? 0.1;
+      return {
+        side: `DIFFERS ${target}`,
+        conf: 1 - prob,
+        tone: "magenta",
+        source: "legacy",
+      };
+    }
     case "overunder": {
       const pOver = 1 - p.ensemble.posterior.slice(0, p.barrier + 1).reduce((a, b) => a + b, 0);
       return pOver >= 0.5
@@ -95,6 +108,7 @@ function decisionFor(p: Props): { side: string; conf: number; tone: "cyan" | "ma
     }
   }
 }
+
 
 function EnsemblePanelImpl(p: Props) {
   const dir = decisionFor(p);
