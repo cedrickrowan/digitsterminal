@@ -213,7 +213,8 @@ export default function DigitsApp() {
         now: performance.now(),
         gapBudgetMs: currentGapBudget,
       });
-      if (
+           if (
+        !armedRef.current ||
         !currentNav ||
         !isNavigatorAlertEligible(currentNav, currentCfg, feedSafe, totalTicksRef.current) ||
         elapsedSinceReady >= (currentNav.executionCutoffMs ?? 700) ||
@@ -224,6 +225,7 @@ export default function DigitsApp() {
         nextFireAtRef.current = 0;
         return;
       }
+
       const actual = performance.now();
       const variance = actual - target;
       beep();
@@ -331,15 +333,18 @@ export default function DigitsApp() {
           : nav;
         navResultRef.current = displayNav;
         setNavResult(displayNav);
-        if (ready) {
+                if (ready) {
           // A fresh worker result for a new tick starts a fresh response window.
           navReadyAtRef.current = performance.now();
           alertTickIdRef.current = nav?.tickId ?? 0;
           navWasReadyRef.current = true;
-          setFlash(true);
-          scheduleLeadUpFire();
-          window.setTimeout(() => setFlash(false), Math.max(0, (nav?.executionCutoffMs ?? 700) - (performance.now() - navReadyAtRef.current)));
+          if (armedRef.current) {
+            setFlash(true);
+            scheduleLeadUpFire();
+            window.setTimeout(() => setFlash(false), Math.max(0, (nav?.executionCutoffMs ?? 700) - (performance.now() - navReadyAtRef.current)));
+          }
         }
+
         if (ready && !wasReady) {
           // New READY alert: start the strict 700 ms human-response window,
           // visual flash for the whole window + the SINGLE lead-up beep
