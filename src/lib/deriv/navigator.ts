@@ -899,7 +899,21 @@ export class DigitsEngine {
     const tm = digitMetrics[targetDigit];
     const targetFresh = freshPool.includes(targetDigit);
     const navRulesEnabled = !!input.navRules && Object.values(input.navRules).some(Boolean);
-       const pMarkovDTarget = this.TD[currOffset + targetDigit];
+           // Bias-corrected Shannon Entropy Z-score over the buffer
+    let shannonH = 0;
+    let observedBins = 0;
+    for (let d = 0; d < 10; d++) {
+      if (this.freq100[d] > 0) {
+        observedBins++;
+        const p = this.freq100[d] / N;
+        shannonH -= p * Math.log2(p);
+      }
+    }
+    const mmCorr = (observedBins - 1) / (2 * N * Math.LN2);
+    const hMax = Math.log2(10);
+    const hStd = Math.sqrt(4.5) / (N * Math.LN2);
+    const entropyZ = hStd > 0 ? (shannonH + mmCorr - hMax) / hStd : 0;
+    const pMarkovDTarget = this.TD[currOffset + targetDigit];
     const navRuleHits = buildNavRuleHits(
       targetDigit,
       tm,
@@ -911,10 +925,10 @@ export class DigitsEngine {
       currDigit,
       this.freq100[targetDigit],
       N,
-      zRun,
+      entropyZ,
       pMarkovDTarget,
     );
- 
+
     const matchesReady = navRulesEnabled
       ? navRuleHits.every((h) => !h.enabled || h.pass)
       : tm.multiHitProb >= NAV_MULTI_HIT_FLOOR && targetFresh;
@@ -1065,8 +1079,11 @@ export class DigitsEngine {
     const momentumOver = microOver - baselineOver;
     const momentumUnder = microUnder - baselineUnder;
 
-    // Dead Zone Filter: Any barrier tie (or single boundary losing digit) >= 10% blocks trades
-    const deadZone = pTie >= NAV_TIE_DEAD_ZONE;
+        // Dead Zone Filter:
+    // - 3-way middle barriers (1..8): block if barrier tie >= 10% (lose-lose risk)
+    // - 2-way boundaries (0 & 9): block only if losing digit >= 15% (keeps <85% win rate out)
+    const isBoundary = barrier === 0 || barrier === 9;
+    const deadZone = isBoundary ? pTie >= 0.15 : pTie >= NAV_TIE_DEAD_ZONE;
     let rec: OverUnderBlock["rec"] = "HOLD";
     let prob = 0;
     let velocity = 0;
@@ -1186,7 +1203,7 @@ export class DigitsEngine {
    *  Tracks baseline vs micro-window up/down fractions (momentum) and the
    *  current directional run length. */
   private computeDirection(): DirectionBlock {
-    const total = this.deltaCount;
+    const total = Math.min(this.deltaCount, 64);
     const flat: DirectionBlock = {
       pRise: 0.5,
       pFall: 0.5,
