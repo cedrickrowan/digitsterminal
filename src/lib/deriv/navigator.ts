@@ -850,7 +850,7 @@ export class DigitsEngine {
     const actualRtt = input.rttMs ?? Number.POSITIVE_INFINITY;
     const pingOk = Number.isFinite(actualRtt) && actualRtt < pingThresholdMs;
 
-    // 8c. Consolidated market view: action, edge vs random baseline, score.
+        // 8c. Consolidated market view: action, edge vs random baseline, score.
     let marketAction = "";
     let marketEdge = 0;
     let marketScore = 0;
@@ -877,6 +877,14 @@ export class DigitsEngine {
         marketEdge = riseFall.prob - 0.5;
         marketScore = Math.max(0, marketEdge);
       }
+    } else if (market === "differs") {
+      const selectedTarget = clamp(Math.round(input.predictDigit ?? 0), 0, 9);
+      const targetLanding = digitMetrics[selectedTarget].landingProb;
+      const pDiffers = 1.0 - targetLanding;
+      marketAction = `DIFFERS ${selectedTarget}`;
+      marketRecProb = pDiffers;
+      marketEdge = pDiffers - 0.90;
+      marketScore = Math.max(0, marketEdge);
     } else {
       // Matches — the multi-hit engine stays the decision core.
       marketAction = `DIGIT ${topPick}`;
@@ -884,7 +892,6 @@ export class DigitsEngine {
       marketEdge = digitMetrics[topPick].multiHitProb;
       marketScore = marketEdge;
     }
-
     // 8d. Navigator trigger rules — evaluated for the USER-SELECTED digit
     //     (Matches alerts target cfg.predictDigit, never an autonomous
     //     top-pick). All enabled rules must pass (strict AND).
