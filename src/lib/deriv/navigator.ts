@@ -311,7 +311,7 @@ function buildNavRuleHits(
     detail: barrierDetail,
   });
 
-    // 1. Low-entropy regime (bias-corrected Shannon Entropy Z-score)
+  // 1. Low-entropy regime (bias-corrected Shannon Entropy Z-score)
   hits.push({
     rule: "lowEntropy",
     label: NAV_RULE_LABELS.lowEntropy,
