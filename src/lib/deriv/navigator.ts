@@ -128,7 +128,8 @@ export interface EngineResult {
   amiBits: number; // lag-D AMI (draft semantics)
   amiLags: number[]; // AMI for lags 1..7 (blueprint, capped by buffer size)
   lzwRatio: number; // LZW dictionary phrases / N (blueprint)
-  cusum: number; // Page-Hinkley accumulator
+  hurstH: number; // Rescaled-range Hurst exponent (0.50 = Brownian noise)
+  cusum: number; // Page-Hinkley accumulator 
   cusumShift: boolean; // structural regime shift detected this tick
   regime: "BALANCED_RANDOM" | "PARITY_CLUSTERING" | "MEAN_REVERTING";
   adaptiveKlThreshold: number;
@@ -190,6 +191,7 @@ export const NAV_RULE_LABELS: Record<keyof NavRuleToggles, string> = {
   antiRepeat: "Anti-Repeat",
   frequencyEnvelope: "Frequency Envelope",
   markovD: "Markov D-Step",
+  hurstFilter: "Hurst Non-Random (H)",
 };
 
 /** Fallback thresholds when the caller supplies none (percent). */
@@ -205,8 +207,8 @@ export const NAV_THRESHOLDS_DEFAULT: NavThresholds = {
   markovDPct: 12,
   differsProbabilityCeilingPct: 12,
   differsColdGapMin: 5,
+  hurstMinEdge: 0.05,
 };
-
 
 /** One Navigator trigger-rule evaluation line for the UI checklist. */
 export interface NavRuleHit {
@@ -232,8 +234,9 @@ function buildNavRuleHits(
   currDigit: number,
   targetFreq: number,
   bufferSize: number,
-  entropyZ: number,
+   entropyZ: number,
   pMarkovDTarget: number,
+  hurstH: number,
 ): NavRuleHit[] {
   const t = thr ?? NAV_THRESHOLDS_DEFAULT;
   const on = (k: keyof NavRuleToggles) => !!rules?.[k];
@@ -340,7 +343,7 @@ function buildNavRuleHits(
     detail: `freq ${freqPct.toFixed(1)}% ∈ [${t.frequencyMinPct}%, ${t.frequencyMaxPct}%]`,
   });
 
-  // 4. D-step Markov
+   // 4. D-step Markov
   const markovPct = pMarkovDTarget * 100;
   hits.push({
     rule: "markovD",
@@ -350,9 +353,21 @@ function buildNavRuleHits(
     detail: `M^D ${markovPct.toFixed(1)}% ≥ ${t.markovDPct}%`,
   });
 
+  // 5. Hurst Exponent Non-Randomness Filter (blocks H ≈ 0.50 pure noise)
+  const hurstEdge = Math.abs(hurstH - 0.5);
+  const minEdge = t.hurstMinEdge ?? 0.05;
+  const regimeTag = hurstH > 0.5 ? "persistent" : hurstH < 0.5 ? "mean-rev" : "noise";
+  hits.push({
+    rule: "hurstFilter",
+    label: NAV_RULE_LABELS.hurstFilter,
+    enabled: on("hurstFilter"),
+    pass: hurstEdge >= minEdge,
+    detail: `H=${hurstH.toFixed(2)} (${regimeTag} · |Δ|=${hurstEdge.toFixed(2)} ≥ ${minEdge.toFixed(2)})`,
+  });
+
   return hits;
 }
-
+ 
 const clamp = (x: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, x));
 
 export class DigitsEngine {
@@ -633,8 +648,40 @@ export class DigitsEngine {
         w = c;
       }
     }
-    if (w >= 0) phrases++;
+        if (w >= 0) phrases++;
     return phrases / N;
+  }
+
+  /** Fast Rescaled-Range (R/S) Hurst Exponent over the active digit buffer.
+   *  H ≈ 0.50 = pure random walk; H > 0.55 = trending/persistent; H < 0.45 = mean-reverting. */
+  private computeHurst(): number {
+    const N = this.bufferSize;
+    if (N < 16) return 0.5;
+
+    let mean = 0;
+    for (let i = 0; i < N; i++) mean += this.buffer[i];
+    mean /= N;
+
+    let cumDev = 0;
+    let minCum = 0;
+    let maxCum = 0;
+    let sqSum = 0;
+
+    for (let i = 0; i < N; i++) {
+      const diff = this.buffer[i] - mean;
+      cumDev += diff;
+      if (cumDev < minCum) minCum = cumDev;
+      if (cumDev > maxCum) maxCum = cumDev;
+      sqSum += diff * diff;
+    }
+
+    const range = maxCum - minCum;
+    const stdDev = Math.sqrt(sqSum / N);
+    if (stdDev <= 1e-9 || range <= 1e-9) return 0.5;
+
+    const rs = range / stdDev;
+    const h = Math.log(rs) / Math.log(N * 0.5);
+    return clamp(h, 0.05, 0.95);
   }
 
   /** Live tick entry point: push digit + price, then run the full engine. */
@@ -742,6 +789,7 @@ export class DigitsEngine {
 
     // 6b. LZW compression ratio (blueprint §6.5)
     const lzw = this.lzwRatio();
+    const hurstH = this.computeHurst();
 
     // 6c. CUSUM / Page-Hinkley regime-shift monitor (blueprint §6.6).
     //     S_k = max(0, S_{k-1} + (X_k − μ − allowance)); shift when S_k > h.
@@ -927,6 +975,7 @@ export class DigitsEngine {
       N,
       entropyZ,
       pMarkovDTarget,
+      hurstH,
     );
 
     const matchesReady = navRulesEnabled
@@ -1007,6 +1056,7 @@ export class DigitsEngine {
       amiBits,
       amiLags,
       lzwRatio: lzw,
+      hurstH,
       cusum: this.cusumAcc,
       cusumShift,
       regime,
