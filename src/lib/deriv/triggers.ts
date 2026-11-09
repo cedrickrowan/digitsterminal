@@ -21,19 +21,20 @@ export interface RuleHit {
   detail: string;
 }
 
-/** Number of trigger rules the user has switched on. */
+/** Number of legacy trigger rules the user has switched on. */
 export function enabledRuleCount(cfg: AppConfig): number {
   return Object.values(cfg.rules).filter(Boolean).length;
 }
 
-/** True only when EVERY enabled rule fired on this window (strict AND). */
+/** True only when EVERY enabled legacy rule fired on this window (strict AND).
+ *  If no legacy rules are enabled, they do not block (returns true). */
 export function allRulesAgree(cfg: AppConfig, hits: RuleHit[]): boolean {
-  const enabled = enabledRuleCount(cfg);
-  if (enabled === 0) return false;
-  const fired = new Set(hits.map((h) => h.rule));
-  return (Object.keys(cfg.rules) as Array<keyof AppConfig["rules"]>).every(
-    (k) => !cfg.rules[k] || fired.has(k),
+  const enabledKeys = (Object.keys(cfg.rules) as Array<keyof AppConfig["rules"]>).filter(
+    (k) => cfg.rules[k],
   );
+  if (enabledKeys.length === 0) return true;
+  const fired = new Set(hits.map((h) => h.rule));
+  return enabledKeys.every((k) => fired.has(k));
 }
 
 export function evaluateRules({ window, cfg }: RuleContext): RuleHit[] {
