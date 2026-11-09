@@ -232,7 +232,7 @@ function buildNavRuleHits(
   currDigit: number,
   targetFreq: number,
   bufferSize: number,
-  zRun: number,
+  entropyZ: number,
   pMarkovDTarget: number,
 ): NavRuleHit[] {
   const t = thr ?? NAV_THRESHOLDS_DEFAULT;
@@ -311,13 +311,13 @@ function buildNavRuleHits(
     detail: barrierDetail,
   });
 
-  // 1. Low-entropy regime
+    // 1. Low-entropy regime (bias-corrected Shannon Entropy Z-score)
   hits.push({
     rule: "lowEntropy",
     label: NAV_RULE_LABELS.lowEntropy,
     enabled: on("lowEntropy"),
-    pass: zRun <= t.entropyZMax,
-    detail: `Z-run ${zRun.toFixed(2)} ≤ ${t.entropyZMax}`,
+    pass: entropyZ <= t.entropyZMax,
+    detail: `H-Z ${entropyZ.toFixed(2)} ≤ ${t.entropyZMax}`,
   });
 
   // 2. Anti-repeat filter
