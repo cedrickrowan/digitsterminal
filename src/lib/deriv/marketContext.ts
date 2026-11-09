@@ -174,15 +174,21 @@ export function buildSignalRouter(
 ): SignalRouterPayload {
   let alpha = 0;
   for (let i = 1; i < 10; i++) if (posterior[i] > posterior[alpha]) alpha = i;
-  // Over/Under boundary at the highest cumulative probability ≥ 0.75.
+    // Over/Under boundary at the highest cumulative probability ≥ 0.75 (3-way aware).
   let target: SignalRouterPayload["matrixTarget"] = null;
-  for (let b = 0; b <= 8; b++) {
+  for (let b = 0; b <= 9; b++) {
     let over = 0;
     for (let i = b + 1; i < 10; i++) over += posterior[i];
-    const under = 1 - over;
-    if (over >= 0.75 && (!target || over > target.probability)) {
+    let under = 0;
+    for (let i = 0; i < b; i++) under += posterior[i];
+    const tie = posterior[b] ?? 0;
+
+    // Skip dead-zone barriers where landing on the barrier has >= 10% lose-lose risk
+    if (tie >= 0.10) continue;
+
+    if (b < 9 && over >= 0.75 && (!target || over > target.probability)) {
       target = { boundary: b, side: "OVER", probability: over };
-    } else if (under >= 0.75 && (!target || under > target.probability)) {
+    } else if (b > 0 && under >= 0.75 && (!target || under > target.probability)) {
       target = { boundary: b, side: "UNDER", probability: under };
     }
   }
