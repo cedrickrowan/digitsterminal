@@ -334,9 +334,14 @@ export default function DigitsApp() {
         const legacyHitsNow = winNow.length >= 10 ? evaluateRules({ window: winNow, cfg: currentCfg }) : [];
         const legacyPassNow = allRulesAgree(currentCfg, legacyHitsNow);
         const ready = isNavigatorAlertEligible(nav, currentCfg, feedSafe, totalTicksRef.current, legacyPassNow);
-        const displayNav = nav && !feedSafe && nav.alertDecision === "READY / MANUAL ALERT"
-          ? { ...nav, alertDecision: "HOLD / UNSAFE LATENCY" as const }
-          : nav;
+        const displayNav =
+  nav && !feedSafe && nav.alertDecision === "READY / MANUAL ALERT"
+    ? { ...nav, alertDecision: "HOLD / UNSAFE LATENCY" as const }
+    : nav &&
+        !legacyPassNow &&
+        nav.alertDecision === "READY / MANUAL ALERT"
+      ? { ...nav, alertDecision: "HOLD / RULES NOT MET" as const }
+      : nav;
         navResultRef.current = displayNav;
         setNavResult(displayNav);
                 if (ready) {
