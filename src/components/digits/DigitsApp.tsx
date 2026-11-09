@@ -1164,7 +1164,7 @@ function cadenceOf(symbol: string, median: number): number {
   return Math.min(exp * 2, Math.max(exp * 0.5, median));
 }
 
-/** Alert ping ceiling: 1s indices < 500ms, plain indices < 1000ms. */
+/** Alert ping ceiling: 1s indices < 350ms, plain indices < 500ms. */
 function pingLimitFor(symbol: string): number {
-  return /^1HZ\d+V$/.test(symbol) ? 500 : 1000;
+  return /^1HZ\d+V$/.test(symbol) ? 350 : 500;
 }
