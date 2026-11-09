@@ -207,12 +207,15 @@ export function splitStats(window: number[]) {
   };
 }
 
-// Over/Under probability vs a barrier (digit > barrier vs <=)
+// 3-way Over/Under probability vs a barrier (Over: > barrier, Under: < barrier, Tie: === barrier loses both)
 export function overUnder(freq: number[], n: number, barrier: number) {
-  if (n === 0) return { pOver: 0, pUnder: 0 };
+  if (n === 0) return { pOver: 0, pUnder: 0, pTie: 0 };
   let over = 0;
+  let under = 0;
   for (let i = barrier + 1; i < 10; i++) over += freq[i];
-  return { pOver: over / n, pUnder: 1 - over / n };
+  for (let i = 0; i < barrier; i++) under += freq[i];
+  const tie = barrier >= 0 && barrier <= 9 ? (freq[barrier] ?? 0) : 0;
+  return { pOver: over / n, pUnder: under / n, pTie: tie / n };
 }
 
 // Rise / Fall direction over last K closes (proxy from digit trend baseline 4.5).
