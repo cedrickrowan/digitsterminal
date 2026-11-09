@@ -56,10 +56,12 @@ export function isNavigatorAlertEligible(
   config: AlertDecisionConfig,
   feedSafe: boolean,
   currentTickId?: number,
+  legacyRulesPass = true,
 ): boolean {
   if (
     !result ||
     !feedSafe ||
+    !legacyRulesPass ||
     result.alertDecision !== "READY / MANUAL ALERT" ||
     result.symbol !== config.symbol ||
     result.market !== config.market ||
