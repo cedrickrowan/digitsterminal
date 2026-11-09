@@ -1014,15 +1014,25 @@ export default function DigitsApp() {
           nextTickInMs={countdownMs}
           purchaseInMs={purchaseInMs}
         />
-        <PredictedDigit
-          digit={cfg.market === "matches" ? cfg.predictDigit : context.topDigit}
+                <PredictedDigit
+          digit={cfg.market === "matches" || cfg.market === "differs" ? cfg.predictDigit : context.topDigit}
           entryPrice={openEntry?.price ?? null}
           lastPrice={lastPrice}
           pip={pip}
           matched={matched}
           armed={armed}
-          confidence={Math.min(1, (context.weighted[cfg.market === "matches" ? cfg.predictDigit : context.topDigit] ?? 0) * (engineReport?.confidenceAdjust ?? 1))}
-          highlight={cfg.market === "matches" && (context.weighted[cfg.predictDigit] ?? 0) * (engineReport?.confidenceAdjust ?? 1) >= 0.7}
+          confidence={
+            cfg.market === "differs" && navResult?.digits[cfg.predictDigit]
+              ? 1 - navResult.digits[cfg.predictDigit].landingProb
+              : Math.min(1, (context.weighted[cfg.market === "matches" ? cfg.predictDigit : context.topDigit] ?? 0) * (engineReport?.confidenceAdjust ?? 1))
+          }
+          highlight={
+            cfg.market === "matches"
+              ? (context.weighted[cfg.predictDigit] ?? 0) * (engineReport?.confidenceAdjust ?? 1) >= 0.7
+              : cfg.market === "differs" && navResult?.digits[cfg.predictDigit]
+                ? 1 - navResult.digits[cfg.predictDigit].landingProb >= 0.92
+                : false
+          }
         />
         <NavigatorPanel
           result={navResult}
