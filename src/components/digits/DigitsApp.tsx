@@ -330,7 +330,10 @@ export default function DigitsApp() {
           gapBudgetMs: currentGapBudget,
         });
         const wasReady = navWasReadyRef.current;
-        const ready = isNavigatorAlertEligible(nav, currentCfg, feedSafe, totalTicksRef.current);
+        const winNow = bufRef.current ? bufRef.current.lastN(currentCfg.lookback) : [];
+        const legacyHitsNow = winNow.length >= 10 ? evaluateRules({ window: winNow, cfg: currentCfg }) : [];
+        const legacyPassNow = allRulesAgree(currentCfg, legacyHitsNow);
+        const ready = isNavigatorAlertEligible(nav, currentCfg, feedSafe, totalTicksRef.current, legacyPassNow);
         const displayNav = nav && !feedSafe && nav.alertDecision === "READY / MANUAL ALERT"
           ? { ...nav, alertDecision: "HOLD / UNSAFE LATENCY" as const }
           : nav;
