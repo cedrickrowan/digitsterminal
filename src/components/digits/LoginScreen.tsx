@@ -46,7 +46,7 @@ function LoginScreen({ onSuccess }: { onSuccess: () => void }) {
       setErr(null);
       onSuccess();
     } else {
-      setErr("Access Denied: Invalid credentials. Please contact the administrator.");
+      setErr("Access Denied: Invalid credentials. Please contact the administrator +254710596268.");
     }
   };
 
