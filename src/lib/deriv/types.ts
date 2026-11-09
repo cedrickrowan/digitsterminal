@@ -29,8 +29,10 @@ export interface NavRuleToggles {
   barrier: boolean;
   lowEntropy: boolean;
   antiRepeat: boolean;
-  frequencyEnvelope: boolean;
+    frequencyEnvelope: boolean;
   markovD: boolean;
+  /** Hurst Exponent non-randomness filter: |H - 0.5| >= hurstMinEdge. */
+  hurstFilter: boolean;
 }
 
 /** Percent thresholds for the Navigator trigger rules. */
@@ -44,8 +46,10 @@ export interface NavThresholds {
   frequencyMinPct: number;
   frequencyMaxPct: number;
   markovDPct: number;
-  differsProbabilityCeilingPct: number;
+    differsProbabilityCeilingPct: number;
   differsColdGapMin: number;
+  /** Minimum deviation from H = 0.50 random walk (default 0.05 -> H <= 0.45 or H >= 0.55). */
+  hurstMinEdge: number;
 }
 
 export interface AppConfig {
@@ -129,7 +133,9 @@ export const DEFAULT_CONFIG: AppConfig = {
     antiRepeat: false,
     frequencyEnvelope: false,
     markovD: false,
+    hurstFilter: false,
   },
+
   navThresholds: {
     multiHitPct: 7,
     pairRunPct: 3,
@@ -142,8 +148,8 @@ export const DEFAULT_CONFIG: AppConfig = {
     markovDPct: 12,
     differsProbabilityCeilingPct: 12,
     differsColdGapMin: 5,
+    hurstMinEdge: 0.05,
   },
-};
 
 // Verified live against Deriv (app_id 1089). 1HZ200V / 1HZ300V are not offered.
 export const SYMBOLS = [
