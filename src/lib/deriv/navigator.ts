@@ -209,6 +209,7 @@ export const NAV_RULE_LABELS: Record<keyof NavRuleToggles, string> = {
   frequencyEnvelope: "Freq envelope min%",
   markovD: "Markov D-Step",
   hurstFilter: "Hurst Non-Random (H)",
+  macroConfluence: "Macro Confluence Gate",
 };
 
 /** Fallback thresholds when the caller supplies none (percent). */
