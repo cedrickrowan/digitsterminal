@@ -992,7 +992,7 @@ export class DigitsEngine {
     // Rank candidates STRICTLY by exact multi-appearance probability
     const eligiblePool = freshPool.slice();
     eligiblePool.sort((a, b) => digitMetrics[b].multiHitProb - digitMetrics[a].multiHitProb);
-    const topPick = eligiblePool.length > 0 ? eligiblePool[0] : digitMetrics[0].digit;
+    const topPick = eligiblePool.length > 0 ? eligiblePool[0] : 0;
     if (freshPool.includes(topPick)) digitMetrics[topPick].status = "TOP_PICK";
 
     // Market Regime Classification
