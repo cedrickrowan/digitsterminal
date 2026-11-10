@@ -150,7 +150,7 @@ export const DEFAULT_CONFIG: AppConfig = {
     differsColdGapMin: 5,
     hurstMinEdge: 0.05,
   },
-
+};
 // Verified live against Deriv (app_id 1089). 1HZ200V / 1HZ300V are not offered.
 export const SYMBOLS = [
   { value: "R_10", label: "Volatility 10" },
