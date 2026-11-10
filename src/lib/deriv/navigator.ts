@@ -1078,6 +1078,8 @@ export class DigitsEngine {
     const hStd = Math.sqrt(4.5) / (N * Math.LN2);
     const entropyZ = hStd > 0 ? (shannonH + mmCorr - hMax) / hStd : 0;
     const pMarkovDTarget = this.TD[currOffset + targetDigit];
+    const pMarkov1Target = this.T1[currOffset + targetDigit];
+    const win = Array.from(this.buffer.subarray(0, N));
     const navRuleHits = buildNavRuleHits(
       targetDigit,
       tm,
@@ -1092,11 +1094,12 @@ export class DigitsEngine {
       entropyZ,
       pMarkovDTarget,
       hurstH,
+      win,
+      D,
+      pMarkov1Target,
     );
 
-    const matchesReady = navRulesEnabled
-      ? navRuleHits.every((h) => !h.enabled || h.pass)
-      : tm.multiHitProb >= NAV_MULTI_HIT_FLOOR && targetFresh;
+    const matchesReady = navRulesEnabled && navRuleHits.every((h) => !h.enabled || h.pass);
 
     // 9. Alert decision — dual ping gates + market-aware probability floors.
     //    Manual-only: the engine never purchases; the UI rings a 700 ms
