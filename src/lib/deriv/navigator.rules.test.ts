@@ -33,6 +33,7 @@ const allOff: NavRuleToggles = {
   antiRepeat: false,
   frequencyEnvelope: false,
   markovD: false,
+  hurstFilter: false,
 };
 const thr: NavThresholds = {
   multiHitPct: 7,
@@ -46,6 +47,7 @@ const thr: NavThresholds = {
   markovDPct: 12,
   differsProbabilityCeilingPct: 12,
   differsColdGapMin: 5,
+  hurstMinEdge: 0.05,
 };
 
 
@@ -77,7 +79,7 @@ if (!base) {
 const p0 = base.digits[0].multiHitProb;
 console.log(`  measured P(≥2 hits of digit 0 in D=${D}) = ${(p0 * 100).toFixed(2)}%`);
 
-check("all six rule lines are reported", base.navRuleHits.length === 10 && base.navRuleHits.every((h) => !!h.label));
+check("all eleven rule lines are reported", base.navRuleHits.length === 11 && base.navRuleHits.every((h) => !!h.label));
 check("no rules enabled → legacy default floor", base.navRulesEnabled === false && base.alertDecision === "HOLD / NO SIGNAL");
 check("target digit is the user's selection (0)", base.navTargetDigit === 0 && base.navTargetFresh === true);
 
