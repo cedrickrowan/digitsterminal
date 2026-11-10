@@ -1087,7 +1087,6 @@ export class DigitsEngine {
       const matchesReady =
       input.market === "matches" &&
       targetDigit === input.predictDigit &&
-      macroConfluencePass &&
       navRuleHits.every((h) => !h.enabled || h.pass);
 
     // Consolidated market view state managers
