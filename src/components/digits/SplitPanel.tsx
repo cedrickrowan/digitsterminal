@@ -6,6 +6,7 @@ interface Props {
   nav: EngineResult | null;
   /** Legacy fallbacks while the navigator buffer is still seeding. */
   fallback: { pEven: number; pHigh: number; riseUp: number; riseDown: number };
+  barrier: number;
   hot: number;
   cold: number;
   hotFreq: number[];
