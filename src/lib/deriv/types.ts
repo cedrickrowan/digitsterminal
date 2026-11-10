@@ -155,6 +155,7 @@ export const DEFAULT_CONFIG: AppConfig = {
     frequencyEnvelope: false,
     markovD: false,
     hurstFilter: false,
+    macroConfluence: false,
   },
 
   navThresholds: {
