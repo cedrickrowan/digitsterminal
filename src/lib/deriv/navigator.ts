@@ -1073,7 +1073,7 @@ export class DigitsEngine {
       D,
       pMarkov1Target,
     );
-
+    
     // Push master confluence feedback into your panel UI list
     navRuleHits.push({
       rule: "markovD",
