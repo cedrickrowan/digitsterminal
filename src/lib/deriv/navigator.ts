@@ -1083,11 +1083,54 @@ export class DigitsEngine {
       detail: `Parity:${parityMatch ? "✓" : "✗"} Zone:${zoneMatch ? "✓" : "✗"} (Target ${targetDigit})`,
     });
 
-    const matchesReady =
+      const matchesReady =
       input.market === "matches" &&
       targetDigit === input.predictDigit &&
       macroConfluencePass &&
       navRuleHits.every((h) => !h.enabled || h.pass);
+
+    // Consolidated market view state managers
+    let marketAction = "";
+    let marketEdge = 0;
+    let marketScore = 0;
+    let marketRecProb = 0;
+
+    if (market === "overunder" && overUnder) {
+      if (overUnder.rec !== "HOLD") {
+        marketAction = `${overUnder.rec} ${overUnder.barrier}`;
+        marketRecProb = overUnder.prob;
+        const baseline = overUnder.rec === "OVER" ? overUnder.baselineOver : overUnder.baselineUnder;
+        marketEdge = overUnder.prob - baseline;
+        marketScore = Math.max(0, marketEdge);
+      }
+    } else if (market === "evenodd" && evenOdd) {
+      if (evenOdd.rec !== "HOLD") {
+        marketAction = evenOdd.rec;
+        marketRecProb = evenOdd.prob;
+        marketEdge = evenOdd.prob - 0.5;
+        marketScore = Math.max(0, marketEdge);
+      }
+    } else if (market === "risefall" && riseFall) {
+      if (riseFall.rec !== "HOLD") {
+        marketAction = riseFall.rec;
+        marketRecProb = riseFall.prob;
+        marketEdge = riseFall.prob - 0.5;
+        marketScore = Math.max(0, marketEdge);
+      }
+    } else if (market === "differs") {
+      const selectedTarget = clamp(Math.round(input.predictDigit ?? 0), 0, 9);
+      const targetLanding = digitMetrics[selectedTarget].landingProb;
+      const pDiffers = 1.0 - targetLanding;
+      marketAction = `DIFFERS ${selectedTarget}`;
+      marketRecProb = pDiffers;
+      marketEdge = pDiffers - 0.90;
+      marketScore = Math.max(0, marketEdge);
+    } else {
+      marketAction = `DIGIT ${topPick}`;
+      marketRecProb = digitMetrics[topPick].multiHitProb;
+      marketEdge = digitMetrics[topPick].multiHitProb;
+      marketScore = marketEdge;
+    }
 
     // 9. Alert decision — dual ping gates + market-aware probability floors.
     let alertDecision: EngineResult["alertDecision"] = "HOLD / NO SIGNAL";
