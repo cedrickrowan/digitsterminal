@@ -1011,20 +1011,24 @@ export default function DigitsApp() {
             <div className="font-mono text-4xl font-extrabold text-cyan tabular-nums">{lastDigit !== null ? lastDigit : "—"}</div>
           </div>
         </div>
-        <EnsemblePanel
+         <EnsemblePanel
           nav={navResult}
           ensemble={derived.ens}
           market={cfg.market}
           barrier={cfg.barrier}
           predictDigit={cfg.predictDigit}
-          pEven={derived.split.pEven}
+          pEven={navResult?.evenOdd ? navResult.evenOdd.pEven : derived.split.pEven}
           pHigh={derived.split.pHigh}
-          rise={{ up: derived.rf.up, down: derived.rf.down }}
+          rise={{ 
+            up: navResult?.riseFall ? navResult.riseFall.pRise : derived.rf.up, 
+            down: navResult?.riseFall ? navResult.riseFall.pFall : derived.rf.down 
+          }}
           safe={safe}
           alertElapsedMs={navElapsed}
           nextTickInMs={countdownMs}
           purchaseInMs={purchaseInMs}
         />
+
                 <PredictedDigit
           digit={cfg.market === "matches" || cfg.market === "differs" ? cfg.predictDigit : context.topDigit}
           entryPrice={openEntry?.price ?? null}
@@ -1070,13 +1074,19 @@ export default function DigitsApp() {
         <DigitGrid freq={derived.freq} total={derived.win.length} predict={cfg.predictDigit} />
         <DigitBadges freq={derived.freq} total={derived.win.length} lastDigit={lastDigit} />
 
-        <SplitPanel
+                <SplitPanel
           nav={navResult}
-          fallback={{ pEven: derived.split.pEven, pHigh: derived.split.pHigh, riseUp: derived.rf.up, riseDown: derived.rf.down }}
+          fallback={{ 
+            pEven: navResult?.evenOdd ? navResult.evenOdd.pEven : derived.split.pEven, 
+            pHigh: derived.split.pHigh, 
+            riseUp: navResult?.riseFall ? navResult.riseFall.pRise : derived.rf.up, 
+            riseDown: navResult?.riseFall ? navResult.riseFall.pFall : derived.rf.down 
+          }}
           hot={derived.hc.hot}
           cold={derived.hc.cold}
           hotFreq={derived.hc.freq}
         />
+
         <RecentTicks digits={buf} />
         <MarkovMatrix matrix={derived.mk} lastDigit={lastDigit} predict={context.topDigit} />
         <PatternsPanel
