@@ -10,12 +10,12 @@ interface Props {
 }
 
 function fmtMask(m: number): string {
-  const bits = m.toString(2).padStart(3, "0");
+  const bits = m.toString(2).padStart(4, "0");
   const parts: string[] = [];
-  if (m & 1) parts.push("RISE");
-  if (m & 2) parts.push("EVEN");
-  if (m & 4) parts.push("OVER");
-  return `${bits}${parts.length ? " · " + parts.join("+") : ""}`;
+  if (m & 1) parts.push("RISE/FALL");
+  if (m & 2) parts.push("EVEN/ODD");
+  if (m & 4) parts.push("OVER/UNDER");
+  return `${bits}${parts.length ? " · " + parts.join(" + ") : " · RAW"}`;
 }
 
 function EngineLogImpl({
