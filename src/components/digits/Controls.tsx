@@ -1,5 +1,5 @@
 import { memo } from "react";
-import type { AppConfig, Market, Mode, NavRuleToggles, NavThresholds, RuleToggles } from "@/lib/deriv/types";
+import type { AppConfig, Market, Mode, NavRuleToggles, NavThresholds } from "@/lib/deriv/types";
 import { SYMBOLS } from "@/lib/deriv/types";
 import { snapLookback } from "@/lib/deriv/storage";
 
@@ -15,14 +15,28 @@ interface Props {
   onToggleArm: () => void;
 }
 
-const RULE_META: { key: keyof RuleToggles; label: string; field?: keyof AppConfig; suffix?: string }[] = [
-  { key: "ensemble", label: "Ensemble% >", field: "triggerEnsembleAbove", suffix: "%" },
-  { key: "markov", label: "Markov% >", field: "triggerMarkovAbove", suffix: "%" },
-  { key: "streak", label: "Streak ≥", field: "triggerStreak" },
-  { key: "prob", label: "Freq% <", field: "triggerProbBelow", suffix: "%" },
-  { key: "sequence", label: "Follow-D% >", field: "triggerSequenceAbove", suffix: "%" },
-  { key: "cold", label: "Cold P% <", field: "triggerColdProbBelow", suffix: "%" },
-  { key: "deviation", label: "|Δ from 10%| >", field: "triggerDeviationPct", suffix: "%" },
+const NAV_RULE_META: { key: keyof NavRuleToggles; label: string; thr?: keyof NavThresholds; suffix?: string; step?: number }[] = [
+  // Legacy 7 rules
+  { key: "ensemble", label: "Ensemble% >", thr: "triggerEnsembleAbove", suffix: "%" },
+  { key: "markov", label: "Markov% >", thr: "triggerMarkovAbove", suffix: "%" },
+  { key: "streak", label: "Streak ≥", thr: "triggerStreak", step: 1 },
+  { key: "prob", label: "Freq% <", thr: "triggerProbBelow", suffix: "%" },
+  { key: "sequence", label: "Follow-D% >", thr: "triggerSequenceAbove", suffix: "%" },
+  { key: "cold", label: "Cold P% <", thr: "triggerColdProbBelow", suffix: "%" },
+  { key: "deviation", label: "|Δ from 10%| >", thr: "triggerDeviationPct", suffix: "%" },
+
+  // Navigator 11 rules
+  { key: "multiHit", label: "Multi-hit ≥2 (D)", thr: "multiHitPct", suffix: "%" },
+  { key: "pairRun", label: "Pair/Run (d,d)", thr: "pairRunPct", suffix: "%" },
+  { key: "landing", label: "Landing t+D", thr: "landingPct", suffix: "%" },
+  { key: "freshness", label: "Fresh (anti-tired)" },
+  { key: "parity", label: "Parity confluence", thr: "parityPct", suffix: "%" },
+  { key: "barrier", label: "O/U confluence", thr: "barrierPct", suffix: "%" },
+  { key: "lowEntropy", label: "Low-entropy regime", thr: "entropyZMax", step: 0.1 },
+  { key: "antiRepeat", label: "Anti-repeat filter" },
+  { key: "frequencyEnvelope", label: "Freq envelope min%", thr: "frequencyMinPct", suffix: "%" },
+  { key: "markovD", label: "D-Step Markov", thr: "markovDPct", suffix: "%" },
+  { key: "hurstFilter", label: "Hurst Non-Random (H)", thr: "hurstMinEdge", step: 0.01 },
 ];
 
 const MARKETS: { key: Market; label: string }[] = [
@@ -49,10 +63,7 @@ const NAV_RULE_META: { key: keyof NavRuleToggles; label: string; thr?: keyof Nav
 ];
 
 
-
 function ControlsImpl({ cfg, onChange, connected, onConnect, onDisconnect, armed, onToggleArm }: Props) {
-  const setRule = (k: keyof RuleToggles, v: boolean) =>
-    onChange({ rules: { ...cfg.rules, [k]: v } });
 
   const setNavRule = (k: keyof NavRuleToggles, v: boolean) =>
     onChange({ navRules: { ...cfg.navRules, [k]: v } });
@@ -193,33 +204,7 @@ function ControlsImpl({ cfg, onChange, connected, onConnect, onDisconnect, armed
       </div>
 
       <div className="border-t border-border pt-2">
-        <div className="mb-1 text-[10px] uppercase tracking-widest text-cyan">Trigger rules</div>
-        <div className="grid grid-cols-1 gap-1">
-          {RULE_META.map((r) => (
-            <label key={r.key} className="flex items-center gap-2">
-              <input
-                type="checkbox"
-                checked={cfg.rules[r.key]}
-                onChange={(e) => setRule(r.key, e.target.checked)}
-              />
-              <span className="w-32 text-muted-foreground">{r.label}</span>
-              {r.field && (
-                <input
-                  type="number"
-                  step={r.suffix === "%" ? 0.5 : 1}
-                  className="w-20 rounded border border-input bg-background px-2 py-1 font-mono"
-                  value={cfg[r.field] as number}
-                  onChange={(e) => onChange({ [r.field as string]: Number(e.target.value) } as Partial<AppConfig>)}
-                />
-              )}
-              {r.suffix && <span className="text-muted-foreground">{r.suffix}</span>}
-            </label>
-          ))}
-        </div>
-      </div>
-
-      <div className="border-t border-border pt-2">
-        <div className="mb-1 text-[10px] uppercase tracking-widest text-cyan">Navigator rules · Matches (strict AND)</div>
+        <div className="mb-1 text-[10px] uppercase tracking-widest text-cyan">Trigger rules · Matches (strict AND · 18 rules)</div>
         <div className="grid grid-cols-1 gap-1">
           {NAV_RULE_META.map((r) => (
             <label key={r.key} className="flex items-center gap-2">
