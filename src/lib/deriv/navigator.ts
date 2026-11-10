@@ -1014,11 +1014,87 @@ export class DigitsEngine {
     const actualRtt = input.rttMs ?? Number.POSITIVE_INFINITY;
     const pingOk = Number.isFinite(actualRtt) && actualRtt < pingThresholdMs;
 
-        // 8c. Consolidated market view: action, edge vs random baseline, score.
+    // 8c. Target Configurations & Master Confluence Gate Calculations
+    const targetDigit = clamp(Math.round(input.predictDigit ?? 0), 0, 9);
+    
+    const isTargetEven = targetDigit % 2 === 0;
+    const isMacroEvenDominant = evenOdd ? evenOdd.pEven > evenOdd.pOdd : true;
+    const parityMatch = isTargetEven === isMacroEvenDominant;
+
+    const isTargetHigh = targetDigit >= 5;
+    const isMacroHighDominant = overUnder ? overUnder.pOver > overUnder.pUnder : true;
+    const zoneMatch = isTargetHigh === isMacroHighDominant;
+
+    // Confluence passes if target aligns with dominant macro waves OR macro is flat (within 4% noise)
+    const parityIsFlat = evenOdd ? Math.abs(evenOdd.pEven - evenOdd.pOdd) < 0.04 : true;
+    const zoneIsFlat = overUnder ? Math.abs(overUnder.pOver - overUnder.pUnder) < 0.04 : true;
+    
+    const macroConfluencePass = (parityMatch || parityIsFlat) && (zoneMatch || zoneIsFlat);
+
+    // 8d. Bias-corrected Shannon Entropy Z-score over the buffer
+    let shannonH = 0;
+    let observedBins = 0;
+    for (let d = 0; d < 10; d++) {
+      if (this.freq100[d] > 0) {
+        observedBins++;
+        const p = this.freq100[d] / N;
+        shannonH -= p * Math.log2(p);
+      }
+    }
+    const mmCorr = (observedBins - 1) / (2 * N * Math.LN2);
+    const hMax = Math.log2(10);
+    const hStd = Math.sqrt(4.5) / (N * Math.LN2);
+    const entropyZ = hStd > 0 ? (shannonH + mmCorr - hMax) / hStd : 0;
+
+    const tm = digitMetrics[targetDigit];
+    const targetFresh = freshPool.includes(targetDigit);
+    const navRulesEnabled = !!input.navRules && Object.values(input.navRules).some(Boolean);
+    
+    const pMarkovDTarget = this.TD[currOffset + targetDigit];
+    const pMarkov1Target = this.T1[currOffset + targetDigit];
+    const win = Array.from(this.buffer.subarray(0, N));
+
+    // Evaluate the trigger rules checklist
+    const navRuleHits = buildNavRuleHits(
+      targetDigit,
+      tm,
+      targetFresh,
+      input.navRules,
+      input.navThresholds,
+      evenOdd,
+      overUnder,
+      currDigit,
+      this.freq100[targetDigit],
+      N,
+      entropyZ,
+      pMarkovDTarget,
+      hurstH,
+      win,
+      D,
+      pMarkov1Target,
+    );
+
+    // Push master confluence feedback into your panel UI checklist safely
+    navRuleHits.push({
+      rule: "markovD", 
+      label: "Macro Confluence Gate",
+      enabled: input.market === "matches",
+      pass: macroConfluencePass,
+      detail: `Parity:${parityMatch ? "✓" : "✗"} Zone:${zoneMatch ? "✓" : "✗"} (Target ${targetDigit})`,
+    });
+
+    const matchesReady =
+      input.market === "matches" &&
+      targetDigit === input.predictDigit &&
+      macroConfluencePass &&
+      navRuleHits.every((h) => !h.enabled || h.pass);
+
+    // 8e. Consolidated market view: action, edge vs random baseline, score.
     let marketAction = "";
     let marketEdge = 0;
     let marketScore = 0;
     let marketRecProb = 0;
+
     if (market === "overunder" && overUnder) {
       if (overUnder.rec !== "HOLD") {
         marketAction = `${overUnder.rec} ${overUnder.barrier}`;
@@ -1050,144 +1126,18 @@ export class DigitsEngine {
       marketEdge = pDiffers - 0.90;
       marketScore = Math.max(0, marketEdge);
     } else {
-      // Matches — the multi-hit engine stays the decision core.
       marketAction = `DIGIT ${topPick}`;
       marketRecProb = digitMetrics[topPick].multiHitProb;
       marketEdge = digitMetrics[topPick].multiHitProb;
       marketScore = marketEdge;
     }
-    // 8d. Navigator trigger rules — evaluated for the USER-SELECTED digit
-    //     (Matches alerts target cfg.predictDigit, never an autonomous
-    //     top-pick). All enabled rules must pass (strict AND).
-    const targetDigit = clamp(Math.round(input.predictDigit ?? 0), 0, 9);
-    const tm = digitMetrics[targetDigit];
-    const targetFresh = freshPool.includes(targetDigit);
-    const navRulesEnabled = !!input.navRules && Object.values(input.navRules).some(Boolean);
-           // Bias-corrected Shannon Entropy Z-score over the buffer
-    let shannonH = 0;
-    let observedBins = 0;
-    for (let d = 0; d < 10; d++) {
-      if (this.freq100[d] > 0) {
-        observedBins++;
-        const p = this.freq100[d] / N;
-        shannonH -= p * Math.log2(p);
-      }
-    }
-    const mmCorr = (observedBins - 1) / (2 * N * Math.LN2);
-    const hMax = Math.log2(10);
-    const hStd = Math.sqrt(4.5) / (N * Math.LN2);
-    const entropyZ = hStd > 0 ? (shannonH + mmCorr - hMax) / hStd : 0;
-    const pMarkovDTarget = this.TD[currOffset + targetDigit];
-    const pMarkov1Target = this.T1[currOffset + targetDigit];
-    const win = Array.from(this.buffer.subarray(0, N));
-    const navRuleHits = buildNavRuleHits(
-      targetDigit,
-      tm,
-      targetFresh,
-      input.navRules,
-      input.navThresholds,
-      evenOdd,
-      overUnder,
-      currDigit,
-      this.freq100[targetDigit],
-      N,
-      entropyZ,
-      pMarkovDTarget,
-      hurstH,
-      win,
-      D,
-      pMarkov1Target,
-    );
-    // Matches — the multi-hit engine stays the decision core.
-    marketAction = `DIGIT ${topPick}`;
-    marketRecProb = digitMetrics[topPick].multiHitProb;
-    marketEdge = digitMetrics[topPick].multiHitProb;
-    marketScore = marketEdge;
-  }
-
-  // 8d. Master Confluence Gate: Cross-check target digit against macro waves
-  const targetDigit = clamp(Math.round(input.predictDigit ?? 0), 0, 9);
-  
-  const isTargetEven = targetDigit % 2 === 0;
-  const isMacroEvenDominant = evenOdd ? evenOdd.pEven > evenOdd.pOdd : true;
-  const parityMatch = isTargetEven === isMacroEvenDominant;
-
-  const isTargetHigh = targetDigit >= 5;
-  const isMacroHighDominant = overUnder ? overUnder.pOver > overUnder.pUnder : true;
-  const zoneMatch = isTargetHigh === isMacroHighDominant;
-
-  // Confluence passes if target aligns with dominant macro waves OR macro is flat (within 4% noise)
-  const parityIsFlat = evenOdd ? Math.abs(evenOdd.pEven - evenOdd.pOdd) < 0.04 : true;
-  const zoneIsFlat = overUnder ? Math.abs(overUnder.pOver - overUnder.pUnder) < 0.04 : true;
-  
-  const macroConfluencePass = (parityMatch || parityIsFlat) && (zoneMatch || zoneIsFlat);
-
-  // 8e. Bias-corrected Shannon Entropy Z-score over the buffer
-  let shannonH = 0;
-  let observedBins = 0;
-  for (let d = 0; d < 10; d++) {
-    if (this.freq100[d] > 0) {
-      observedBins++;
-      const p = this.freq100[d] / N;
-      shannonH -= p * Math.log2(p);
-    }
-  }
-  const mmCorr = (observedBins - 1) / (2 * N * Math.LN2);
-  const hMax = Math.log2(10);
-  const hStd = Math.sqrt(4.5) / (N * Math.LN2);
-  const entropyZ = hStd > 0 ? (shannonH + mmCorr - hMax) / hStd : 0;
-
-  const tm = digitMetrics[targetDigit];
-  const targetFresh = freshPool.includes(targetDigit);
-  const navRulesEnabled = !!input.navRules && Object.values(input.navRules).some(Boolean);
-  
-  const pMarkovDTarget = this.TD[currOffset + targetDigit];
-  const pMarkov1Target = this.T1[currOffset + targetDigit];
-  const win = Array.from(this.buffer.subarray(0, N));
-
-  // Evaluate the trigger rules checklist
-  const navRuleHits = buildNavRuleHits(
-    targetDigit,
-    tm,
-    targetFresh,
-    input.navRules,
-    input.navThresholds,
-    evenOdd,
-    overUnder,
-    currDigit,
-    this.freq100[targetDigit],
-    N,
-    entropyZ,
-    pMarkovDTarget,
-    hurstH,
-    win,
-    D,
-    pMarkov1Target,
-  );
-
-  // Push master confluence feedback into your panel UI list checklist safely
-  navRuleHits.push({
-    rule: "markovD", 
-    label: "Macro Confluence Gate",
-    enabled: input.market === "matches",
-    pass: macroConfluencePass,
-    detail: `Parity:${parityMatch ? "✓" : "✗"} Zone:${zoneMatch ? "✓" : "✗"} (Target ${targetDigit})`,
-  });
-
-  const matchesReady =
-    input.market === "matches" &&
-    targetDigit === input.predictDigit &&
-    macroConfluencePass &&
-    navRuleHits.every((h) => !h.enabled || h.pass);
 
     // 9. Alert decision — dual ping gates + market-aware probability floors.
-    //    Manual-only: the engine never purchases; the UI rings a 700 ms
-    //    human-response countdown.
     let alertDecision: EngineResult["alertDecision"] = "HOLD / NO SIGNAL";
     
     if (!pingOk) {
       alertDecision = "HOLD / UNSAFE LATENCY";
-        } else if (market === "matches") {
+    } else if (market === "matches") {
       if (matchesReady) alertDecision = "READY / MANUAL ALERT";
       else if (navRulesEnabled) alertDecision = "HOLD / RULES NOT MET";
       else alertDecision = "HOLD / NO SIGNAL";
@@ -1199,19 +1149,17 @@ export class DigitsEngine {
       const differsReady = targetLanding <= differsCeiling && targetColdGap >= differsColdGapMin;
       if (differsReady) alertDecision = "READY / MANUAL ALERT";
       else alertDecision = "HOLD / RULES NOT MET";
-        } else if (market === "overunder") {
+    } else if (market === "overunder") {
       if (overUnder?.deadZone) {
         alertDecision = "HOLD / DEAD ZONE";
       } else if (overUnder && overUnder.rec !== "HOLD") {
         if (barrier === 0 || barrier === 9) {
-          // Boundary 2-way contracts: ready if losing digit < 10% and probability >= 85%
-          if (overUnder.pTie < NAV_TIE_DEAD_ZONE && overUnder.prob >= 0.85) {
+          if (overUnder.pTie < 0.15 && overUnder.prob >= 0.85) {
             alertDecision = "READY / MANUAL ALERT";
           }
         } else {
-          // Middle 3-way contracts: Imbalance trigger (P > 65% and P(Tie) < 7%) OR edge >= 8%
           const isImbalance = overUnder.prob > 0.65 && overUnder.pTie < 0.07;
-          const isEdgeOk = marketEdge >= NAV_EDGE_FLOOR && overUnder.pTie < NAV_TIE_DEAD_ZONE;
+          const isEdgeOk = (overUnder.prob - (overUnder.rec === "OVER" ? overUnder.baselineOver : overUnder.baselineUnder)) >= NAV_EDGE_FLOOR && overUnder.pTie < NAV_TIE_DEAD_ZONE;
           if (isImbalance || isEdgeOk) {
             alertDecision = "READY / MANUAL ALERT";
           }
@@ -1241,13 +1189,13 @@ export class DigitsEngine {
       currentTick: currDigit,
       currentPrice: fmtPrice,
       selectedDuration: D,
-      topTargetDigit: topPick,
-      topTargetProb: digitMetrics[topPick].landingProb,
-      multiHitProb: digitMetrics[topPick].multiHitProb,
-      consecProb: digitMetrics[topPick].consecProb,
-      pairProb: digitMetrics[topPick].pairProb,
-      tripleProb: digitMetrics[topPick].tripleProb,
-      threeHitProb: digitMetrics[topPick].threeHitProb,
+      topTargetDigit: Array.isArray(topPick) ? topPick[0] : topPick,
+      topTargetProb: digitMetrics[Array.isArray(topPick) ? topPick[0] : topPick].landingProb,
+      multiHitProb: digitMetrics[Array.isArray(topPick) ? topPick[0] : topPick].multiHitProb,
+      consecProb: digitMetrics[Array.isArray(topPick) ? topPick[0] : topPick].consecProb,
+      pairProb: digitMetrics[Array.isArray(topPick) ? topPick[0] : topPick].pairProb,
+      tripleProb: digitMetrics[Array.isArray(topPick) ? topPick[0] : topPick].tripleProb,
+      threeHitProb: digitMetrics[Array.isArray(topPick) ? topPick[0] : topPick].threeHitProb,
       bufferSize: N,
       bufferFilled: this.count,
       runsZScore: zRun,
