@@ -115,25 +115,26 @@ function decisionFor(p: Props): { side: string; conf: number; tone: "cyan" | "ma
         source: "legacy",
       };
     }
-        case "overunder": {
-      if (p.barrier === 9) {
-        const pUnder = p.ensemble.posterior.slice(0, 9).reduce((a, b) => a + b, 0);
-        return { side: `UNDER 9`, conf: pUnder, tone: "magenta", source: "legacy" };
-      }
-      if (p.barrier === 0) {
-        const pOver = p.ensemble.posterior.slice(1).reduce((a, b) => a + b, 0);
-        return { side: `OVER 0`, conf: pOver, tone: "cyan", source: "legacy" };
-      }
+      case "overunder": {
       const pOver = p.ensemble.posterior.slice(p.barrier + 1).reduce((a, b) => a + b, 0);
       const pUnder = p.ensemble.posterior.slice(0, p.barrier).reduce((a, b) => a + b, 0);
       const pTie = p.ensemble.posterior[p.barrier] ?? 0;
+      
+      if (p.barrier === 9) {
+        if (pTie >= 0.15) return { side: "HOLD (TIE LIKELY)", conf: pTie, tone: "magenta", source: "legacy" };
+        return { side: `UNDER 9`, conf: pUnder, tone: "magenta", source: "legacy" };
+      }
+      if (p.barrier === 0) {
+        if (pTie >= 0.15) return { side: "HOLD (TIE LIKELY)", conf: pTie, tone: "cyan", source: "legacy" };
+        return { side: `OVER 0`, conf: pOver, tone: "cyan", source: "legacy" };
+      }
       if (pTie >= 0.10) {
         return { side: `DEAD ZONE (${p.barrier})`, conf: pTie, tone: "magenta", source: "legacy" };
       }
       return pUnder >= pOver
         ? { side: `UNDER ${p.barrier}`, conf: pUnder, tone: "magenta", source: "legacy" }
         : { side: `OVER ${p.barrier}`, conf: pOver, tone: "cyan", source: "legacy" };
-        }
+    }
     case "evenodd":
       return p.pEven >= 0.5
         ? { side: "EVEN", conf: p.pEven, tone: "cyan", source: "legacy" }
