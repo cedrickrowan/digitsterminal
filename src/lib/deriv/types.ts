@@ -35,6 +35,7 @@ export interface NavRuleToggles {
   frequencyEnvelope: boolean;
   markovD: boolean;
   hurstFilter: boolean;
+  macroConfluence: boolean;
 }
 
 /** Percent thresholds for the unified trigger rules. */
