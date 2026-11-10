@@ -11,7 +11,6 @@ interface Props {
   cold: number;
   hotFreq: number[];
 }
-
 function pct(x: number): string {
   return `${Math.round(x * 100)}%`;
 }
