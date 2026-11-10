@@ -37,6 +37,7 @@ const NAV_RULE_META: { key: keyof NavRuleToggles; label: string; thr?: keyof Nav
   { key: "frequencyEnvelope", label: "Freq envelope min%", thr: "frequencyMinPct", suffix: "%" },
   { key: "markovD", label: "D-Step Markov", thr: "markovDPct", suffix: "%" },
   { key: "hurstFilter", label: "Hurst Non-Random (H)", thr: "hurstMinEdge", step: 0.01 },
+  { key: "macroConfluence", label: "Macro Confluence Gate" },
 ];
 
 const MARKETS: { key: Market; label: string }[] = [
