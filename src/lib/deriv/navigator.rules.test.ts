@@ -23,6 +23,15 @@ digits.push(7);
 const prices = digits.map((_, i) => 1000 + i * 0.01);
 
 const allOff: NavRuleToggles = {
+  // Legacy 7
+  ensemble: false,
+  markov: false,
+  streak: false,
+  prob: false,
+  sequence: false,
+  cold: false,
+  deviation: false,
+  // Navigator 11
   multiHit: false,
   pairRun: false,
   landing: false,
@@ -36,6 +45,15 @@ const allOff: NavRuleToggles = {
   hurstFilter: false,
 };
 const thr: NavThresholds = {
+  // Legacy 7
+  triggerEnsembleAbove: 22,
+  triggerMarkovAbove: 18,
+  triggerStreak: 3,
+  triggerProbBelow: 8,
+  triggerSequenceAbove: 20,
+  triggerColdProbBelow: 10,
+  triggerDeviationPct: 4,
+  // Navigator 11
   multiHitPct: 7,
   pairRunPct: 3,
   landingPct: 12,
@@ -49,7 +67,6 @@ const thr: NavThresholds = {
   differsColdGapMin: 5,
   hurstMinEdge: 0.05,
 };
-
 
 function run(target: number, rules: NavRuleToggles, thresholds = thr, symbol = "R_100", rtt = 100): EngineResult {
   const eng = new DigitsEngine(25);
@@ -79,8 +96,8 @@ if (!base) {
 const p0 = base.digits[0].multiHitProb;
 console.log(`  measured P(≥2 hits of digit 0 in D=${D}) = ${(p0 * 100).toFixed(2)}%`);
 
-check("all eleven rule lines are reported", base.navRuleHits.length === 11 && base.navRuleHits.every((h) => !!h.label));
-check("no rules enabled → legacy default floor", base.navRulesEnabled === false && base.alertDecision === "HOLD / NO SIGNAL");
+check("all eighteen rule lines are reported", base.navRuleHits.length === 18 && base.navRuleHits.every((h) => !!h.label));
+check("no rules enabled → HOLD / NO SIGNAL (no hidden floor)", base.navRulesEnabled === false && base.alertDecision === "HOLD / NO SIGNAL");
 check("target digit is the user's selection (0)", base.navTargetDigit === 0 && base.navTargetFresh === true);
 
 // Configurable multi-hit threshold: >= semantics, flips READY exactly at the set %.
