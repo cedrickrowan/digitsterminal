@@ -1104,14 +1104,14 @@ export class DigitsEngine {
     // 9. Alert decision — dual ping gates + market-aware probability floors.
     //    Manual-only: the engine never purchases; the UI rings a 700 ms
     //    human-response countdown.
-        let alertDecision: EngineResult["alertDecision"] = "HOLD / NO SIGNAL";
+    let alertDecision: EngineResult["alertDecision"] = "HOLD / NO SIGNAL";
+    
     if (!pingOk) {
       alertDecision = "HOLD / UNSAFE LATENCY";
         } else if (market === "matches") {
       if (matchesReady) alertDecision = "READY / MANUAL ALERT";
       else if (navRulesEnabled) alertDecision = "HOLD / RULES NOT MET";
       else alertDecision = "HOLD / NO SIGNAL";
-    }
     } else if (market === "differs") {
       const differsCeiling = (input.navThresholds?.differsProbabilityCeilingPct ?? 12) / 100;
       const differsColdGapMin = input.navThresholds?.differsColdGapMin ?? 5;
