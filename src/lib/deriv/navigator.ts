@@ -1098,35 +1098,87 @@ export class DigitsEngine {
       D,
       pMarkov1Target,
     );
-        // Push master confluence feedback into your panel UI list
-    navRuleHits.push({
-      rule: "markovD", // group with core engine metrics
-      label: "Macro Confluence Gate",
-      enabled: input.market === "matches",
-      pass: macroConfluencePass,
-      detail: `Parity:${parityMatch ? "✓" : "✗"} Zone:${zoneMatch ? "✓" : "✗"} (Target ${targetDigit})`,
-    });
+    // Matches — the multi-hit engine stays the decision core.
+    marketAction = `DIGIT ${topPick}`;
+    marketRecProb = digitMetrics[topPick].multiHitProb;
+    marketEdge = digitMetrics[topPick].multiHitProb;
+    marketScore = marketEdge;
+  }
 
-        // Master Confluence Gate: Cross-check target digit against macro waves
-    const isTargetEven = targetDigit % 2 === 0;
-    const isMacroEvenDominant = evenOdd ? evenOdd.pEven > evenOdd.pOdd : true;
-    const parityMatch = isTargetEven === isMacroEvenDominant;
+  // 8d. Master Confluence Gate: Cross-check target digit against macro waves
+  const targetDigit = clamp(Math.round(input.predictDigit ?? 0), 0, 9);
+  
+  const isTargetEven = targetDigit % 2 === 0;
+  const isMacroEvenDominant = evenOdd ? evenOdd.pEven > evenOdd.pOdd : true;
+  const parityMatch = isTargetEven === isMacroEvenDominant;
 
-    const isTargetHigh = targetDigit >= 5;
-    const isMacroHighDominant = overUnder ? overUnder.pOver > overUnder.pUnder : true;
-    const zoneMatch = isTargetHigh === isMacroHighDominant;
+  const isTargetHigh = targetDigit >= 5;
+  const isMacroHighDominant = overUnder ? overUnder.pOver > overUnder.pUnder : true;
+  const zoneMatch = isTargetHigh === isMacroHighDominant;
 
-    // Confluence passes if target aligns with dominant macro waves OR macro is flat (within 4% noise)
-    const parityIsFlat = evenOdd ? Math.abs(evenOdd.pEven - evenOdd.pOdd) < 0.04 : true;
-    const zoneIsFlat = overUnder ? Math.abs(overUnder.pOver - overUnder.pUnder) < 0.04 : true;
-    
-    const macroConfluencePass = (parityMatch || parityIsFlat) && (zoneMatch || zoneIsFlat);
+  // Confluence passes if target aligns with dominant macro waves OR macro is flat (within 4% noise)
+  const parityIsFlat = evenOdd ? Math.abs(evenOdd.pEven - evenOdd.pOdd) < 0.04 : true;
+  const zoneIsFlat = overUnder ? Math.abs(overUnder.pOver - overUnder.pUnder) < 0.04 : true;
+  
+  const macroConfluencePass = (parityMatch || parityIsFlat) && (zoneMatch || zoneIsFlat);
 
-    const matchesReady =
-      input.market === "matches" &&
-      targetDigit === input.predictDigit &&
-      macroConfluencePass &&
-      navRuleHits.every((h) => !h.enabled || h.pass);
+  // 8e. Bias-corrected Shannon Entropy Z-score over the buffer
+  let shannonH = 0;
+  let observedBins = 0;
+  for (let d = 0; d < 10; d++) {
+    if (this.freq100[d] > 0) {
+      observedBins++;
+      const p = this.freq100[d] / N;
+      shannonH -= p * Math.log2(p);
+    }
+  }
+  const mmCorr = (observedBins - 1) / (2 * N * Math.LN2);
+  const hMax = Math.log2(10);
+  const hStd = Math.sqrt(4.5) / (N * Math.LN2);
+  const entropyZ = hStd > 0 ? (shannonH + mmCorr - hMax) / hStd : 0;
+
+  const tm = digitMetrics[targetDigit];
+  const targetFresh = freshPool.includes(targetDigit);
+  const navRulesEnabled = !!input.navRules && Object.values(input.navRules).some(Boolean);
+  
+  const pMarkovDTarget = this.TD[currOffset + targetDigit];
+  const pMarkov1Target = this.T1[currOffset + targetDigit];
+  const win = Array.from(this.buffer.subarray(0, N));
+
+  // Evaluate the trigger rules checklist
+  const navRuleHits = buildNavRuleHits(
+    targetDigit,
+    tm,
+    targetFresh,
+    input.navRules,
+    input.navThresholds,
+    evenOdd,
+    overUnder,
+    currDigit,
+    this.freq100[targetDigit],
+    N,
+    entropyZ,
+    pMarkovDTarget,
+    hurstH,
+    win,
+    D,
+    pMarkov1Target,
+  );
+
+  // Push master confluence feedback into your panel UI list checklist safely
+  navRuleHits.push({
+    rule: "markovD", 
+    label: "Macro Confluence Gate",
+    enabled: input.market === "matches",
+    pass: macroConfluencePass,
+    detail: `Parity:${parityMatch ? "✓" : "✗"} Zone:${zoneMatch ? "✓" : "✗"} (Target ${targetDigit})`,
+  });
+
+  const matchesReady =
+    input.market === "matches" &&
+    targetDigit === input.predictDigit &&
+    macroConfluencePass &&
+    navRuleHits.every((h) => !h.enabled || h.pass);
 
     // 9. Alert decision — dual ping gates + market-aware probability floors.
     //    Manual-only: the engine never purchases; the UI rings a 700 ms
