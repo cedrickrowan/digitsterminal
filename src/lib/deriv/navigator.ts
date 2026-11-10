@@ -1074,9 +1074,24 @@ export class DigitsEngine {
       pMarkov1Target,
     );
 
-    // Push master confluence feedback into your panel UI checklist safely
+     // Master Confluence Gate: Cross-check target digit against macro waves
+    const isTargetEven = targetDigit % 2 === 0;
+    const isMacroEvenDominant = evenOdd ? evenOdd.pEven > evenOdd.pOdd : true;
+    const parityMatch = isTargetEven === isMacroEvenDominant;
+
+    const isTargetHigh = targetDigit >= 5;
+    const isMacroHighDominant = overUnder ? overUnder.pOver > overUnder.pUnder : true;
+    const zoneMatch = isTargetHigh === isMacroHighDominant;
+
+    // Confluence passes if target aligns with dominant macro waves OR macro is flat (within 4% noise)
+    const parityIsFlat = evenOdd ? Math.abs(evenOdd.pEven - evenOdd.pOdd) < 0.04 : true;
+    const zoneIsFlat = overUnder ? Math.abs(overUnder.pOver - overUnder.pUnder) < 0.04 : true;
+    
+    const macroConfluencePass = (parityMatch || parityIsFlat) && (zoneMatch || zoneIsFlat);
+
+    // Push master confluence feedback into your panel UI list
     navRuleHits.push({
-      rule: "markovD", 
+      rule: "markovD",
       label: "Macro Confluence Gate",
       enabled: input.market === "matches",
       pass: macroConfluencePass,
@@ -1088,49 +1103,6 @@ export class DigitsEngine {
       targetDigit === input.predictDigit &&
       macroConfluencePass &&
       navRuleHits.every((h) => !h.enabled || h.pass);
-
-    // 8e. Consolidated market view: action, edge vs random baseline, score.
-    let marketAction = "";
-    let marketEdge = 0;
-    let marketScore = 0;
-    let marketRecProb = 0;
-
-    if (market === "overunder" && overUnder) {
-      if (overUnder.rec !== "HOLD") {
-        marketAction = `${overUnder.rec} ${overUnder.barrier}`;
-        marketRecProb = overUnder.prob;
-        const baseline = overUnder.rec === "OVER" ? overUnder.baselineOver : overUnder.baselineUnder;
-        marketEdge = overUnder.prob - baseline;
-        marketScore = Math.max(0, marketEdge);
-      }
-    } else if (market === "evenodd" && evenOdd) {
-      if (evenOdd.rec !== "HOLD") {
-        marketAction = evenOdd.rec;
-        marketRecProb = evenOdd.prob;
-        marketEdge = evenOdd.prob - 0.5;
-        marketScore = Math.max(0, marketEdge);
-      }
-    } else if (market === "risefall" && riseFall) {
-      if (riseFall.rec !== "HOLD") {
-        marketAction = riseFall.rec;
-        marketRecProb = riseFall.prob;
-        marketEdge = riseFall.prob - 0.5;
-        marketScore = Math.max(0, marketEdge);
-      }
-    } else if (market === "differs") {
-      const selectedTarget = clamp(Math.round(input.predictDigit ?? 0), 0, 9);
-      const targetLanding = digitMetrics[selectedTarget].landingProb;
-      const pDiffers = 1.0 - targetLanding;
-      marketAction = `DIFFERS ${selectedTarget}`;
-      marketRecProb = pDiffers;
-      marketEdge = pDiffers - 0.90;
-      marketScore = Math.max(0, marketEdge);
-    } else {
-      marketAction = `DIGIT ${topPick}`;
-      marketRecProb = digitMetrics[topPick].multiHitProb;
-      marketEdge = digitMetrics[topPick].multiHitProb;
-      marketScore = marketEdge;
-    }
 
     // 9. Alert decision — dual ping gates + market-aware probability floors.
     let alertDecision: EngineResult["alertDecision"] = "HOLD / NO SIGNAL";
@@ -1356,7 +1328,6 @@ export class DigitsEngine {
       velocity,
     };
   }
-
 
   /** Even/Odd horizon engine (v3): P(Even) = Σ_{even d} [M^D]_{s0,d} via
    *  matrix exponentiation, corroborated by the Wald–Wolfowitz runs Z and
