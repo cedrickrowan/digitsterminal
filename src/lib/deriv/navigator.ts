@@ -1074,21 +1074,6 @@ export class DigitsEngine {
       pMarkov1Target,
     );
 
-     // Master Confluence Gate: Cross-check target digit against macro waves
-    const isTargetEven = targetDigit % 2 === 0;
-    const isMacroEvenDominant = evenOdd ? evenOdd.pEven > evenOdd.pOdd : true;
-    const parityMatch = isTargetEven === isMacroEvenDominant;
-
-    const isTargetHigh = targetDigit >= 5;
-    const isMacroHighDominant = overUnder ? overUnder.pOver > overUnder.pUnder : true;
-    const zoneMatch = isTargetHigh === isMacroHighDominant;
-
-    // Confluence passes if target aligns with dominant macro waves OR macro is flat (within 4% noise)
-    const parityIsFlat = evenOdd ? Math.abs(evenOdd.pEven - evenOdd.pOdd) < 0.04 : true;
-    const zoneIsFlat = overUnder ? Math.abs(overUnder.pOver - overUnder.pUnder) < 0.04 : true;
-    
-    const macroConfluencePass = (parityMatch || parityIsFlat) && (zoneMatch || zoneIsFlat);
-
     // Push master confluence feedback into your panel UI list
     navRuleHits.push({
       rule: "markovD",
