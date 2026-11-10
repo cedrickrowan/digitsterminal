@@ -52,18 +52,24 @@ function SplitPanelImpl(p: Props) {
   const overUnder: OverUnderBlock | null = nav?.overUnder ?? null;
   const direction: DirectionBlock | null = nav?.riseFall ?? null;
 
-  // Navigator-driven splits; legacy empirical split only while seeding.
+  // Sync inputs with exact 3-way and 2-way matrix realities
   const pEven = evenOdd ? evenOdd.pEven : p.fallback.pEven;
+  const pOdd = evenOdd ? evenOdd.pOdd : (1 - p.fallback.pEven);
+  
   const pOver = overUnder ? overUnder.pOver : p.fallback.pHigh;
-  const ouLabel = overUnder ? String(overUnder.barrier) : "4";
+  const pUnder = overUnder ? overUnder.pUnder : (1 - p.fallback.pHigh);
+  const ouLabel = overUnder ? String(overUnder.barrier) : String(p.barrier);
+  
   const pRise = direction ? direction.pRise : p.fallback.riseUp / Math.max(1, p.fallback.riseUp + p.fallback.riseDown);
+  const pFall = direction ? direction.pFall : 1 - pRise;
 
   return (
     <div className="space-y-2 rounded-lg border border-border bg-card px-3 py-2">
       <div className="text-[10px] uppercase tracking-widest text-cyan">Split analysis · horizon D={nav?.selectedDuration ?? "—"}</div>
-      <Pair leftLabel="EVEN" leftPct={pEven} rightLabel="ODD" rightPct={1 - pEven} />
-      <Pair leftLabel={`OVER ${ouLabel}`} leftPct={pOver} rightLabel={`UNDER ${ouLabel}`} rightPct={1 - pOver} />
-      <Pair leftLabel="RISE" leftPct={pRise} rightLabel="FALL" rightPct={1 - pRise} />
+      <Pair leftLabel="EVEN" leftPct={pEven} rightLabel="ODD" rightPct={pOdd} />
+      <Pair leftLabel={`OVER ${ouLabel}`} leftPct={pOver} rightLabel={`UNDER ${ouLabel}`} rightPct={pUnder} />
+      <Pair leftLabel="RISE" leftPct={pRise} rightLabel="FALL" rightPct={pFall} />
+
       <div className="flex justify-between border-t border-border pt-2 text-[11px]">
         <span className="text-muted-foreground">
           Hot (30): <span className="font-mono font-bold text-cyan">{p.hot}</span> ×{p.hotFreq[p.hot]}
