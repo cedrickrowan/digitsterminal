@@ -1077,9 +1077,9 @@ export class DigitsEngine {
     
     // Push master confluence feedback into your panel UI list
     navRuleHits.push({
-      rule: "markovD",
-      label: "Macro Confluence Gate",
-      enabled: input.market === "matches",
+      rule: "macroConfluence",
+      label: NAV_RULE_LABELS.macroConfluence,
+      enabled: !!input.navRules?.macroConfluence,
       pass: macroConfluencePass,
       detail: `Parity:${parityMatch ? "✓" : "✗"} Zone:${zoneMatch ? "✓" : "✗"} (Target ${targetDigit})`,
     });
