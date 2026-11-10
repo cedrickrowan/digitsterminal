@@ -12,31 +12,43 @@ export interface RuleToggles {
   ensemble: boolean;
 }
 
-/** Digits Navigator trigger rules (Matches) — strict AND when enabled. */
+/** Unified trigger rules (Matches) — strict AND when enabled (all 18 rules). */
 export interface NavRuleToggles {
-  /** Exact P(≥2 hits of the target digit in the D-tick horizon) above threshold. */
+  // 7 Legacy rules
+  ensemble: boolean;
+  markov: boolean;
+  streak: boolean;
+  prob: boolean;
+  sequence: boolean;
+  cold: boolean;
+  deviation: boolean;
+
+  // 11 Navigator rules
   multiHit: boolean;
-  /** Exact P(≥1 adjacent pair d,d inside the horizon) above threshold. */
   pairRun: boolean;
-  /** Exact P(landing on the target digit at tick t+D) above threshold. */
   landing: boolean;
-  /** Anti-tired suppression: the target digit must sit in the fresh pool. */
   freshness: boolean;
-  /** Parity confluence: the horizon parity of the target digit leads via M^D. */
   parity: boolean;
-  /** Over/Under barrier confluence: the target digit's side leads and the
-   *  barrier tie is outside the 10% dead zone. */
   barrier: boolean;
   lowEntropy: boolean;
   antiRepeat: boolean;
-    frequencyEnvelope: boolean;
+  frequencyEnvelope: boolean;
   markovD: boolean;
-  /** Hurst Exponent non-randomness filter: |H - 0.5| >= hurstMinEdge. */
   hurstFilter: boolean;
 }
 
-/** Percent thresholds for the Navigator trigger rules. */
+/** Percent thresholds for the unified trigger rules. */
 export interface NavThresholds {
+  // 7 Legacy thresholds
+  triggerEnsembleAbove: number;
+  triggerMarkovAbove: number;
+  triggerStreak: number;
+  triggerProbBelow: number;
+  triggerSequenceAbove: number;
+  triggerColdProbBelow: number;
+  triggerDeviationPct: number;
+
+  // 11 Navigator thresholds
   multiHitPct: number;
   pairRunPct: number;
   landingPct: number;
@@ -46,9 +58,8 @@ export interface NavThresholds {
   frequencyMinPct: number;
   frequencyMaxPct: number;
   markovDPct: number;
-    differsProbabilityCeilingPct: number;
+  differsProbabilityCeilingPct: number;
   differsColdGapMin: number;
-  /** Minimum deviation from H = 0.50 random walk (default 0.05 -> H <= 0.45 or H >= 0.55). */
   hurstMinEdge: number;
 }
 
@@ -122,7 +133,16 @@ export const DEFAULT_CONFIG: AppConfig = {
   },
   // Navigator rule defaults mirror the previous engine behaviour: exact
   // multi-hit ≥ 7% density floor + freshness (anti-tired) suppression.
-  navRules: {
+    navRules: {
+    // Legacy 7
+    ensemble: false,
+    markov: false,
+    streak: false,
+    prob: false,
+    sequence: false,
+    cold: false,
+    deviation: false,
+    // Navigator 11
     multiHit: true,
     pairRun: false,
     landing: false,
@@ -137,6 +157,15 @@ export const DEFAULT_CONFIG: AppConfig = {
   },
 
   navThresholds: {
+    // Legacy 7
+    triggerEnsembleAbove: 22,
+    triggerMarkovAbove: 18,
+    triggerStreak: 3,
+    triggerProbBelow: 8,
+    triggerSequenceAbove: 20,
+    triggerColdProbBelow: 10,
+    triggerDeviationPct: 4,
+    // Navigator 11
     multiHitPct: 7,
     pairRunPct: 3,
     landingPct: 12,
