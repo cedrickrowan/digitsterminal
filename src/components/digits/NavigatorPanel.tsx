@@ -90,9 +90,11 @@ function OverUnderView({ b, duration }: { b: OverUnderBlock; duration: number })
         </span>
         <span className="font-mono text-[10px] tabular-nums">t+{duration}</span>
       </div>
-      {b.deadZone && (
+        {b.deadZone && (
         <div className="font-mono text-[9px]">
-          barrier tie P {pct(b.pTie)} ≥ 10% · signal blocked
+          {b.barrier === 0 || b.barrier === 9
+            ? `losing digit P(${b.barrier}) ${pct(b.pTie)} ≥ 15% · signal blocked`
+            : `barrier tie P(=${b.barrier}) ${pct(b.pTie)} ≥ 10% · signal blocked`}
         </div>
       )}
       <div className="mt-1 grid grid-cols-2 gap-x-3 font-mono text-[10px] tabular-nums">
@@ -302,6 +304,12 @@ function NavigatorPanelImpl({ result, alertElapsedMs, waiting, filled, size, mar
             <Diag label="KL EMA θ" value={result.adaptiveKlThreshold.toFixed(3)} title="Adaptive KL threshold (EMA decay)" />
             <Diag label="KS drift" value={result.ksDrift.toFixed(3)} title="Kolmogorov–Smirnov drift vs discrete uniform" />
             <Diag label="LZW ratio" value={result.lzwRatio.toFixed(3)} title="Lempel-Ziv-Welch compression ratio (lower = repeating blocks)" />
+            <Diag
+              label="Hurst H"
+              value={`${result.hurstH.toFixed(2)} ${Math.abs(result.hurstH - 0.5) >= 0.05 ? "✓" : "·"}`}
+              title="Rescaled-Range Hurst exponent (0.50 = random noise, >0.55 = persistent, <0.45 = mean-reverting)"
+              tone={Math.abs(result.hurstH - 0.5) >= 0.05 ? "good" : undefined}
+            />
             <Diag label="CUSUM" value={result.cusum.toFixed(1) + (result.cusumShift ? " ⚠shift" : "")} title="Page-Hinkley regime-shift accumulator" />
             <Diag
               label="AMI lags"
