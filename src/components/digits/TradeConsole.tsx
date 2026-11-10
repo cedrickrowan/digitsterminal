@@ -144,9 +144,9 @@ function TradeConsoleImpl({
             {/* Row 2: Over / Under with barrier */}
       <div className="flex items-center gap-2">
         <Btn
-          label={needConfirm("DIGITOVER") ? `Tap to confirm` : barrier === 9 ? `Over 9 (N/A)` : `Over ${barrier}`}
+          label={needConfirm("DIGITOVER") ? `Tap to confirm` : `Over ${barrier}`}
           tone={needConfirm("DIGITOVER") ? "warn" : "cyan"}
-          disabled={disabled || barrier === 9}
+          disabled={disabled}
           onClick={() => (needConfirm("DIGITOVER") ? confirm("DIGITOVER", barrier) : fire("DIGITOVER", barrier))}
         />
         <div className="flex h-12 shrink-0 flex-col items-center justify-center rounded-lg border border-input bg-background px-1">
@@ -157,10 +157,10 @@ function TradeConsoleImpl({
             <button type="button" className="h-6 w-6 rounded border border-input font-mono" onClick={() => onBarrierChange(Math.min(9, barrier + 1))}>+</button>
           </div>
         </div>
-        <Btn
-          label={needConfirm("DIGITUNDER") ? `Tap to confirm` : barrier === 0 ? `Under 0 (N/A)` : `Under ${barrier}`}
+         <Btn
+          label={needConfirm("DIGITUNDER") ? `Tap to confirm` : `Under ${barrier}`}
           tone={needConfirm("DIGITUNDER") ? "warn" : "magenta"}
-          disabled={disabled || barrier === 0}
+          disabled={disabled}
           onClick={() => (needConfirm("DIGITUNDER") ? confirm("DIGITUNDER", barrier) : fire("DIGITUNDER", barrier))}
         />
       </div>
