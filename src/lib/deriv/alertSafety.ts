@@ -56,12 +56,10 @@ export function isNavigatorAlertEligible(
   config: AlertDecisionConfig,
   feedSafe: boolean,
   currentTickId?: number,
-  legacyRulesPass = true,
 ): boolean {
   if (
     !result ||
     !feedSafe ||
-    !legacyRulesPass ||
     result.alertDecision !== "READY / MANUAL ALERT" ||
     result.symbol !== config.symbol ||
     result.market !== config.market ||
@@ -74,15 +72,10 @@ export function isNavigatorAlertEligible(
 
   if (config.market === "matches" || config.market === "differs") {
     if (result.navTargetDigit !== config.predictDigit) return false;
-    const rules = config.navRules;
-    if (!rules) return false;
-    return (Object.keys(rules) as Array<keyof NavRuleToggles>).every((rule) => {
-      if (!rules[rule]) return true;
-      const hit = result.navRuleHits.find((item) => item.rule === rule);
-      return hit?.enabled === true && hit.pass;
-    });
+    return result.navRuleHits.every((hit) => !hit.enabled || hit.pass);
   }
 
   if (config.market === "overunder") return result.overUnder?.barrier === config.barrier;
   return true;
 }
+
