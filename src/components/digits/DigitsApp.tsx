@@ -1120,6 +1120,7 @@ export default function DigitsApp() {
               return next;
             });
           }} 
+          />
         <SignalsLog signals={signals} />
         <SessionScorecard signals={signals} />
         <EngineLog
