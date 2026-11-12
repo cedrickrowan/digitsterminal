@@ -213,14 +213,6 @@ export default function DigitsApp() {
         now: performance.now(),
         gapBudgetMs: currentGapBudget,
       });
-      const currentWin = bufRef.current ? bufRef.current.lastN(currentCfg.lookback) : [];
-      const currentLegacyHits = currentWin.length >= 10 ? evaluateRules({ window: currentWin, cfg: currentCfg }) : [];
-      const currentLegacyPass = allRulesAgree(currentCfg, currentLegacyHits);
-      if (
-        !armedRef.current ||
-        !currentNav ||
-        !isNavigatorAlertEligible(currentNav, currentCfg, feedSafe, totalTicksRef.current, currentLegacyPass) ||
-        elapsedSinceReady >= (currentNav.executionCutoffMs ?? 700) ||
         currentBuyWindow <= 0 ||
         currentPing <= 0 ||
         currentPing >= currentNav.pingThresholdMs
@@ -335,13 +327,9 @@ export default function DigitsApp() {
         const legacyPassNow = allRulesAgree(currentCfg, legacyHitsNow);
         const ready = isNavigatorAlertEligible(nav, currentCfg, feedSafe, totalTicksRef.current, legacyPassNow);
         const displayNav =
-  nav && !feedSafe && nav.alertDecision === "READY / MANUAL ALERT"
-    ? { ...nav, alertDecision: "HOLD / UNSAFE LATENCY" as const }
-    : nav &&
-        !legacyPassNow &&
-        nav.alertDecision === "READY / MANUAL ALERT"
-      ? { ...nav, alertDecision: "HOLD / RULES NOT MET" as const }
-      : nav;
+          nav && !feedSafe && nav.alertDecision === "READY / MANUAL ALERT"
+            ? { ...nav, alertDecision: "HOLD / UNSAFE LATENCY" as const }
+            : nav;
         navResultRef.current = displayNav;
         setNavResult(displayNav);
                 if (ready) {
