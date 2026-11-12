@@ -1084,7 +1084,8 @@ export class DigitsEngine {
       detail: `Parity:${parityMatch ? "✓" : "✗"} Zone:${zoneMatch ? "✓" : "✗"} (Target ${targetDigit})`,
     });
 
-      const matchesReady =
+    const matchesReady =
+      navRulesEnabled &&
       input.market === "matches" &&
       targetDigit === input.predictDigit &&
       navRuleHits.every((h) => !h.enabled || h.pass);
