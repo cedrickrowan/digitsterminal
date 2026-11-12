@@ -46,7 +46,7 @@ export interface PreArrivalResult {
   topDigit: number;
 }
 
-/** 1s indices tick every second → project 3 ticks ahead; plain → 2 ticks. */
+/** 1s indices tick every second; plain indices tick every 2 seconds. */
 export function assetTypeOf(symbol: string): AssetType {
   return /^1HZ\d+V$/.test(symbol) ? "1S" : "PLAIN";
 }
@@ -70,13 +70,14 @@ export function runPreArrivalAnalysis(
   ticksBuffer: number[],
   deltasBuffer: number[],
   assetType: AssetType,
+  selectedDuration?: number,
 ): PreArrivalResult {
   const t0 = performance.now();
   const output = emptyForecasts();
   const len = ticksBuffer.length;
-  const horizonTargetDepth = horizonFor(assetType);
+  const horizonTargetDepth = Math.max(1, Math.min(10, Math.floor(selectedDuration ?? horizonFor(assetType))));
 
-  if (len < 40) {
+  if (len < 20) {
     return {
       forecasts: output,
       topDigit: -1,
@@ -97,21 +98,41 @@ export function runPreArrivalAnalysis(
     };
   }
 
-  const lastDigit = ticksBuffer[len - 1];
-  const penultDigit = ticksBuffer[len - 2];
-  const antepenultDigit = ticksBuffer[len - 3];
-
-  // ---- FORMULA 1: THIRD-ORDER MARKOV TENSOR (pre-arrival context lookup) ----
+  // ---- FORMULA 1: DYNAMIC ORDER 1..7+ VARIABLE-LENGTH MARKOV TENSOR ----
+  // Scales backward pattern depth with selected Duration (up to order 8).
+  const maxOrder = Math.min(8, Math.max(3, horizonTargetDepth), len - 2);
   const markov3Tensor = new Array<number>(10).fill(0);
   let totalMarkov3Context = 0;
-  for (let i = 4; i < len; i++) {
-    if (
-      ticksBuffer[i - 1] === lastDigit &&
-      ticksBuffer[i - 2] === penultDigit &&
-      ticksBuffer[i - 3] === antepenultDigit
-    ) {
-      markov3Tensor[ticksBuffer[i]]++;
-      totalMarkov3Context++;
+
+  for (let order = 1; order <= maxOrder; order++) {
+    const orderCounts = new Array<number>(10).fill(0);
+    let orderTotal = 0;
+    for (let i = order; i < len; i++) {
+      let match = true;
+      for (let k = 1; k <= order; k++) {
+        if (ticksBuffer[i - k] !== ticksBuffer[len - k]) {
+          match = false;
+          break;
+        }
+      }
+      if (match) {
+        orderCounts[ticksBuffer[i]]++;
+        orderTotal++;
+      }
+    }
+    if (orderTotal > 0) {
+      // Higher-order exact sequence matches receive stronger weight (order^2)
+      const weight = order * order;
+      for (let d = 0; d < 10; d++) {
+        markov3Tensor[d] += (orderCounts[d] / orderTotal) * weight;
+      }
+      totalMarkov3Context += orderTotal;
+    }
+  }
+  const tensorSum = markov3Tensor.reduce((a, b) => a + b, 0);
+  if (tensorSum > 0 && totalMarkov3Context > 0) {
+    for (let d = 0; d < 10; d++) {
+      markov3Tensor[d] = (markov3Tensor[d] / tensorSum) * totalMarkov3Context;
     }
   }
 
