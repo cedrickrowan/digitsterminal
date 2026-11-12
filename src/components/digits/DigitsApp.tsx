@@ -218,7 +218,7 @@ export default function DigitsApp() {
         !feedSafe ||
         !currentNav ||
         currentNav.alertDecision !== "READY / MANUAL ALERT" ||
-        elapsedSinceReady >= (currentNav.executionCutoffMs ?? 700) ||
+        elapsedSinceReady >= (currentNav.executionCutoffMs ?? 600) ||
         currentBuyWindow <= 0 ||
         currentPing <= 0 ||
         currentPing >= currentNav.pingThresholdMs
