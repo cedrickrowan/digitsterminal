@@ -109,7 +109,15 @@ export default function DigitsApp() {
   const clientRef = useRef<DerivClient | null>(null);
   const cfgRef = useRef(cfg);
   const armedRef = useRef(armed);
-  const pendingSimRef = useRef<Array<{ id: number; tickIndex: number; predicted: number; entryPrice: number }>>([]);
+  const pendingSimRef = useRef<Array<{
+    id: number;
+    tickIndex: number;
+    predicted: number;
+    entryPrice: number;
+    market: AppConfig["market"];
+    barrier: number;
+    side?: "OVER" | "UNDER" | "EVEN" | "ODD" | "RISE" | "FALL";
+  }>>([]);
   const lastSignalTickRef = useRef(-100);
   const renderScheduled = useRef(false);
   // Background analysis engine (Web Worker) + reactive tick stream
@@ -338,7 +346,7 @@ export default function DigitsApp() {
             : nav;
         navResultRef.current = displayNav;
         setNavResult(displayNav);
-                        if (ready) {
+                              if (ready) {
           // A fresh worker result for a new tick starts a fresh 600ms response window.
           navReadyAtRef.current = performance.now();
           alertTickIdRef.current = nav?.tickId ?? 0;
@@ -349,12 +357,47 @@ export default function DigitsApp() {
             setFlash(true);
             window.setTimeout(() => setFlash(false), nav?.executionCutoffMs ?? 600);
           }
+          if (armedRef.current && feedSafe && currentCfg.mode !== "alert" && !wasReady) {
+            const sigId = Date.now() + Math.random();
+            const entryPrice = lastPriceRef.current;
+            const actionUpper = (nav?.marketAction ?? "").toUpperCase();
+            const side: "OVER" | "UNDER" | "EVEN" | "ODD" | "RISE" | "FALL" | undefined =
+              actionUpper.includes("OVER") ? "OVER"
+              : actionUpper.includes("UNDER") ? "UNDER"
+              : actionUpper.includes("EVEN") ? "EVEN"
+              : actionUpper.includes("ODD") ? "ODD"
+              : actionUpper.includes("RISE") ? "RISE"
+              : actionUpper.includes("FALL") ? "FALL"
+              : undefined;
+            pendingSimRef.current.push({
+              id: sigId,
+              tickIndex: totalTicksRef.current + currentCfg.duration,
+              predicted: nav!.navTargetDigit,
+              entryPrice,
+              market: currentCfg.market,
+              barrier: currentCfg.barrier,
+              side,
+            });
+            setOpenEntry({ price: entryPrice, tick: totalTicksRef.current });
+            setMatched(false);
+            setSignals((prev) => [
+              ...prev.slice(-40),
+              {
+                id: sigId,
+                ts: Date.now(),
+                reason: `${currentCfg.mode.toUpperCase()} · ${nav!.marketAction || currentCfg.market} · edge ${(nav!.marketEdge * 100).toFixed(1)}%`,
+                predicted: nav!.navTargetDigit,
+                market: currentCfg.market,
+                expected: nav!.marketRecProb,
+                mode: currentCfg.mode,
+                entryPrice,
+                entryTick: totalTicksRef.current,
+              },
+            ]);
+          }
         }
 
-        if (ready && !wasReady) {
-          // New READY alert: start the strict 600 ms human-response window,
-          // visual flash for the whole window + the SINGLE lead-up beep
-          // scheduled at next tick arrival − ping − drift − latency offset.
+        if (ready && !wasReady && currentCfg.mode === "alert") {
           setSignals((prev) => [
             ...prev.slice(-40),
             {
