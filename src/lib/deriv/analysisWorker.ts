@@ -9,6 +9,8 @@
 
 import { DigitEngine, type EngineReport } from "./engine";
 import { DigitsEngine, NAV_BUFFER_SIZE, type EngineResult } from "./navigator";
+import { assetTypeOf, fusePreArrival, runPreArrivalAnalysis } from "./preArrival";
+import { applyContextWeights, hmmState, poissonClusterWeights, priceEma, volatilityState } from "./marketContext";
 import type { AppConfig, Market, NavRuleToggles, NavThresholds } from "./types";
 
 type InMsg =
@@ -42,6 +44,8 @@ type OutMsg =
 
 let engine: DigitEngine | null = null;
 let navEngine: DigitsEngine | null = null;
+const workerPrices: number[] = [];
+const workerDeltas: number[] = [];
 
 const post = (msg: OutMsg) => (self as unknown as Worker).postMessage(msg);
 
@@ -71,6 +75,8 @@ self.onmessage = (e: MessageEvent<InMsg>) => {
     case "reset":
       engine = new DigitEngine(msg.lookback);
       navEngine = new DigitsEngine(msg.lookback);
+      workerPrices.length = 0;
+      workerDeltas.length = 0;
       postNavStatus();
       break;
     case "navSeed": {
@@ -117,6 +123,43 @@ self.onmessage = (e: MessageEvent<InMsg>) => {
       const report = engine.analyze(msg.cfg);
       post({ type: "report", report });
 
+      // Track live prices & deltas inside worker for unified context & physics
+      if (Number.isFinite(msg.quote) && msg.quote > 0) {
+        if (workerPrices.length > 0) {
+          workerDeltas.push(Math.abs(msg.quote - workerPrices[workerPrices.length - 1]));
+          if (workerDeltas.length > 64) workerDeltas.shift();
+        }
+        workerPrices.push(msg.quote);
+        if (workerPrices.length > 64) workerPrices.shift();
+      }
+
+      // Build unified 10-digit prior from Engine + MarketContext + Pre-Arrival Physics (at exact msg.cfg.duration)
+      const snap = engine.snapshot();
+      let unifiedPrior: number[] | undefined;
+      if (snap.length >= 20) {
+        const base = new Array<number>(10);
+        let baseSum = 0;
+        for (let d = 0; d < 10; d++) {
+          const v = 0.5 * (report.higherOrder.order2[d] ?? 0.1) + 0.5 * (report.higherOrder.order3[d] ?? 0.1);
+          base[d] = Math.max(1e-4, v);
+          baseSum += base[d];
+        }
+        for (let d = 0; d < 10; d++) base[d] /= baseSum;
+
+        const ema = priceEma(workerPrices);
+        const vol = volatilityState(workerDeltas);
+        const hmm = hmmState(snap);
+        const poissonW = poissonClusterWeights(snap);
+        const ctxWeighted = applyContextWeights(base, {
+          direction: ema.direction,
+          volatility: vol.state,
+          hmm: hmm.state,
+          poissonWeights: poissonW,
+        });
+        const pre = runPreArrivalAnalysis(snap, workerDeltas, assetTypeOf(msg.cfg.symbol), msg.cfg.duration);
+        unifiedPrior = pre.physics.ready ? fusePreArrival(ctxWeighted, pre.forecasts) : ctxWeighted;
+      }
+
       // Digits Navigator corrected engine — full calculation per tick.
       const nav = ensureNav(msg.cfg.lookback);
       const navResult = nav.calculate({
@@ -133,6 +176,7 @@ self.onmessage = (e: MessageEvent<InMsg>) => {
         predictDigit: msg.cfg.predictDigit,
         navRules: msg.cfg.navRules,
         navThresholds: msg.cfg.navThresholds,
+        unifiedPrior,
       });
       if (navResult) {
         post({ type: "nav", result: navResult });
@@ -142,8 +186,7 @@ self.onmessage = (e: MessageEvent<InMsg>) => {
         postNavStatus();
       }
       break;
-    }
-  }
-};
+        }
+      
 
 export {}; // ensure module scope
