@@ -233,7 +233,38 @@ function ControlsImpl({ cfg, onChange, connected, onConnect, onDisconnect, armed
           ))}
         </div>
       </div>
-
+     {cfg.market === "differs" && (
+  <div className="border-t border-border pt-2">
+    <div className="mb-1 text-[10px] uppercase tracking-widest text-cyan">Differs Strategy Controls</div>
+    <div className="grid grid-cols-2 gap-2">
+      <label className="flex flex-col gap-1">
+        <span className="text-muted-foreground">Landing Ceiling % (&lt;)</span>
+        <input
+          type="number"
+          min={1}
+          max={20}
+          step={0.5}
+          className="rounded border border-input bg-background px-2 py-1.5 font-mono"
+          value={cfg.navThresholds.differsProbabilityCeilingPct}
+          onChange={(e) => setNavThreshold("differsProbabilityCeilingPct", Number(e.target.value))}
+        />
+      </label>
+      <label className="flex flex-col gap-1">
+        <span className="text-muted-foreground">Min Cold Gap (ticks)</span>
+        <input
+          type="number"
+          min={1}
+          max={50}
+          step={1}
+          className="rounded border border-input bg-background px-2 py-1.5 font-mono"
+          value={cfg.navThresholds.differsColdGapMin}
+          onChange={(e) => setNavThreshold("differsColdGapMin", Number(e.target.value))}
+        />
+      </label>
+    </div>
+  </div>
+)}
+      
       <div className="flex items-center gap-1 border-t border-border pt-2">
         <span className="mr-1 text-muted-foreground">Mode</span>
         {(["alert", "simulated", "live"] as Mode[]).map((m) => (
