@@ -55,8 +55,9 @@ export interface EngineTickInput {
   navRules?: NavRuleToggles;
   /** Navigator trigger rule percent thresholds. */
   navThresholds?: NavThresholds;
+  /** Unified 10-digit prior from Pre-Arrival Physics + Order 1..7+ VMM + HMM/Context. */
+  unifiedPrior?: number[];
 }
-
 export interface DigitMetrics {
   digit: number;
   landingProb: number; // Exact probability of landing on tick t+D
@@ -837,7 +838,7 @@ export class DigitsEngine {
     const D = Math.max(1, Math.min(10, Math.floor(input.duration || 3)));
     const currDigit = this.buffer[N - 1];
 
-    // 1. Build transition matrix with Laplace smoothing (+1 prior)
+        // 1. Build transition matrix with Laplace smoothing (+1 prior)
     this.T1.fill(1.0);
     this.freq100.fill(0);
 
@@ -857,6 +858,19 @@ export class DigitsEngine {
       for (let j = 0; j < 10; j++) this.T1[offset + j] *= inv;
     }
 
+    // 1b. Fuse Unified Physics + Order 1..7+ VMM + Context prior into current state row
+    if (input.unifiedPrior && input.unifiedPrior.length === 10) {
+      const currOffset = currDigit * 10;
+      let blendSum = 0;
+      for (let j = 0; j < 10; j++) {
+        const pPrior = Math.max(1e-6, input.unifiedPrior[j]);
+        this.T1[currOffset + j] = 0.65 * this.T1[currOffset + j] + 0.35 * pPrior;
+        blendSum += this.T1[currOffset + j];
+      }
+      if (blendSum > 0) {
+        for (let j = 0; j < 10; j++) this.T1[currOffset + j] /= blendSum;
+      }
+    }
     // 2. Matrix Exponentiation for Landing Probability M^D
     this.matPower10x10(this.T1, D, this.TD);
 
