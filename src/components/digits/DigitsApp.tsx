@@ -346,7 +346,7 @@ export default function DigitsApp() {
           if (armedRef.current) {
             setFlash(true);
             scheduleLeadUpFire();
-            window.setTimeout(() => setFlash(false), Math.max(0, (nav?.executionCutoffMs ?? 700) - (performance.now() - navReadyAtRef.current)));
+            window.setTimeout(() => setFlash(false), Math.max(0, (nav?.executionCutoffMs ?? 600) - (performance.now() - navReadyAtRef.current)));
           }
         }
 
