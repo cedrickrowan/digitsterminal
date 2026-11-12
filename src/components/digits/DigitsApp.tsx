@@ -331,7 +331,7 @@ export default function DigitsApp() {
         const winNow = bufRef.current ? bufRef.current.lastN(currentCfg.lookback) : [];
         const legacyHitsNow = winNow.length >= 10 ? evaluateRules({ window: winNow, cfg: currentCfg }) : [];
         const legacyPassNow = allRulesAgree(currentCfg, legacyHitsNow);
-        const ready = isNavigatorAlertEligible(nav, currentCfg, feedSafe, totalTicksRef.current, legacyPassNow);
+        const ready = isNavigatorAlertEligible(nav, currentCfg, feedSafe, totalTicksRef.current);
         const displayNav =
           nav && !feedSafe && nav.alertDecision === "READY / MANUAL ALERT"
             ? { ...nav, alertDecision: "HOLD / UNSAFE LATENCY" as const }
@@ -1113,8 +1113,13 @@ export default function DigitsApp() {
           onConnect={handleConnect}
           onDisconnect={handleDisconnect}
           armed={armed}
-          onToggleArm={() => setArmed((a) => !a)}
-        />
+          onToggleArm={() => {
+            setArmed((a) => {
+              const next = !a;
+              if (next) beep();
+              return next;
+            });
+          }} 
         <SignalsLog signals={signals} />
         <SessionScorecard signals={signals} />
         <EngineLog
