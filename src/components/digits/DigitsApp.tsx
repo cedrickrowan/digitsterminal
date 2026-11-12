@@ -204,7 +204,7 @@ export default function DigitsApp() {
         currentCfg.safeGapMs,
         cadenceOf(currentCfg.symbol, gapsRef.current?.median() ?? 0) * 1.6,
       );
-      const feedSafe = isFeedSafe({
+            const feedSafe = isFeedSafe({
         connected: connectedRef.current,
         staleGap: staleRef.current,
         symbol: currentCfg.symbol,
@@ -213,6 +213,12 @@ export default function DigitsApp() {
         now: performance.now(),
         gapBudgetMs: currentGapBudget,
       });
+      if (
+        !armedRef.current ||
+        !feedSafe ||
+        !currentNav ||
+        currentNav.alertDecision !== "READY / MANUAL ALERT" ||
+        elapsedSinceReady >= (currentNav.executionCutoffMs ?? 700) ||
         currentBuyWindow <= 0 ||
         currentPing <= 0 ||
         currentPing >= currentNav.pingThresholdMs
