@@ -843,7 +843,7 @@ export default function DigitsApp() {
     // Zero-lag pre-arrival layer: 3rd-order Markov tensor, Lyapunov, Hurst,
     // Fourier harmonics, KS bias and AR-Poisson intensity — fused into the
     // posterior with micro-fatigue muting.
-    const pre = runPreArrivalAnalysis(buf, d, assetTypeOf(cfgRef.current.symbol));
+    const pre = runPreArrivalAnalysis(buf, d, assetTypeOf(cfgRef.current.symbol), cfg.duration);
     const weighted = pre.physics.ready
       ? fusePreArrival(ctxWeighted, pre.forecasts)
       : ctxWeighted;
