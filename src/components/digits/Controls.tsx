@@ -14,8 +14,14 @@ interface Props {
   armed: boolean;
   onToggleArm: () => void;
 }
-
-const NAV_RULE_META: { key: keyof NavRuleToggles; label: string; thr?: keyof NavThresholds; suffix?: string; step?: number }[] = [
+const NAV_RULE_META: {
+  key: keyof NavRuleToggles;
+  label: string;
+  thr?: keyof NavThresholds;
+  thrMax?: keyof NavThresholds;
+  suffix?: string;
+  step?: number;
+}[] = [
   // Legacy 7 rules
   { key: "ensemble", label: "Ensemble% >", thr: "triggerEnsembleAbove", suffix: "%" },
   { key: "markov", label: "Markov% >", thr: "triggerMarkovAbove", suffix: "%" },
@@ -34,7 +40,7 @@ const NAV_RULE_META: { key: keyof NavRuleToggles; label: string; thr?: keyof Nav
   { key: "barrier", label: "O/U confluence", thr: "barrierPct", suffix: "%" },
   { key: "lowEntropy", label: "Low-entropy regime", thr: "entropyZMax", step: 0.1 },
   { key: "antiRepeat", label: "Anti-repeat filter" },
-  { key: "frequencyEnvelope", label: "Freq envelope min%", thr: "frequencyMinPct", suffix: "%" },
+  { key: "frequencyEnvelope", label: "Freq envelope [min, max]%", thr: "frequencyMinPct", thrMax: "frequencyMaxPct", suffix: "%" },
   { key: "markovD", label: "D-Step Markov", thr: "markovDPct", suffix: "%" },
   { key: "hurstFilter", label: "Hurst Non-Random (H)", thr: "hurstMinEdge", step: 0.01 },
   { key: "macroConfluence", label: "Macro Confluence Gate" },
@@ -189,7 +195,7 @@ function ControlsImpl({ cfg, onChange, connected, onConnect, onDisconnect, armed
       </div>
 
       <div className="border-t border-border pt-2">
-        <div className="mb-1 text-[10px] uppercase tracking-widest text-cyan">Trigger rules · Matches (strict AND · 18 rules)</div>
+        <div className="mb-1 text-[10px] uppercase tracking-widest text-cyan">Trigger rules · Matches (strict AND · 19 rules)</div>
         <div className="grid grid-cols-1 gap-1">
           {NAV_RULE_META.map((r) => (
             <label key={r.key} className="flex items-center gap-2">
@@ -199,18 +205,29 @@ function ControlsImpl({ cfg, onChange, connected, onConnect, onDisconnect, armed
                 onChange={(e) => setNavRule(r.key, e.target.checked)}
               />
               <span className="w-32 text-muted-foreground">{r.label}</span>
-              {r.thr && (
-  <input
-    type="number"
-    step={r.step ?? 0.5}
-    min={r.suffix === "%" ? 0 : undefined}
-    max={r.suffix === "%" ? 100 : undefined}
-    className="w-20 rounded border border-input bg-background px-2 py-1 font-mono"
-    value={cfg.navThresholds[r.thr]}
-    onChange={(e) => setNavThreshold(r.thr!, Number(e.target.value))}
-  />
-)}
-
+              
+  {r.thr && (
+    <input
+      type="number"
+      step={r.step ?? 0.5}
+      min={r.suffix === "%" ? 0 : undefined}
+      max={r.suffix === "%" ? 100 : undefined}
+      className="w-16 rounded border border-input bg-background px-2 py-1 font-mono"
+      value={cfg.navThresholds[r.thr]}
+      onChange={(e) => setNavThreshold(r.thr!, Number(e.target.value))}
+    />
+   )}
+   {r.thrMax && (
+    <input
+      type="number"
+      step={r.step ?? 0.5}
+      min={0}
+      max={100}
+      className="w-16 rounded border border-input bg-background px-2 py-1 font-mono"
+      value={cfg.navThresholds[r.thrMax]}
+      onChange={(e) => setNavThreshold(r.thrMax!, Number(e.target.value))}
+     />
+     )}
               {r.suffix && <span className="text-muted-foreground">{r.suffix}</span>}
             </label>
           ))}
