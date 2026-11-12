@@ -351,7 +351,7 @@ export default function DigitsApp() {
         }
 
         if (ready && !wasReady) {
-          // New READY alert: start the strict 700 ms human-response window,
+          // New READY alert: start the strict 600 ms human-response window,
           // visual flash for the whole window + the SINGLE lead-up beep
           // scheduled at next tick arrival − ping − drift − latency offset.
           setSignals((prev) => [
@@ -838,7 +838,7 @@ export default function DigitsApp() {
   const tickInterval = cadenceOf(cfg.symbol, gapsRef.current!.median());
   const countdownMs = Math.round(Math.max(0, tickInterval - lastGapNow));
   const purchaseInMs = countdownMs - cfg.latencyOffsetMs;
-  // Navigator 700 ms human-response window (numeric countdown, no progress bar)
+  // Navigator 600 ms human-response window (numeric countdown, no progress bar)
   const navReady = navResult?.alertDecision === "READY / MANUAL ALERT";
   const navElapsed = navReady && navReadyAtRef.current > 0 ? performance.now() - navReadyAtRef.current : 0;
   useEffect(() => {
@@ -846,7 +846,7 @@ export default function DigitsApp() {
       cancelLeadUpFire();
       return;
     }
-    if (navElapsed >= (navResult?.executionCutoffMs ?? 700) || purchaseInMs <= 0) {
+    if (navElapsed >= (navResult?.executionCutoffMs ?? 600) || purchaseInMs <= 0) {
       cancelLeadUpFire();
     }
   }, [cancelLeadUpFire, navElapsed, navReady, navResult?.executionCutoffMs, purchaseInMs, tick]);
