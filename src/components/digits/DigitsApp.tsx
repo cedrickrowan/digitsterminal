@@ -338,15 +338,16 @@ export default function DigitsApp() {
             : nav;
         navResultRef.current = displayNav;
         setNavResult(displayNav);
-                if (ready) {
-          // A fresh worker result for a new tick starts a fresh response window.
+                        if (ready) {
+          // A fresh worker result for a new tick starts a fresh 600ms response window.
           navReadyAtRef.current = performance.now();
           alertTickIdRef.current = nav?.tickId ?? 0;
           navWasReadyRef.current = true;
-          if (armedRef.current) {
+          if (armedRef.current && feedSafe) {
+            cancelLeadUpFire();
+            beep();
             setFlash(true);
-            scheduleLeadUpFire();
-            window.setTimeout(() => setFlash(false), Math.max(0, (nav?.executionCutoffMs ?? 600) - (performance.now() - navReadyAtRef.current)));
+            window.setTimeout(() => setFlash(false), nav?.executionCutoffMs ?? 600);
           }
         }
 
