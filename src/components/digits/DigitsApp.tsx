@@ -564,13 +564,25 @@ export default function DigitsApp() {
     pushSignal({ ...sig, entryPrice, entryTick: totalTicksRef.current });
   }, [pushSignal, scheduleLeadUpFire]);
 
-  const resolveSims = useCallback((latestDigit: number) => {
+    const resolveSims = useCallback((latestDigit: number) => {
     const idx = totalTicksRef.current;
+    const latestPrice = lastPriceRef.current;
     const remaining: typeof pendingSimRef.current = [];
     const resolved: Array<{ id: number; result: "win" | "loss" }> = [];
     for (const p of pendingSimRef.current) {
       if (idx >= p.tickIndex) {
-        const win = latestDigit === p.predicted;
+        let win = false;
+        if (p.market === "differs") {
+          win = latestDigit !== p.predicted;
+        } else if (p.market === "overunder") {
+          win = p.side === "UNDER" ? latestDigit < p.barrier : latestDigit > p.barrier;
+        } else if (p.market === "evenodd") {
+          win = p.side === "ODD" ? latestDigit % 2 === 1 : latestDigit % 2 === 0;
+        } else if (p.market === "risefall") {
+          win = p.side === "FALL" ? latestPrice < p.entryPrice : latestPrice > p.entryPrice;
+        } else {
+          win = latestDigit === p.predicted;
+        }
         resolved.push({ id: p.id, result: win ? "win" : "loss" });
         if (win) setMatched(true);
         setOpenEntry(null);
@@ -588,7 +600,6 @@ export default function DigitsApp() {
       );
     }
   }, []);
-
   const handleConnect = useCallback(() => {
     const client = new DerivClient({
       onOpen: () => setConnected(true),
