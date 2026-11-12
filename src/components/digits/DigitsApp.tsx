@@ -556,6 +556,8 @@ export default function DigitsApp() {
       tickIndex: totalTicksRef.current + cfgNow.duration,
       predicted: cfgNow.predictDigit,
       entryPrice,
+      market: cfgNow.market,
+      barrier: cfgNow.barrier,
     });
     setOpenEntry({ price: entryPrice, tick: totalTicksRef.current });
     setMatched(false);
