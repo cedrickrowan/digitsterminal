@@ -184,7 +184,7 @@ export const NAV_TAIL_WINDOW = 15;
 export const NAV_MULTI_HIT_FLOOR = 0.07; // 7.0% provisional density floor (Matches)
 export const NAV_EDGE_FLOOR = 0.08; // 8% edge over the random baseline (Over/Under · Even/Odd · Rise/Fall)
 export const NAV_TIE_DEAD_ZONE = 0.10; // barrier tie probability >= 10% blocks the signal
-export const NAV_EXECUTION_CUTOFF_MS = 700;
+export const NAV_EXECUTION_CUTOFF_MS = 600;
 
 /** Display labels for the Navigator trigger rules. */
 export const NAV_RULE_LABELS: Record<keyof NavRuleToggles, string> = {
