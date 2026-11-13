@@ -1090,15 +1090,18 @@ export default function DigitsApp() {
           confidence={
             cfg.market === "differs" && navResult?.digits[cfg.predictDigit]
               ? 1 - navResult.digits[cfg.predictDigit].landingProb
-              : Math.min(1, (context.weighted[cfg.market === "matches" ? cfg.predictDigit : context.topDigit] ?? 0) * (engineReport?.confidenceAdjust ?? 1))
+              : cfg.market === "matches" && navResult?.digits[cfg.predictDigit]
+                ? navResult.digits[cfg.predictDigit].landingProb
+                : Math.min(1, (context.weighted[cfg.market === "matches" ? cfg.predictDigit : context.topDigit] ?? 0) * (engineReport?.confidenceAdjust ?? 1))
           }
           highlight={
-            cfg.market === "matches"
-              ? (context.weighted[cfg.predictDigit] ?? 0) * (engineReport?.confidenceAdjust ?? 1) >= 0.7
+            cfg.market === "matches" && navResult?.digits[cfg.predictDigit]
+              ? navResult.alertDecision === "READY / MANUAL ALERT" || navResult.digits[cfg.predictDigit].landingProb >= 0.20
               : cfg.market === "differs" && navResult?.digits[cfg.predictDigit]
                 ? 1 - navResult.digits[cfg.predictDigit].landingProb >= 0.92
                 : false
           }
+                  
         />
         <NavigatorPanel
           result={navResult}
