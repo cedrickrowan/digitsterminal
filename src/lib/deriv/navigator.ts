@@ -1340,10 +1340,12 @@ export class DigitsEngine {
       marketRecProb = pDiffers;
       marketEdge = pDiffers - 0.90;
       marketScore = Math.max(0, marketEdge);
-    } else {
+        } else {
       marketAction = `DIGIT ${topPick}`;
-      marketRecProb = digitMetrics[topPick].multiHitProb;
-      marketEdge = digitMetrics[topPick].multiHitProb;
+      // Extract the maximum directional wave probability tracking your dynamic top pick digit
+      const macroCeilingEdge = evenOdd && overUnder ? Math.max(evenOdd.prob, overUnder.prob) : 0.85;
+      marketRecProb = macroCeilingEdge;
+      marketEdge = macroCeilingEdge - 0.50;
       marketScore = marketEdge;
     }
 
