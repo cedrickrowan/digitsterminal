@@ -1186,7 +1186,7 @@ export class DigitsEngine {
           }
         }
       }
-
+          
       const differsCeiling = (input.navThresholds?.differsProbabilityCeilingPct ?? 12) / 100;
       const differsColdGapMin = input.navThresholds?.differsColdGapMin ?? 5;
       const targetLanding = tm.landingProb;
@@ -1218,7 +1218,6 @@ export class DigitsEngine {
     } else if (market === "risefall") {
       if (riseFall && riseFall.rec !== "HOLD" && marketEdge >= NAV_EDGE_FLOOR) alertDecision = "READY / MANUAL ALERT";
     }
-
     const decisionSignature = alertDecisionSignature({
       symbol: input.symbol,
       market,
