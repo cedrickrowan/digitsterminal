@@ -1209,10 +1209,10 @@ export class DigitsEngine {
     const topPick = eligiblePool.length > 0 ? eligiblePool[0] : 0;
     if (freshPool.includes(topPick)) digitMetrics[topPick].status = "TOP_PICK";
 
-    // Market Regime Classification
+      // Unified Advanced Physics Market Regime Classification (Overridden by Viterbi path tracking calculations)
     let regime: EngineResult["regime"] = "BALANCED_RANDOM";
-    if (zRun < -1.96) regime = "PARITY_CLUSTERING";
-    else if (zRun > 1.96) regime = "MEAN_REVERTING";
+    if (decodedHiddenRegimeState === 1) regime = "PARITY_CLUSTERING";
+    else if (decodedHiddenRegimeState === 2) regime = "MEAN_REVERTING";
 
     const market = input.market ?? "matches";
     const barrier = clamp(Math.round(input.barrier ?? 4), 0, 9);
