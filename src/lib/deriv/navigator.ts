@@ -1150,20 +1150,60 @@ export class DigitsEngine {
     // 9. Alert decision — dual ping gates + market-aware probability floors.
     let alertDecision: EngineResult["alertDecision"] = "HOLD / NO SIGNAL";
     
-    if (!pingOk) {
+        if (!pingOk) {
       alertDecision = "HOLD / UNSAFE LATENCY";
     } else if (market === "matches") {
-      if (matchesReady) alertDecision = "READY / MANUAL ALERT";
-      else if (navRulesEnabled) alertDecision = "HOLD / RULES NOT MET";
+      // Loop over every checkbox the user selected in the UI checklist
+      let allSelectedPass = true;
+      let selectedCount = 0;
+      const checkedRules = input.navRules ?? {};
+
+      for (const ruleKey in checkedRules) {
+        if (checkedRules[ruleKey as keyof typeof checkedRules]) {
+          selectedCount++;
+          // Find the matching mathematical result from the evaluation loop
+          const match = navRuleHits.find((h) => h.rule === ruleKey);
+          if (match && !match.pass) {
+            allSelectedPass = false;
+          }
+        }
+      }
+
+      // True AND-gate: Only fire if at least one rule is checked and ALL checked rules pass
+      const combinedMatchesReady = selectedCount > 0 && allSelectedPass;
+
+      if (combinedMatchesReady) alertDecision = "READY / MANUAL ALERT";
+      else if (selectedCount > 0) alertDecision = "HOLD / RULES NOT MET";
       else alertDecision = "HOLD / NO SIGNAL";
     } else if (market === "differs") {
+      // Re-map all checked UI checkbox rules strictly for the Differs system as a combined group
+      let allSelectedPass = true;
+      let selectedCount = 0;
+      const checkedRules = input.navRules ?? {};
+
+      for (const ruleKey in checkedRules) {
+        if (checkedRules[ruleKey as keyof typeof checkedRules]) {
+          selectedCount++;
+          const match = navRuleHits.find((h) => h.rule === ruleKey);
+          if (match && !match.pass) {
+            allSelectedPass = false;
+          }
+        }
+      }
+
       const differsCeiling = (input.navThresholds?.differsProbabilityCeilingPct ?? 12) / 100;
       const differsColdGapMin = input.navThresholds?.differsColdGapMin ?? 5;
       const targetLanding = tm.landingProb;
       const targetColdGap = N - 1 - (this.buffer.lastIndexOf(targetDigit));
-      const differsReady = targetLanding <= differsCeiling && targetColdGap >= differsColdGapMin;
-      if (differsReady) alertDecision = "READY / MANUAL ALERT";
+      
+      // Target digit must be below probability ceiling, meet cold gap minimum, AND clear all checked checkbox constraints
+      const differsMathReady = targetLanding <= differsCeiling && targetColdGap >= differsColdGapMin;
+      const combinedDiffersReady = differsMathReady && (selectedCount === 0 || allSelectedPass);
+
+      if (combinedDiffersReady) alertDecision = "READY / MANUAL ALERT";
       else alertDecision = "HOLD / RULES NOT MET";
+    }
+
     } else if (market === "overunder") {
       if (overUnder?.deadZone) {
         alertDecision = "HOLD / DEAD ZONE";
