@@ -160,14 +160,14 @@ function decisionFor(p: Props): { side: string; conf: number; tone: "cyan" | "ma
 
 function EnsemblePanelImpl(p: Props) {
   const dir = decisionFor(p);
-  // Horizon probability grid: navigator landing probabilities when live.
+    // Horizon probability grid: navigator landing probabilities when live.
   const posterior: number[] = p.nav ? p.nav.digits.map((d) => d.landingProb) : p.ensemble.posterior;
   const highlightDigit = p.nav
     ? p.nav.topTargetDigit
-    : p.market === "matches" ? p.ensemble.topDigit : p.ensemble.topDigit;
+    : p.market === "matches" ? p.predictDigit : p.ensemble.topDigit;
 
-  // Strict 700 ms navigator window — synchronized with the audio alert.
-  const cutoff = p.nav?.executionCutoffMs ?? 700;
+  // Strict execution safety window — synchronized with the master 600ms cutoff rule.
+  const cutoff = p.nav?.executionCutoffMs ?? 600;
   const ready = p.nav?.alertDecision === "READY / MANUAL ALERT";
   const inWindow = ready && p.alertElapsedMs >= 0 && p.alertElapsedMs < cutoff;
   const remaining = Math.max(0, cutoff - p.alertElapsedMs);
@@ -236,7 +236,7 @@ function EnsemblePanelImpl(p: Props) {
             </span>
           </div>
           <div className="flex justify-between text-[10px] text-muted-foreground">
-            <span>{ready ? "700ms entry window" : "Alert state"}</span>
+          <span>{ready ? `${cutoff}ms entry window` : "Alert state"}</span>
             <span
               className={`font-mono tabular-nums ${
                 inWindow ? "text-success font-bold" : ready ? "text-danger" : "text-muted-foreground"
