@@ -1019,7 +1019,8 @@ export class DigitsEngine {
     const barrier = clamp(Math.round(input.barrier ?? 4), 0, 9);
 
     // 8b. Market-specific horizon blocks (v3)
-    const overUnder = this.computeOverUnder(currOffset, barrier);
+    const deadZoneLimit = (input.navThresholds?.deadZoneThresholdPct ?? 10) / 100;
+    const overUnder = this.computeOverUnder(currOffset, barrier, deadZoneLimit);
     const evenOdd = this.computeParity(currOffset);
     const riseFall = this.computeDirection();
 
@@ -1207,7 +1208,7 @@ export class DigitsEngine {
           }
         } else {
           const isImbalance = overUnder.prob > 0.65 && overUnder.pTie < 0.07;
-          const isEdgeOk = (overUnder.prob - (overUnder.rec === "OVER" ? overUnder.baselineOver : overUnder.baselineUnder)) >= NAV_EDGE_FLOOR && overUnder.pTie < NAV_TIE_DEAD_ZONE;
+          const isEdgeOk = (overUnder.prob - (overUnder.rec === "OVER" ? overUnder.baselineOver : overUnder.baselineUnder)) >= NAV_EDGE_FLOOR && overUnder.pTie < deadZoneLimit;
           if (isImbalance || isEdgeOk) {
             alertDecision = "READY / MANUAL ALERT";
           }
@@ -1289,7 +1290,7 @@ export class DigitsEngine {
    *    Barrier 0: Over 0 only (digits 1-9 win, 0 loses). P(Under) = 0.
    *    Barrier 9: Under 9 only (digits 0-8 win, 9 loses). P(Over) = 0.
    */
-  private computeOverUnder(currOffset: number, barrier: number): OverUnderBlock {
+    private computeOverUnder(currOffset: number, barrier: number, deadZoneLimit = NAV_TIE_DEAD_ZONE): OverUnderBlock {
     const N = this.bufferSize;
     let rawOver = 0.0;
     let rawUnder = 0.0;
@@ -1328,7 +1329,7 @@ export class DigitsEngine {
     // - 3-way middle barriers (1..8): block if barrier tie >= 10% (lose-lose risk)
     // - 2-way boundaries (0 & 9): block only if losing digit >= 15% (keeps <85% win rate out)
     const isBoundary = barrier === 0 || barrier === 9;
-    const deadZone = isBoundary ? pTie >= 0.15 : pTie >= NAV_TIE_DEAD_ZONE;
+    const deadZone = isBoundary ? pTie >= (deadZoneLimit * 1.5) : pTie >= deadZoneLimit;
     let rec: OverUnderBlock["rec"] = "HOLD";
     let prob = 0;
     let velocity = 0;
