@@ -36,6 +36,7 @@ export interface NavRuleToggles {
   markovD: boolean;
   hurstFilter: boolean;
   macroConfluence: boolean;
+  differsDecay?: boolean;
 }
 
 /** Percent thresholds for the unified trigger rules. */
@@ -156,8 +157,9 @@ export const DEFAULT_CONFIG: AppConfig = {
     markovD: false,
     hurstFilter: false,
     macroConfluence: false,
+    differsDecay: false,
   },
-
+  
   navThresholds: {
     // Legacy 7
     triggerEnsembleAbove: 22,
@@ -180,7 +182,7 @@ export const DEFAULT_CONFIG: AppConfig = {
     differsProbabilityCeilingPct: 12,
     differsColdGapMin: 5,
     hurstMinEdge: 0.05,
-    deadZoneThresholdPct: 10,
+    differsMaxFreqPct: 8,
   },
 };
 // Verified live against Deriv (app_id 1089). 1HZ200V / 1HZ300V are not offered.
