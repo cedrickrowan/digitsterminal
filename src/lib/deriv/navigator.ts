@@ -535,7 +535,21 @@ export class DigitsEngine {
 
   // CUSUM / Page-Hinkley state
   private cusumAcc: number = 0;
+    // ---- KALMAN FILTER REAL-TIME TRACKING MEMORY INITIALIZATION ----
+  private kalman_x: number = 0; // Estimated true price state
+  private kalman_P: number = 1.0; // Estimate error variance memory
+  private readonly kalman_Q: number = 0.0001; // Process noise covariance prior
+  private readonly kalman_R: number = 0.01; // Measurement noise covariance threshold
+  private kalman_initialized: boolean = false;
 
+  // ---- LORENZ CHAOTIC ATTRACTOR PHASE SPACE ANCHORS ----
+  private lorenz_x: number = 1.0;
+  private lorenz_y: number = 1.0;
+  private lorenz_z: number = 1.0;
+  private readonly lorenz_sigma: number = 10.0;
+  private readonly lorenz_beta: number = 8.0 / 3.0;
+  private readonly lorenz_rho: number = 28.0; // Standard chaotic attractor parameter
+  
   constructor(bufferSize: number = NAV_BUFFER_SIZE) {
     const size = Math.round(clamp(bufferSize, 2, 600));
     this.bufferSize = size;
@@ -856,6 +870,36 @@ export class DigitsEngine {
       for (let j = 0; j < 10; j++) rowSum += this.T1[offset + j];
       const inv = 1.0 / rowSum;
       for (let j = 0; j < 10; j++) this.T1[offset + j] *= inv;
+    }
+        // ---- LORENZ CHAOTIC ATTRACTOR NUMERICAL COUPLING GATE ----
+    {
+      const dt = 0.01; // Discrete execution time step segment
+      const dx = this.lorenz_sigma * (this.lorenz_y - this.lorenz_x) * dt;
+      const dy = (this.lorenz_x * (this.lorenz_rho - this.lorenz_z) - this.lorenz_y) * dt;
+      const dz = (this.lorenz_x * this.lorenz_y - this.loren Beta * this.lorenz_z) * dt;
+
+      this.lorenz_x += dx;
+      this.lorenz_y += dy;
+      this.lorenz_z += dz;
+
+      // Extract chaotic phase vector module to predict orbital lobe state shifts
+      const lorenzMagnitude = Math.sqrt(this.lorenz_x * this.lorenz_x + this.lorenz_y * this.lorenz_y);
+      const attractorLobeBias = Math.sin(lorenzMagnitude) * 0.5 + 0.5; // Bounds cleanly to a [0..1] distribution vector
+
+      // Fuse the chaotic Lorenz attractor priors right into the core calculation matrix (T1)
+      const currentStateOffset = currDigit * 10;
+      let lorenzRowSum = 0;
+      for (let j = 0; j < 10; j++) {
+        // Blends 85% Markov history with a 15% Lorenz Chaotic Orbit trajectory prior
+        const chaosPrior = (j % 2 === 0) ? attractorLobeBias * 0.2 : (1.0 - attractorLobeBias) * 0.2;
+        this.T1[currentStateOffset + j] = 0.85 * this.T1[currentStateOffset + j] + 0.15 * chaosPrior;
+        lorenzRowSum += this.T1[currentStateOffset + j];
+      }
+      // Re-normalize row sum back to an exact 1.0 floor probability distribution
+      if (lorenzRowSum > 0) {
+        const invSum = 1.0 / lorenzRowSum;
+        for (let j = 0; j < 10; j++) this.T1[currentStateOffset + j] *= invSum;
+      }
     }
 
     // 1b. Fuse Unified Physics + Order 1..7+ VMM + Context prior into current state row
