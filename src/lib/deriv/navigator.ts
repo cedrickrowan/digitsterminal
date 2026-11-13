@@ -877,7 +877,7 @@ export class DigitsEngine {
       const dt = 0.01; // Discrete execution time step segment
       const dx = this.lorenz_sigma * (this.lorenz_y - this.lorenz_x) * dt;
       const dy = (this.lorenz_x * (this.lorenz_rho - this.lorenz_z) - this.lorenz_y) * dt;
-      const dz = (this.lorenz_x * this.lorenz_y - this.loren Beta * this.lorenz_z) * dt;
+      const dz = (this.lorenz_x * this.lorenz_y - this.lorenz_beta * this.lorenz_z) * dt;
 
       this.lorenz_x += dx;
       this.lorenz_y += dy;
