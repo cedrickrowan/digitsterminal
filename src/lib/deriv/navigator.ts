@@ -549,19 +549,56 @@ export class DigitsEngine {
   private readonly lorenz_sigma: number = 10.0;
   private readonly lorenz_beta: number = 8.0 / 3.0;
   private readonly lorenz_rho: number = 28.0; // Standard chaotic attractor parameter
-  
-  constructor(bufferSize: number = NAV_BUFFER_SIZE) {
+    // ---- ORNSTEIN–UHLENBECK ELASTIC REVERSION MEMORY STRUCTURES ----
+  private ou_theta: number = 0.15;      // Rate of mean reversion elasticity
+  private ou_mu: number = 4.5;         // Long-term equilibrium mean of the uniform distribution [0..9]
+  private ou_sigma: number = 1.2;      // Volatility profile parameter
+  private readonly ou_history = new Float64Array(100); // Volatility profile memory lookback
+
+  // ---- FOKKER–PLANCK PROBABILITY DENSITY DIFFUSION TABLES ----
+  private readonly fp_density = new Float64Array(10);   // Live discrete system state density profile p(x, t)
+  private readonly fp_drift = new Float64Array(10);     // Drift vectors D_1(x, t)
+  private readonly fp_diffusion = new Float64Array(10); // Diffusion dispersion coefficients D_2(x, t)
+
+  // ---- HIDDEN MARKOV MODEL AND VITERBI REGIME PATH MEMORY ----
+  // States: 0 = BALANCED_RANDOM, 1 = PARITY_CLUSTERING, 2 = MEAN_REVERTING
+  private readonly hmm_A = new Float64Array([
+    0.80, 0.10, 0.10, // Transition dynamics from state 0
+    0.15, 0.75, 0.10, // Transition dynamics from state 1
+    0.10, 0.10, 0.80  // Transition dynamics from state 2
+  ]);
+  private readonly hmm_B = new Float64Array(30); // Emission densities for 3 hidden states × 10 visible symbols
+  private readonly viterbi_matrix = new Float64Array(300 * 3); // LIFO Trellis trellis history space tracking table
+  private readonly viterbi_pointer = new Int32Array(300 * 3);  // Trellis backtracking register path space allocation
+
+    constructor(bufferSize: number = NAV_BUFFER_SIZE) {
     const size = Math.round(clamp(bufferSize, 2, 600));
     this.bufferSize = size;
     this.buffer = new Uint8Array(size);
-    // Diagnostic windows scale with the buffer so any lookback size behaves
-    // like a proportionally scaled window (floors keep tiny buffers usable).
-    this.microWindow = clamp(Math.round(size * 0.2), 3, 20); // 25→5, 50→10, 100→20, 900→20
-    this.tailWindow = clamp(Math.round(size * 0.15), 3, 15); // 25→4, 50→8, 100→15
-    this.recentWindow = size <= 25 ? 3 : 4; // immediate-repeat watch
-    this.countWindow = clamp(Math.round(size * 0.12), 3, 12); // 25→3, 50→6, 100→12
-  }
+    
+    this.microWindow = clamp(Math.round(size * 0.2), 3, 20);
+    this.tailWindow = clamp(Math.round(size * 0.15), 3, 15);
+    this.recentWindow = size <= 25 ? 3 : 4;
+    this.countWindow = clamp(Math.round(size * 0.12), 3, 12);
 
+    this.kalman_x = 0;
+    this.kalman_P = 1.0;
+    this.kalman_initialized = false;
+    this.lorenz_x = 1.0;
+    this.lorenz_y = 1.0;
+    this.lorenz_z = 1.0;
+
+    // Initialize HMM B emission profiles cleanly (Laplace smoothed priors)
+    for (let s = 0; d < 10; d++) {
+      // Hidden State 0 (Balanced Uniform Noise distribution)
+      this.hmm_B[0 * 10 + d] = 0.10;
+      // Hidden State 1 (Parity Clustering — skews heavily toward even digits)
+      this.hmm_B[1 * 10 + d] = (d % 2 === 0) ? 0.15 : 0.05;
+      // Hidden State 2 (Mean Reverting — skews heavily toward middle-band anchors)
+      this.hmm_B[2 * 10 + d] = (d >= 3 && d <= 6) ? 0.16 : 0.06;
+    }
+   }
+  
   get capacity(): number {
     return this.bufferSize;
   }
