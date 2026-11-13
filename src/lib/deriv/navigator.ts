@@ -589,7 +589,7 @@ export class DigitsEngine {
     this.lorenz_z = 1.0;
 
     // Initialize HMM B emission profiles cleanly (Laplace smoothed priors)
-    for (let s = 0; d < 10; d++) {
+    for (let d = 0; d < 10; d++) {
       // Hidden State 0 (Balanced Uniform Noise distribution)
       this.hmm_B[0 * 10 + d] = 0.10;
       // Hidden State 1 (Parity Clustering — skews heavily toward even digits)
