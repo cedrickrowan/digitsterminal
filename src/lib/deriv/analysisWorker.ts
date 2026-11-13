@@ -100,6 +100,19 @@ self.onmessage = (e: MessageEvent<InMsg>) => {
       let result: EngineResult | null = null;
       if (digits.length >= 21) {
         const scanEngine = new DigitsEngine(digits.length);
+        const deltas: number[] = [];
+        for (let i = 1; i < msg.prices.length; i++) {
+          deltas.push(Math.abs(msg.prices[i] - msg.prices[i - 1]));
+        }
+        let unifiedPrior: number[] | undefined;
+        if (digits.length >= 20) {
+          const pre = runPreArrivalAnalysis(digits, deltas, assetTypeOf(msg.symbol), msg.duration);
+          if (pre.physics.ready) {
+            const rawPrior = pre.forecasts.map((f) => f.preArrivalProbability / 100);
+            const sum = rawPrior.reduce((a, b) => a + b, 0);
+            unifiedPrior = sum > 0 ? rawPrior.map((p) => p / sum) : undefined;
+          }
+        }
         result = scanEngine.evaluateSnapshot(digits, msg.prices, {
           price: msg.prices[msg.prices.length - 1] ?? 0,
           pip: msg.pip,
@@ -112,6 +125,7 @@ self.onmessage = (e: MessageEvent<InMsg>) => {
           predictDigit: msg.predictDigit,
           navRules: msg.navRules,
           navThresholds: msg.navThresholds,
+          unifiedPrior,
         });
       }
       post({ type: "scanResult", id: msg.id, symbol: msg.symbol, rttMs: msg.rttMs, result });
