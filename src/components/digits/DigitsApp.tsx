@@ -1080,7 +1080,7 @@ export default function DigitsApp() {
           purchaseInMs={purchaseInMs}
         />
 
-               <PredictedDigit
+                <PredictedDigit
           digit={cfg.market === "matches" || cfg.market === "differs" ? cfg.predictDigit : context.topDigit}
           entryPrice={openEntry?.price ?? null}
           lastPrice={lastPrice}
@@ -1102,7 +1102,7 @@ export default function DigitsApp() {
                 : false
           }
                   
-        /> 
+        />
         <NavigatorPanel
           result={navResult}
           alertElapsedMs={navElapsed}
