@@ -871,6 +871,7 @@ export class DigitsEngine {
       const inv = 1.0 / rowSum;
       for (let j = 0; j < 10; j++) this.T1[offset + j] *= inv;
     }
+    
         // ---- LORENZ CHAOTIC ATTRACTOR NUMERICAL COUPLING GATE ----
     {
       const dt = 0.01; // Discrete execution time step segment
