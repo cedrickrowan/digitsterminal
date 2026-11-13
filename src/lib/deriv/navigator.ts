@@ -940,6 +940,123 @@ export class DigitsEngine {
       }
     }
 
+        // =========================================================================
+    // 3. ADVANCED PHYSICS MODULE: ORNSTEIN–UHLENBECK REVERSION DISCRETIZATION
+    // =========================================================================
+    let ouMeanReversionElasticity = 0.0;
+    {
+      let sumX = 0.0;
+      let sumY = 0.0;
+      let sumXX = 0.0;
+      let sumXY = 0.0;
+      const ouN = Math.min(N - 1, 100);
+      const startIdx = N - ouN;
+      
+      for (let i = startIdx; i < N; i++) {
+        const x_t = this.buffer[i - 1];
+        const x_next = this.buffer[i];
+        sumX += x_t;
+        sumY += x_next;
+        sumXX += x_t * x_t;
+        sumXY += x_t * x_next;
+      }
+      
+      const denominator = (ouN * sumXX - sumX * sumX);
+      const phi = denominator !== 0 ? (ouN * sumXY - sumX * sumY) / denominator : 0.0;
+      
+      if (phi > 0 && phi < 1) {
+        this.ou_theta = -Math.log(phi);
+      }
+      
+      ouMeanReversionElasticity = this.ou_theta * Math.abs(currDigit - this.ou_mu);
+    }
+
+    // =========================================================================
+    // 4. ADVANCED PHYSICS MODULE: FOKKER–PLANCK PROBABILITY SPECTRUM DIFFUSION
+    // =========================================================================
+    {
+      for (let d = 0; d < 10; d++) {
+        this.fp_density[d] = this.freq100[d] / N;
+      }
+
+      for (let d = 0; d < 10; d++) {
+        this.fp_drift[d] = -this.ou_theta * (d - this.ou_mu);
+        const varianceScale = Math.abs(this.freqMicro[d] / this.microWindow - 0.10);
+        this.fp_diffusion[d] = Math.max(0.01, 0.5 * (this.ou_sigma * this.ou_sigma) + varianceScale);
+      }
+
+      const dt_fp = 0.05;
+      const dx_fp = 1.0;
+      for (let d = 1; d < 9; d++) {
+        const drift_term = -( (this.fp_drift[d + 1] * this.fp_density[d + 1]) - (this.fp_drift[d - 1] * this.fp_density[d - 1]) ) / (2.0 * dx_fp);
+        const diff_term = this.fp_diffusion[d] * (this.fp_density[d + 1] - 2.0 * this.fp_density[d] + this.fp_density[d - 1]) / (dx_fp * dx_fp);
+        
+        const fluidDelta = (drift_term + diff_term) * dt_fp;
+        const currentMatrixIndex = currDigit * 10 + d;
+        this.T1[currentMatrixIndex] = clamp(this.T1[currentMatrixIndex] + fluidDelta, 1e-5, 0.95);
+      }
+
+      let fpRowSum = 0.0;
+      const rowOffset = currDigit * 10;
+      for (let j = 0; j < 10; j++) fpRowSum += this.T1[rowOffset + j];
+      if (fpRowSum > 0) {
+        const invFpSum = 1.0 / fpRowSum;
+        for (let j = 0; j < 10; j++) this.T1[rowOffset + j] *= invFpSum;
+      }
+    }
+
+    // =========================================================================
+    // 5. ADVANCED MODULE: HIDDEN MARKOV MODEL VITERBI REGIME PATH DECODER
+    // =========================================================================
+    let decodedHiddenRegimeState = 0;
+    {
+      const viterbiSteps = Math.min(N, 100);
+      const sliceStart = N - viterbiSteps;
+
+      const initialObservation = this.buffer[sliceStart];
+      for (let s = 0; s < 3; s++) {
+        this.viterbi_matrix[0 * 3 + s] = Math.log(0.333) + Math.log(this.hmm_B[s * 10 + initialObservation] + 1e-6);
+        this.viterbi_pointer[0 * 3 + s] = 0;
+      }
+
+      for (let t_step = 1; t_step < viterbiSteps; t_step++) {
+        const obs = this.buffer[sliceStart + t_step];
+        const currentStepOffset = t_step * 3;
+        const previousStepOffset = (t_step - 1) * 3;
+
+        for (let j_state = 0; j_state < 3; j_state++) {
+          let maxLogProb = Number.NEGATIVE_INFINITY;
+          let bestBackpointer = 0;
+          const logEmission = Math.log(this.hmm_B[j_state * 10 + obs] + 1e-6);
+
+          for (let i_state = 0; i_state < 3; i_state++) {
+            const logTrans = Math.log(this.hmm_A[i_state * 3 + j_state]);
+            const totalPathProb = this.viterbi_matrix[previousStepOffset + i_state] + logTrans;
+            
+            if (totalPathProb > maxLogProb) {
+              maxLogProb = totalPathProb;
+              bestBackpointer = i_state;
+            }
+          }
+
+          this.viterbi_matrix[currentStepOffset + j_state] = maxLogProb + logEmission;
+          this.viterbi_pointer[currentStepOffset + j_state] = bestBackpointer;
+        }
+      }
+
+      let maxFinalLogProb = Number.NEGATIVE_INFINITY;
+      let bestFinalState = 0;
+      const finalStepOffset = (viterbiSteps - 1) * 3;
+      
+      for (let s = 0; s < 3; s++) {
+        if (this.viterbi_matrix[finalStepOffset + s] > maxFinalLogProb) {
+          maxFinalLogProb = this.viterbi_matrix[finalStepOffset + s];
+          bestFinalState = s;
+        }
+      }
+      decodedHiddenRegimeState = bestFinalState;
+    }
+
     // 1b. Fuse Unified Physics + Order 1..7+ VMM + Context prior into current state row
     if (input.unifiedPrior && input.unifiedPrior.length === 10) {
       const currOffset = currDigit * 10;
