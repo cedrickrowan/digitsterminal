@@ -1056,6 +1056,22 @@ export class DigitsEngine {
       }
       decodedHiddenRegimeState = bestFinalState;
     }
+  // ---- QUANTUM WAVEFUNCTION SUPERPOSITION AND PHASE MEMORY SHIFTS ----
+  private readonly quantum_psi_real = new Float64Array(10); // Real component of structural wavefunction amplitude vector ψ
+  private readonly quantum_psi_imag = new Float64Array(10); // Imaginary phase component of structural wavefunction amplitude vector ψ
+  private readonly quantum_hamiltonian = new Float64Array(100); // 10x10 Self-adjoint Potential Energy Operator Matrix H
+  private readonly quantum_interference = new Float64Array(10); // Extracted constructive/destructive node density arrays
+
+  // ---- VOLTERRA INTEGRO-DIFFERENTIAL VOLATILITY MEMORY KERNELS ----
+  private readonly volterra_kernel = new Float64Array(64); // Exponentially decaying non-local memory weights h(t)
+  private readonly volterra_feedback = new Float64Array(10); // History integrated drag coefficients per digit profile
+
+  // ---- MULTIFRACTAL DETRENDED FLUCTUATION ANALYSIS REGIME MATRICES ----
+  private readonly mdfa_segments = new Float64Array(32); // Sliced local variance profile mappings Y_s(t)
+  private readonly mdfa_fluctuations = new Float64Array(5); // Multi-scale exponents q-order variance fields [-2, -1, 0, 1, 2]
+  private mdfa_singularity_alpha: number = 0.50; // Central singularity tracking exponent α
+  private mdfa_spectrum_f: number = 1.00; // Localized fractal dimension scaling boundary f(α)
+
 
     // 1b. Fuse Unified Physics + Order 1..7+ VMM + Context prior into current state row
     if (input.unifiedPrior && input.unifiedPrior.length === 10) {
