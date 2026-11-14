@@ -616,7 +616,7 @@ export class DigitsEngine {
       this.volterra_kernel[t] = Math.exp(-0.08 * t);
     }
 
-    // Initialize Uniform Wavefunction Superposition amplitudes ψ_0
+        // Initialize Uniform Wavefunction Superposition amplitudes ψ_0
     const flatAmplitude = Math.sqrt(0.10);
     for (let d = 0; d < 10; d++) {
       this.quantum_psi_real[d] = flatAmplitude;
@@ -624,17 +624,6 @@ export class DigitsEngine {
     }
   }
 
-    // Initialize HMM B emission profiles cleanly (Laplace smoothed priors)
-    for (let d = 0; d < 10; d++) {
-      // Hidden State 0 (Balanced Uniform Noise distribution)
-      this.hmm_B[0 * 10 + d] = 0.10;
-      // Hidden State 1 (Parity Clustering — skews heavily toward even digits)
-      this.hmm_B[1 * 10 + d] = (d % 2 === 0) ? 0.15 : 0.05;
-      // Hidden State 2 (Mean Reverting — skews heavily toward middle-band anchors)
-      this.hmm_B[2 * 10 + d] = (d >= 3 && d <= 6) ? 0.16 : 0.06;
-    }
-   }
-  
   get capacity(): number {
     return this.bufferSize;
   }
@@ -1091,6 +1080,141 @@ export class DigitsEngine {
         }
       }
       decodedHiddenRegimeState = bestFinalState;
+    }
+
+        // =========================================================================
+    // 6. QUANTUM SCHRÖDINGER AMPlITUDE PROJECTION (WAVEFUNCTION COLLAPSE)
+    // =========================================================================
+    {
+      for (let i = 0; i < 10; i++) {
+        const rowOffset = i * 10;
+        for (let j = 0; j < 10; j++) {
+          const basePotential = this.T1[rowOffset + j];
+          this.quantum_hamiltonian[rowOffset + j] = (i === j) ? basePotential + (Math.abs(i - 4.5) * 0.05) : -0.10 * basePotential;
+        }
+      }
+
+      const dt_q = 0.10; 
+      const temp_real = new Float64Array(10);
+      const temp_imag = new Float64Array(10);
+
+      for (let i = 0; i < 10; i++) {
+        let h_real = 0.0;
+        let h_imag = 0.0;
+        const offset = i * 10;
+        for (let j = 0; j < 10; j++) {
+          const H_ij = this.quantum_hamiltonian[offset + j];
+          h_real += -H_ij * this.quantum_psi_imag[j];
+          h_imag += H_ij * this.quantum_psi_real[j];
+        }
+        temp_real[i] = this.quantum_psi_real[i] + h_real * dt_q;
+        temp_imag[i] = this.quantum_psi_imag[i] + h_imag * dt_q;
+      }
+
+      let totalProbabilityDensity = 0.0;
+      for (let d = 0; d < 10; d++) {
+        const normSquare = (temp_real[d] * temp_real[d]) + (temp_imag[d] * temp_imag[d]);
+        this.quantum_interference[d] = normSquare;
+        totalProbabilityDensity += normSquare;
+      }
+
+      if (totalProbabilityDensity > 0) {
+        const invQSum = 1.0 / Math.sqrt(totalProbabilityDensity);
+        const currentRowOffset = currDigit * 10;
+        
+        for (let d = 0; d < 10; d++) {
+          this.quantum_psi_real[d] = temp_real[d] * invQSum;
+          this.quantum_psi_imag[d] = temp_imag[d] * invQSum;
+          
+          const collapsedStateDensity = this.quantum_interference[d] / totalProbabilityDensity;
+          this.T1[currentRowOffset + d] = 0.80 * this.T1[currentRowOffset + d] + 0.20 * collapsedStateDensity;
+        }
+      }
+    }
+
+    // =========================================================================
+    // 7. VOLATILITY-ADJUSTED VOLTERRA NON-LOCAL INTEGRO-DIFFERENTIAL KERNEL
+    // =========================================================================
+    {
+      this.volterra_feedback.fill(0.0);
+      const ringTotal = Math.min(this.priceCount, 64);
+      
+      if (ringTotal > 5) {
+        for (let d = 0; d < 10; d++) {
+          let integratedIntegral = 0.0;
+          const centerlineOffset = Math.abs(d - 4.5);
+          
+          for (let t = 0; t < ringTotal; t++) {
+            const index = (this.priceCount - 1 - t) % 64;
+            const pastVolatilityDelta = this.deltas[index];
+            const memoryWeight = this.volterra_kernel[t];
+            
+            integratedIntegral += pastVolatilityDelta * memoryWeight * (1.0 / (1.0 + centerlineOffset));
+          }
+          this.volterra_feedback[d] = integratedIntegral;
+        }
+
+        const rowStart = currDigit * 10;
+        let volterraRowSum = 0.0;
+        for (let j = 0; j < 10; j++) {
+          const structuralDrag = 0.05 * this.volterra_feedback[j];
+          this.T1[rowStart + j] = Math.max(1e-5, this.T1[rowStart + j] - structuralDrag);
+          volterraRowSum += this.T1[rowStart + j];
+        }
+        if (volterraRowSum > 0) {
+          const invVolterraSum = 1.0 / volterraRowSum;
+          for (let j = 0; j < 10; j++) this.T1[rowStart + j] *= invVolterraSum;
+        }
+      }
+    }
+
+    // =========================================================================
+    // 8. MULTIFRACTAL DETRENDED FLUCTUATION ANALYSIS EXPlONENT MONITOR
+    // =========================================================================
+    {
+      const totalElements = Math.min(this.priceCount, 64);
+      if (totalElements >= 32) {
+        const segSize = 16; 
+        const numSegs = 2; 
+        const q_orders = [-2, -1, 1, 2]; 
+        const f_q = new Float64Array(4);
+
+        for (let s = 0; s < numSegs; s++) {
+          const segStart = totalElements - (s + 1) * segSize;
+          let localMean = 0.0;
+          for (let i = 0; i < segSize; i++) {
+            localMean += this.deltas[(segStart + i) % 64];
+          }
+          localMean /= segSize;
+
+          let squaredFluctuationSum = 0.0;
+          for (let i = 0; i < segSize; i++) {
+            const residual = this.deltas[(segStart + i) % 64] - localMean;
+            squaredFluctuationSum += residual * residual;
+          }
+          this.mdfa_segments[s] = squaredFluctuationSum / segSize;
+        }
+
+        for (let q_idx = 0; q_idx < 4; q_idx++) {
+          const q = q_orders[q_idx];
+          let qSum = 0.0;
+          for (let s = 0; s < numSegs; s++) {
+            qSum += Math.pow(this.mdfa_segments[s] + 1e-8, q / 2.0);
+          }
+          f_q[q_idx] = Math.pow(qSum / numSegs, 1.0 / q);
+        }
+
+        const d_ln_f = Math.log(f_q[3] + 1e-8) - Math.log(f_q[0] + 1e-8);
+        this.mdfa_singularity_alpha = clamp(0.50 + (d_ln_f / 4.0), 0.10, 0.90);
+        this.mdfa_spectrum_f = clamp(1.0 - Math.abs(this.mdfa_singularity_alpha - 0.50) * 1.5, 0.05, 1.0);
+
+        if (this.mdfa_singularity_alpha > 0.72 || this.mdfa_spectrum_f < 0.35) {
+          const activeOffset = currDigit * 10;
+          for (let j = 0; j < 10; j++) {
+            this.T1[activeOffset + j] = 0.70 * this.T1[activeOffset + j] + 0.30 * 0.10;
+          }
+        }
+      }
     }
 
         // =========================================================================
