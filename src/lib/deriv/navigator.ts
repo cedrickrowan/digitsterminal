@@ -571,7 +571,23 @@ export class DigitsEngine {
   private readonly viterbi_matrix = new Float64Array(300 * 3); // LIFO Trellis trellis history space tracking table
   private readonly viterbi_pointer = new Int32Array(300 * 3);  // Trellis backtracking register path space allocation
 
-    constructor(bufferSize: number = NAV_BUFFER_SIZE) {
+    // ---- QUANTUM WAVEFUNCTION SUPERPOSITION AND PHASE MEMORY SHIFTS ----
+  private readonly quantum_psi_real = new Float64Array(10); // Real component of structural wavefunction amplitude vector ψ
+  private readonly quantum_psi_imag = new Float64Array(10); // Imaginary phase component of structural wavefunction amplitude vector ψ
+  private readonly quantum_hamiltonian = new Float64Array(100); // 10x10 Self-adjoint Potential Energy Operator Matrix H
+  private readonly quantum_interference = new Float64Array(10); // Extracted constructive/destructive node density arrays
+
+  // ---- VOLTERRA INTEGRO-DIFFERENTIAL VOLATILITY MEMORY KERNELS ----
+  private readonly volterra_kernel = new Float64Array(64); // Exponentially decaying non-local memory weights h(t)
+  private readonly volterra_feedback = new Float64Array(10); // History integrated drag coefficients per digit profile
+
+  // ---- MULTIFRACTAL DETRENDED FLUCTUATION ANALYSIS REGIME MATRICES ----
+  private readonly mdfa_segments = new Float64Array(32); // Sliced local variance profile mappings Y_s(t)
+  private readonly mdfa_fluctuations = new Float64Array(5); // Multi-scale exponents q-order variance fields [-2, -1, 0, 1, 2]
+  private mdfa_singularity_alpha: number = 0.50; // Central singularity tracking exponent α
+  private mdfa_spectrum_f: number = 1.00; // Localized fractal dimension scaling boundary f(α)
+
+     constructor(bufferSize: number = NAV_BUFFER_SIZE) {
     const size = Math.round(clamp(bufferSize, 2, 600));
     this.bufferSize = size;
     this.buffer = new Uint8Array(size);
@@ -588,6 +604,26 @@ export class DigitsEngine {
     this.lorenz_y = 1.0;
     this.lorenz_z = 1.0;
 
+    // Initialize HMM B emission profiles cleanly (Laplace smoothed priors)
+    for (let d = 0; d < 10; d++) {
+      this.hmm_B[0 * 10 + d] = 0.10;
+      this.hmm_B[1 * 10 + d] = (d % 2 === 0) ? 0.15 : 0.05;
+      this.hmm_B[2 * 10 + d] = (d >= 3 && d <= 6) ? 0.16 : 0.06;
+    }
+
+    // Build discrete Volterra decaying exponential memory kernel matrix h(t)
+    for (let t = 0; t < 64; t++) {
+      this.volterra_kernel[t] = Math.exp(-0.08 * t); // Decays gracefully over historical scale steps
+    }
+
+    // Initialize Uniform Wavefunction Superposition amplitudes ψ_0
+    const flatAmplitude = Math.sqrt(0.10); // Sum of squares is perfectly 1.0
+    for (let d = 0; d < 10; d++) {
+      this.quantum_psi_real[d] = flatAmplitude;
+      this.quantum_psi_imag[d] = 0.0;
+    }
+  }
+ 
     // Initialize HMM B emission profiles cleanly (Laplace smoothed priors)
     for (let d = 0; d < 10; d++) {
       // Hidden State 0 (Balanced Uniform Noise distribution)
@@ -1056,22 +1092,156 @@ export class DigitsEngine {
       }
       decodedHiddenRegimeState = bestFinalState;
     }
-  // ---- QUANTUM WAVEFUNCTION SUPERPOSITION AND PHASE MEMORY SHIFTS ----
-  private readonly quantum_psi_real = new Float64Array(10); // Real component of structural wavefunction amplitude vector ψ
-  private readonly quantum_psi_imag = new Float64Array(10); // Imaginary phase component of structural wavefunction amplitude vector ψ
-  private readonly quantum_hamiltonian = new Float64Array(100); // 10x10 Self-adjoint Potential Energy Operator Matrix H
-  private readonly quantum_interference = new Float64Array(10); // Extracted constructive/destructive node density arrays
 
-  // ---- VOLTERRA INTEGRO-DIFFERENTIAL VOLATILITY MEMORY KERNELS ----
-  private readonly volterra_kernel = new Float64Array(64); // Exponentially decaying non-local memory weights h(t)
-  private readonly volterra_feedback = new Float64Array(10); // History integrated drag coefficients per digit profile
+        // =========================================================================
+    // 6. QUANTUM SCHRÖDINGER AMPlITUDE PROJECTION (WAVEFUNCTION COLLAPSE)
+    // =========================================================================
+    {
+      // 1. Construct Self-Adjoint Potential Energy Operator Matrix H utilizing VMM transition fields
+      for (let i = 0; i < 10; i++) {
+        const rowOffset = i * 10;
+        for (let j = 0; j < 10; j++) {
+          // Off-diagonal interference maps mirror the raw statistical jump intensities
+          const basePotential = this.T1[rowOffset + j];
+          this.quantum_hamiltonian[rowOffset + j] = (i === j) ? basePotential + (Math.abs(i - 4.5) * 0.05) : -0.10 * basePotential;
+        }
+      }
 
-  // ---- MULTIFRACTAL DETRENDED FLUCTUATION ANALYSIS REGIME MATRICES ----
-  private readonly mdfa_segments = new Float64Array(32); // Sliced local variance profile mappings Y_s(t)
-  private readonly mdfa_fluctuations = new Float64Array(5); // Multi-scale exponents q-order variance fields [-2, -1, 0, 1, 2]
-  private mdfa_singularity_alpha: number = 0.50; // Central singularity tracking exponent α
-  private mdfa_spectrum_f: number = 1.00; // Localized fractal dimension scaling boundary f(α)
+      // 2. Compute discrete unitary phase propagation step vector ψ(t+dt) via complex matrix multiplication
+      const dt_q = 0.10; // Quantum clock segmentation step
+      const temp_real = new Float64Array(10);
+      const temp_imag = new Float64Array(10);
 
+      for (let i = 0; i < 10; i++) {
+        let h_real = 0.0;
+        let h_imag = 0.0;
+        const offset = i * 10;
+        for (let j = 0; j < 10; j++) {
+          const H_ij = this.quantum_hamiltonian[offset + j];
+          // Real(i * H * ψ) = -H * Imag(ψ) | Imag(i * H * ψ) = H * Real(ψ)
+          h_real += -H_ij * this.quantum_psi_imag[j];
+          h_imag += H_ij * this.quantum_psi_real[j];
+        }
+        temp_real[i] = this.quantum_psi_real[i] + h_real * dt_q;
+        temp_imag[i] = this.quantum_psi_imag[i] + h_imag * dt_q;
+      }
+
+      // 3. Force total unitary state vector normalize collapse into probability space densities
+      let totalProbabilityDensity = 0.0;
+      for (let d = 0; d < 10; d++) {
+        const normSquare = (temp_real[d] * temp_real[d]) + (temp_imag[d] * temp_imag[d]);
+        this.quantum_interference[d] = normSquare;
+        totalProbabilityDensity += normSquare;
+      }
+
+      // 4. Normalize phase vectors and inject constructive interference nodes into current state row
+      if (totalProbabilityDensity > 0) {
+        const invQSum = 1.0 / Math.sqrt(totalProbabilityDensity);
+        const currentRowOffset = currDigit * 10;
+        
+        for (let d = 0; d < 10; d++) {
+          this.quantum_psi_real[d] = temp_real[d] * invQSum;
+          this.quantum_psi_imag[d] = temp_imag[d] * invQSum;
+          
+          // Blend 20% quantum wavefunction amplitude collapse fields with your standard transition fields
+          const collapsedStateDensity = this.quantum_interference[d] / totalProbabilityDensity;
+          this.T1[currentRowOffset + d] = 0.80 * this.T1[currentRowOffset + d] + 0.20 * collapsedStateDensity;
+        }
+      }
+    }
+
+    // =========================================================================
+    // 7. VOLATILITY-ADJUSTED VOLTERRA NON-LOCAL INTEGRO-DIFFERENTIAL KERNEL
+    // =========================================================================
+    {
+      this.volterra_feedback.fill(0.0);
+      const ringTotal = Math.min(this.deltaCount, 64);
+      
+      // Calculate hereditary Volterra memory integration over price volatility loops
+      if (ringTotal > 5) {
+        for (let d = 0; d < 10; d++) {
+          let integratedIntegral = 0.0;
+          const centerlineOffset = Math.abs(d - 4.5);
+          
+          for (let t = 0; t < ringTotal; t++) {
+            const index = (this.deltaCount - 1 - t) % 64;
+            const pastVolatilityDelta = this.deltas[index];
+            const memoryWeight = this.volterra_kernel[t];
+            
+            // Volterra convolution tracking non-local memory paths
+            integratedIntegral += pastVolatilityDelta * memoryWeight * (1.0 / (1.0 + centerlineOffset));
+          }
+          this.volterra_feedback[d] = integratedIntegral;
+        }
+
+        // Alter transition matrix weights with memory kernel drag fields
+        const rowStart = currDigit * 10;
+        let volterraRowSum = 0.0;
+        for (let j = 0; j < 10; j++) {
+          const structuralDrag = 0.05 * this.volterra_feedback[j];
+          this.T1[rowStart + j] = Math.max(1e-5, this.T1[rowStart + j] - structuralDrag);
+          volterraRowSum += this.T1[rowStart + j];
+        }
+        if (volterraRowSum > 0) {
+          const invVolterraSum = 1.0 / volterraRowSum;
+          for (let j = 0; j < 10; j++) this.T1[rowStart + j] *= invVolterraSum;
+        }
+      }
+    }
+
+    // =========================================================================
+    // 8. MULTIFRACTAL DETRENDED FLUCTUATION ANALYSIS EXPlONENT MONITOR
+    // =========================================================================
+    {
+      const totalElements = Math.min(this.deltaCount, 64);
+      if (totalElements >= 32) {
+        const segSize = 16; // 16-tick scale intervals
+        const numSegs = 2; // 2 distinct non-overlapping timeline windows
+        const q_orders = [-2, -1, 1, 2]; // Multi-scale variance exponent weights
+        const f_q = new Float64Array(4);
+
+        // 1. Calculate detrended local variances utilizing polynomial subtraction loops
+        for (let s = 0; s < numSegs; s++) {
+          const segStart = totalElements - (s + 1) * segSize;
+          let localMean = 0.0;
+          for (let i = 0; i < segSize; i++) {
+            localMean += this.deltas[(segStart + i) % 64];
+          }
+          localMean /= segSize;
+
+          let squaredFluctuationSum = 0.0;
+          for (let i = 0; i < segSize; i++) {
+            const residual = this.deltas[(segStart + i) % 64] - localMean;
+            squaredFluctuationSum += residual * residual;
+          }
+          this.mdfa_segments[s] = squaredFluctuationSum / segSize;
+        }
+
+        // 2. Compute q-order multi-scale fluctuation functions
+        for (let q_idx = 0; q_idx < 4; q_idx++) {
+          const q = q_orders[q_idx];
+          let qSum = 0.0;
+          for (let s = 0; s < numSegs; s++) {
+            qSum += Math.pow(this.mdfa_segments[s] + 1e-8, q / 2.0);
+          }
+          f_q[q_idx] = Math.pow(qSum / numSegs, 1.0 / q);
+        }
+
+        // 3. Extract singular multifractal exponent alpha α and spectrum scale function f(α)
+        const d_ln_f = Math.log(f_q[3] + 1e-8) - Math.log(f_q[0] + 1e-8);
+        this.mdfa_singularity_alpha = clamp(0.50 + (d_ln_f / 4.0), 0.10, 0.90);
+        this.mdfa_spectrum_f = clamp(1.0 - Math.abs(this.mdfa_singularity_alpha - 0.50) * 1.5, 0.05, 1.0);
+
+        // Security perimeter enforcement: if singularity alpha falls into extreme chaos zone, decay matrix triggers
+        if (this.mdfa_singularity_alpha > 0.72 || this.mdfa_spectrum_f < 0.35) {
+          // Force matrix rows toward uniform entropy configuration to kill dangerous signals instantly
+          const activeOffset = currDigit * 10;
+          for (let j = 0; j < 10; j++) {
+            this.T1[activeOffset + j] = 0.70 * this.T1[activeOffset + j] + 0.30 * 0.10;
+          }
+        }
+      }
+    }
 
     // 1b. Fuse Unified Physics + Order 1..7+ VMM + Context prior into current state row
     if (input.unifiedPrior && input.unifiedPrior.length === 10) {
