@@ -573,6 +573,14 @@ export class DigitsEngine {
   private readonly viterbi_matrix = new Float64Array(300 * 3); // LIFO Trellis trellis history space tracking table
   private readonly viterbi_pointer = new Int32Array(300 * 3);  // Trellis backtracking register path space allocation
 
+    // ---- PARALLEL DISCRETE PRNG ENGINE MEMORY STORAGE CHANNELS ----
+  private cgr_x: number = 0.50;
+  private cgr_y: number = 0.50;
+  private readonly cgr_density_grid = new Float64Array(16); // 4x4 discrete spatial quadrants density mapping [0..15]
+  private renyi_entropy_q2: number = 3.32;                  // Alpha=2 quadratic pattern entropy sensitivity monitor
+  private readonly renyi_window_history = new Float64Array(10);
+  private readonly mrf_clique_potentials = new Float64Array(100); // Spatial pairwise digit configuration energy grid
+
     // ---- QUANTUM WAVEFUNCTION SUPERPOSITION AND PHASE MEMORY SHIFTS ----
   private readonly quantum_psi_real = new Float64Array(10); // Real component of structural wavefunction amplitude vector ψ
   private readonly quantum_psi_imag = new Float64Array(10); // Imaginary phase component of structural wavefunction amplitude vector ψ
@@ -624,6 +632,12 @@ export class DigitsEngine {
       this.quantum_psi_real[d] = flatAmplitude;
       this.quantum_psi_imag[d] = 0.0;
     }
+    // Safe initialization anchors for structural discrete random number engine mappers
+    this.cgr_x = 0.50;
+    this.cgr_y = 0.50;
+    this.cgr_density_grid.fill(0.0625); // Set uniform initial spatial coordinate probabilities
+    this.mrf_clique_potentials.fill(0.10);
+      
   }
 
   get capacity(): number {
@@ -1184,6 +1198,99 @@ export class DigitsEngine {
     }
     // 2. Matrix Exponentiation for Landing Probability M^D
     this.matPower10x10(this.T1, D, this.TD);
+
+        // =========================================================================
+    // PARALLEL DISCRETE PRNG ENGINE STRUCTURE TRACKING CHANNELS
+    // =========================================================================
+    const prng_ensemble_prior = new Float64Array(10);
+    prng_ensemble_prior.fill(0.10); // Prepare standard uniform baseline distribution array
+
+    // 1. Chaos Game Representation (CGR) Coordinate Quadrant Fractal Mapping
+    {
+      // Map discrete input string digits to exact corner vertices inside a bounding unit plane box
+      // Grid corners coordinates: 0-2 (Bottom Left), 3-4 (Top Left), 5-7 (Top Right), 8-9 (Bottom Right)
+      let vertexX = 0.0, vertexY = 0.0;
+      if (currDigit <= 2) { vertexX = 0.0; vertexY = 0.0; }
+      else if (currDigit <= 4) { vertexX = 0.0; vertexY = 1.0; }
+      else if (currDigit <= 7) { vertexX = 1.0; vertexY = 1.0; }
+      else { vertexX = 1.0; vertexY = 0.0; }
+
+      // Discrete step trajectory update: jump exactly 50% of the distance toward target anchor vertex
+      this.cgr_x = 0.5 * this.cgr_x + 0.5 * vertexX;
+      this.cgr_y = 0.5 * this.cgr_y + 0.5 * vertexY;
+
+      // Classify active coordinate vectors inside a discrete 4x4 coordinate spatial density quadrant
+      const gridX = Math.min(3, Math.max(0, Math.floor(this.cgr_x * 4)));
+      const gridY = Math.min(3, Math.max(0, Math.floor(this.cgr_y * 4)));
+      const spatialIndex = gridY * 4 + gridX;
+
+      // Apply historical trace attenuation decay to map state tracking memory loops
+      for (let i = 0; i < 16; i++) this.cgr_density_grid[i] *= 0.95;
+      this.cgr_density_grid[spatialIndex] += 0.05;
+
+      // Extract geometric density weights to apply safe structural tracking indicators
+      for (let j = 0; j < 10; j++) {
+        const structuralAnchorVertex = (j <= 2) ? 0 : (j <= 4) ? 4 : (j <= 7) ? 12 : 15;
+        const localizedCgrBiasWeight = this.cgr_density_grid[structuralAnchorVertex];
+        prng_ensemble_prior[j] = 0.85 * prng_ensemble_prior[j] + 0.15 * localizedCgrBiasWeight;
+      }
+    }
+
+    // 2. Order-2 Renyi Entropy Sensitivity Window Monitoring Envelope
+    {
+      let sumQuadraticProbabilities = 0.0;
+      for (let d = 0; d < 10; d++) {
+        const empiricalProbability = this.freq100[d] / N;
+        sumQuadraticProbabilities += empiricalProbability * empiricalProbability;
+        this.renyi_window_history[d] = empiricalProbability;
+      }
+      
+      // Calculate Order-2 Renyi Entropy equation parameters: H_2 = -log2(Σ p_i^2)
+      this.renyi_entropy_q2 = sumQuadraticProbabilities > 0 ? -Math.log2(sumQuadraticProbabilities) : Math.log2(10);
+
+      // Defensive ceiling fallback check: if entropy plunges inside structural sequence repeating zones, mute skews
+      if (this.renyi_entropy_q2 < 2.65) {
+        for (let j = 0; j < 10; j++) {
+          prng_ensemble_prior[j] = 0.70 * prng_ensemble_prior[j] + 0.30 * 0.10;
+        }
+      }
+    }
+
+    // 3. Discrete Markov Random Fields Spatial Gibbs Clique Energy States
+    {
+      const currentTransitionRowStartOffset = currDigit * 10;
+      let totalCliqueGridSystemEnergy = 0.0;
+      
+      // Compute spatial cliques potentials over structural lookback limits
+      for (let j = 0; j < 10; j++) {
+        const microHistoricalFrequentistDensity = this.freqMicro[j] / this.microWindow;
+        // Map Gibbs clique potential configuration boundaries using energy density functions
+        this.mrf_clique_potentials[currentTransitionRowStartOffset + j] = Math.exp(-1.5 * Math.abs(this.T1[currentTransitionRowStartOffset + j] - microHistoricalFrequentistDensity));
+        totalCliqueGridSystemEnergy += this.mrf_clique_potentials[currentTransitionRowStartOffset + j];
+      }
+
+      // Infuse Gibbs random field energy priors safely back into parallel tracking vectors
+      if (totalCliqueGridSystemEnergy > 0) {
+        for (let j = 0; j < 10; j++) {
+          const spatialGibbsPriorDensity = this.mrf_clique_potentials[currentTransitionRowStartOffset + j] / totalCliqueGridSystemEnergy;
+          prng_ensemble_prior[j] = 0.80 * prng_ensemble_prior[j] + 0.20 * spatialGibbsPriorDensity;
+        }
+      }
+    }
+
+    // 4. Clean Post-Horizon Linear Ensemble Confluence Fusion Vector Merging
+    const destinationStateMatrixOffset = currDigit * 10;
+    let postHorizonEnsembleBlendNormalizeSum = 0.0;
+    for (let d = 0; d < 10; d++) {
+      // Blends 75% clean, uncorrupted historical matrix time steps with 25% parallel discrete PRNG indicators
+      this.TD[destinationStateMatrixOffset + d] = 0.75 * this.TD[destinationStateMatrixOffset + d] + 0.25 * prng_ensemble_prior[d];
+      postHorizonEnsembleBlendNormalizeSum += this.TD[destinationStateMatrixOffset + d];
+    }
+    if (postHorizonEnsembleBlendNormalizeSum > 0) {
+      const inverseNormalizationWeight = 1.0 / postHorizonEnsembleBlendNormalizeSum;
+      for (let d = 0; d < 10; d++) this.TD[destinationStateMatrixOffset + d] *= inverseNormalizationWeight;
+    }
+
 
     // 3. Wald-Wolfowitz Runs Test on Parity (scaled to buffer size)
     let runs = 1;
