@@ -447,7 +447,6 @@ export default function DigitsApp() {
     }
   }, [cfg.lookback]);
 
-
   const scheduleRender = useCallback(() => {
     if (renderScheduled.current) return;
     renderScheduled.current = true;
@@ -486,8 +485,7 @@ export default function DigitsApp() {
     setStale(false);
     workerRef.current?.postMessage({ type: "reset", lookback: cfgRef.current.lookback });
     scheduleRender();
-  }, [cancelLeadUpFire, scheduleRender]);
-
+  },
   const evaluateAndMaybeFire = useCallback(() => {
     const cfgNow = cfgRef.current;
     // Navigator is the sole source of alert-mode READY; legacy triggers may
