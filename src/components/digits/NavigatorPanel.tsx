@@ -182,8 +182,8 @@ function DirectionView({ b, duration }: { b: DirectionBlock; duration: number })
 
 function NavigatorPanelImpl({ result, alertElapsedMs, waiting, filled, size, market, barrier }: Props) {
   const ready = result?.alertDecision === "READY / MANUAL ALERT";
-  const inWindow = ready && alertElapsedMs >= 0 && alertElapsedMs < (result?.executionCutoffMs ?? 700);
-  const remaining = Math.ceil(Math.max(0, (result?.executionCutoffMs ?? 700) - alertElapsedMs));
+  const inWindow = ready && alertElapsedMs >= 0 && alertElapsedMs < (result?.executionCutoffMs ?? 600);
+  const remaining = Math.ceil(Math.max(0, (result?.executionCutoffMs ?? 600) - alertElapsedMs));
 
   const decisionTone = inWindow
     ? "border-success text-success bg-success/10"
