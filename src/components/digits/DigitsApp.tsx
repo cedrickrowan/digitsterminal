@@ -1079,8 +1079,8 @@ export default function DigitsApp() {
           nextTickInMs={countdownMs}
           purchaseInMs={purchaseInMs}
         />
-
-                <PredictedDigit
+              
+        <PredictedDigit
           digit={cfg.market === "matches" || cfg.market === "differs" ? cfg.predictDigit : context.topDigit}
           entryPrice={openEntry?.price ?? null}
           lastPrice={lastPrice}
