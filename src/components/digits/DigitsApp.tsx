@@ -485,7 +485,7 @@ export default function DigitsApp() {
     setStale(false);
     workerRef.current?.postMessage({ type: "reset", lookback: cfgRef.current.lookback });
     scheduleRender();
-  },
+  }
   const evaluateAndMaybeFire = useCallback(() => {
     const cfgNow = cfgRef.current;
     // Navigator is the sole source of alert-mode READY; legacy triggers may
