@@ -346,8 +346,8 @@ export default function DigitsApp() {
             : nav;
         navResultRef.current = displayNav;
         setNavResult(displayNav);
-                              if (ready) {
-          // A fresh worker result for a new tick starts a fresh 600ms response window.
+        
+        if (ready) {
           navReadyAtRef.current = performance.now();
           alertTickIdRef.current = nav?.tickId ?? 0;
           navWasReadyRef.current = true;
@@ -357,7 +357,7 @@ export default function DigitsApp() {
             setFlash(true);
             window.setTimeout(() => setFlash(false), nav?.executionCutoffMs ?? 600);
           }
-         if (armedRef.current && feedSafe && currentCfg.mode !== "alert" && !wasReady) {
+          if (armedRef.current && feedSafe && currentCfg.mode !== "alert" && !wasReady) {
             const sigId = Date.now() + Math.random();
             const entryPrice = lastPriceRef.current;
             const actionUpper = (nav?.marketAction ?? "").toUpperCase();
@@ -395,6 +395,7 @@ export default function DigitsApp() {
               },
             ]);
           }
+        }
 
         if (ready && !wasReady && currentCfg.mode === "alert") {
           setSignals((prev) => [
@@ -421,7 +422,6 @@ export default function DigitsApp() {
 
     const stream = new Subject<{ digit: number; ts: number; tickId: number; rtt: number; quote: number; pip: number }>();
     tickStreamRef.current = stream;
-    // auditTime coalesces bursts so a wake-up backlog can't spam the worker.
     const sub = stream.pipe(auditTime(0)).subscribe(({ digit, ts, tickId, rtt, quote, pip }) => {
       worker.postMessage({ type: "tick", digit, ts, tickId, cfg: cfgRef.current, rttMs: rtt, quote, pip });
     });
@@ -433,7 +433,6 @@ export default function DigitsApp() {
       workerRef.current = null;
       tickStreamRef.current = null;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cancelLeadUpFire, scheduleLeadUpFire]);
 
   // Notify the worker when the user changes lookback: the analysis ring AND
