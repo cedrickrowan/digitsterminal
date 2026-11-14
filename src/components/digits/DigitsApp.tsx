@@ -357,7 +357,7 @@ export default function DigitsApp() {
             setFlash(true);
             window.setTimeout(() => setFlash(false), nav?.executionCutoffMs ?? 600);
           }
-          if (armedRef.current && feedSafe && currentCfg.mode !== "alert" && !wasReady) {
+         if (armedRef.current && feedSafe && currentCfg.mode !== "alert" && !wasReady) {
             const sigId = Date.now() + Math.random();
             const entryPrice = lastPriceRef.current;
             const actionUpper = (nav?.marketAction ?? "").toUpperCase();
@@ -372,7 +372,7 @@ export default function DigitsApp() {
             pendingSimRef.current.push({
               id: sigId,
               tickIndex: totalTicksRef.current + currentCfg.duration,
-              predicted: nav!.navTargetDigit,
+              predicted: currentCfg.market === "differs" ? nav!.navTargetDigit : nav!.topTargetDigit,
               entryPrice,
               market: currentCfg.market,
               barrier: currentCfg.barrier,
@@ -386,7 +386,7 @@ export default function DigitsApp() {
                 id: sigId,
                 ts: Date.now(),
                 reason: `${currentCfg.mode.toUpperCase()} · ${nav!.marketAction || currentCfg.market} · edge ${(nav!.marketEdge * 100).toFixed(1)}%`,
-                predicted: nav!.navTargetDigit,
+                predicted: currentCfg.market === "differs" ? nav!.navTargetDigit : nav!.topTargetDigit,
                 market: currentCfg.market,
                 expected: nav!.marketRecProb,
                 mode: currentCfg.mode,
@@ -395,7 +395,6 @@ export default function DigitsApp() {
               },
             ]);
           }
-        }
 
         if (ready && !wasReady && currentCfg.mode === "alert") {
           setSignals((prev) => [
