@@ -1452,13 +1452,13 @@ export class DigitsEngine {
       marketRecProb = pDiffers;
       marketEdge = pDiffers - 0.90;
       marketScore = Math.max(0, marketEdge);
-        } else {
+            } else {
       marketAction = `DIGIT ${topPick}`;
-      // Extract the maximum directional wave probability tracking your dynamic top pick digit
-      const macroCeilingEdge = evenOdd && overUnder ? Math.max(evenOdd.prob, overUnder.prob) : 0.85;
-      marketRecProb = macroCeilingEdge;
-      marketEdge = macroCeilingEdge - 0.50;
-      marketScore = marketEdge;
+      // Map straight to the uncorrupted single-digit frequentist matrix row landing odds
+      const trueLandingProb = digitMetrics[topPick].landingProb;
+      marketRecProb = trueLandingProb;
+      marketEdge = trueLandingProb - 0.10; // Edge over the 10% uniform random floor
+      marketScore = Math.max(0, marketEdge);
     }
 
     // 9. Alert decision — dual ping gates + market-aware probability floors.
