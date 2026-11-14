@@ -354,13 +354,15 @@ function buildNavRuleHits(
   });
 
   // ==================== 11 NAVIGATOR RULES ====================
-  // 8. Multi-hit >= 2 in horizon
+    // 8. Multi-hit >= 2 in horizon (requires D >= 3 to be mathematically possible)
+  const mHit = tm ? tm.multiHitProb * 100 : 0;
+  const mHitThr = t.multiHitPct ?? 7;
   hits.push({
     rule: "multiHit",
-    label: NAV_RULE_LABELS.multiHit,
+    label: `Multi-hit ≥ 2 (${duration})`,
     enabled: on("multiHit"),
-    pass: tm.multiHitProb >= t.multiHitPct / 100,
-    detail: `≥2 hits ${pctOf(tm.multiHitProb)} ≥ ${t.multiHitPct}%`,
+    pass: duration < 3 ? true : mHit >= mHitThr,
+    detail: duration < 3 ? `Auto (D<3)` : `≥ ${mHitThr}% (Live: ${mHit.toFixed(1)}%)`,
   });
 
   // 9. Adjacent pair inside horizon
@@ -963,40 +965,6 @@ export class DigitsEngine {
       }
       
       ouMeanReversionElasticity = this.ou_theta * Math.abs(currDigit - this.ou_mu);
-    }
-
-    // =========================================================================
-    // 4. ADVANCED PHYSICS MODULE: FOKKER–PLANCK PROBABILITY SPECTRUM DIFFUSION
-    // =========================================================================
-    {
-      for (let d = 0; d < 10; d++) {
-        this.fp_density[d] = this.freq100[d] / N;
-      }
-
-      for (let d = 0; d < 10; d++) {
-        this.fp_drift[d] = -this.ou_theta * (d - this.ou_mu);
-        const varianceScale = Math.abs(this.freqMicro[d] / this.microWindow - 0.10);
-        this.fp_diffusion[d] = Math.max(0.01, 0.5 * (this.ou_sigma * this.ou_sigma) + varianceScale);
-      }
-
-      const dt_fp = 0.05;
-      const dx_fp = 1.0;
-      for (let d = 1; d < 9; d++) {
-        const drift_term = -( (this.fp_drift[d + 1] * this.fp_density[d + 1]) - (this.fp_drift[d - 1] * this.fp_density[d - 1]) ) / (2.0 * dx_fp);
-        const diff_term = this.fp_diffusion[d] * (this.fp_density[d + 1] - 2.0 * this.fp_density[d] + this.fp_density[d - 1]) / (dx_fp * dx_fp);
-        
-        const fluidDelta = (drift_term + diff_term) * dt_fp;
-        const currentMatrixIndex = currDigit * 10 + d;
-        this.T1[currentMatrixIndex] = clamp(this.T1[currentMatrixIndex] + fluidDelta, 1e-5, 0.95);
-      }
-
-      let fpRowSum = 0.0;
-      const rowOffset = currDigit * 10;
-      for (let j = 0; j < 10; j++) fpRowSum += this.T1[rowOffset + j];
-      if (fpRowSum > 0) {
-        const invFpSum = 1.0 / fpRowSum;
-        for (let j = 0; j < 10; j++) this.T1[rowOffset + j] *= invFpSum;
-      }
     }
 
     // =========================================================================
