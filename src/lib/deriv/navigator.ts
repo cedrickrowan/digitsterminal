@@ -934,37 +934,6 @@ export class DigitsEngine {
       for (let j = 0; j < 10; j++) this.T1[offset + j] *= inv;
     }
     
-        // ---- LORENZ CHAOTIC ATTRACTOR NUMERICAL COUPLING GATE ----
-    {
-      const dt = 0.01; // Discrete execution time step segment
-      const dx = this.lorenz_sigma * (this.lorenz_y - this.lorenz_x) * dt;
-      const dy = (this.lorenz_x * (this.lorenz_rho - this.lorenz_z) - this.lorenz_y) * dt;
-      const dz = (this.lorenz_x * this.lorenz_y - this.lorenz_beta * this.lorenz_z) * dt;
-
-      this.lorenz_x += dx;
-      this.lorenz_y += dy;
-      this.lorenz_z += dz;
-
-      // Extract chaotic phase vector module to predict orbital lobe state shifts
-      const lorenzMagnitude = Math.sqrt(this.lorenz_x * this.lorenz_x + this.lorenz_y * this.lorenz_y);
-      const attractorLobeBias = Math.sin(lorenzMagnitude) * 0.5 + 0.5; // Bounds cleanly to a [0..1] distribution vector
-
-      // Fuse the chaotic Lorenz attractor priors right into the core calculation matrix (T1)
-      const currentStateOffset = currDigit * 10;
-      let lorenzRowSum = 0;
-      for (let j = 0; j < 10; j++) {
-        // Blends 85% Markov history with a 15% Lorenz Chaotic Orbit trajectory prior
-        const chaosPrior = (j % 2 === 0) ? attractorLobeBias * 0.2 : (1.0 - attractorLobeBias) * 0.2;
-        this.T1[currentStateOffset + j] = 0.85 * this.T1[currentStateOffset + j] + 0.15 * chaosPrior;
-        lorenzRowSum += this.T1[currentStateOffset + j];
-      }
-      // Re-normalize row sum back to an exact 1.0 floor probability distribution
-      if (lorenzRowSum > 0) {
-        const invSum = 1.0 / lorenzRowSum;
-        for (let j = 0; j < 10; j++) this.T1[currentStateOffset + j] *= invSum;
-      }
-    }
-
         // =========================================================================
     // 3. ADVANCED PHYSICS MODULE: ORNSTEIN–UHLENBECK REVERSION DISCRETIZATION
     // =========================================================================
