@@ -1154,69 +1154,6 @@ export class DigitsEngine {
           this.volterra_feedback[d] = integratedIntegral;
         }
 
-        const rowStart = currDigit * 10;
-        let volterraRowSum = 0.0;
-        for (let j = 0; j < 10; j++) {
-          const structuralDrag = 0.05 * this.volterra_feedback[j];
-          this.T1[rowStart + j] = Math.max(1e-5, this.T1[rowStart + j] - structuralDrag);
-          volterraRowSum += this.T1[rowStart + j];
-        }
-        if (volterraRowSum > 0) {
-          const invVolterraSum = 1.0 / volterraRowSum;
-          for (let j = 0; j < 10; j++) this.T1[rowStart + j] *= invVolterraSum;
-        }
-      }
-    }
-
-    // =========================================================================
-    // 8. MULTIFRACTAL DETRENDED FLUCTUATION ANALYSIS EXPlONENT MONITOR
-    // =========================================================================
-    {
-      const totalElements = Math.min(this.priceCount, 64);
-      if (totalElements >= 32) {
-        const segSize = 16; 
-        const numSegs = 2; 
-        const q_orders = [-2, -1, 1, 2]; 
-        const f_q = new Float64Array(4);
-
-        for (let s = 0; s < numSegs; s++) {
-          const segStart = totalElements - (s + 1) * segSize;
-          let localMean = 0.0;
-          for (let i = 0; i < segSize; i++) {
-            localMean += this.deltas[(segStart + i) % 64];
-          }
-          localMean /= segSize;
-
-          let squaredFluctuationSum = 0.0;
-          for (let i = 0; i < segSize; i++) {
-            const residual = this.deltas[(segStart + i) % 64] - localMean;
-            squaredFluctuationSum += residual * residual;
-          }
-          this.mdfa_segments[s] = squaredFluctuationSum / segSize;
-        }
-
-        for (let q_idx = 0; q_idx < 4; q_idx++) {
-          const q = q_orders[q_idx];
-          let qSum = 0.0;
-          for (let s = 0; s < numSegs; s++) {
-            qSum += Math.pow(this.mdfa_segments[s] + 1e-8, q / 2.0);
-          }
-          f_q[q_idx] = Math.pow(qSum / numSegs, 1.0 / q);
-        }
-
-        const d_ln_f = Math.log(f_q[3] + 1e-8) - Math.log(f_q[0] + 1e-8);
-        this.mdfa_singularity_alpha = clamp(0.50 + (d_ln_f / 4.0), 0.10, 0.90);
-        this.mdfa_spectrum_f = clamp(1.0 - Math.abs(this.mdfa_singularity_alpha - 0.50) * 1.5, 0.05, 1.0);
-
-        if (this.mdfa_singularity_alpha > 0.72 || this.mdfa_spectrum_f < 0.35) {
-          const activeOffset = currDigit * 10;
-          for (let j = 0; j < 10; j++) {
-            this.T1[activeOffset + j] = 0.70 * this.T1[activeOffset + j] + 0.30 * 0.10;
-          }
-        }
-      }
-    }
-
         // =========================================================================
     // 6. QUANTUM SCHRÖDINGER AMPlITUDE PROJECTION (WAVEFUNCTION COLLAPSE)
     // =========================================================================
