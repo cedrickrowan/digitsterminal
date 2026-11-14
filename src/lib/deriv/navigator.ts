@@ -587,7 +587,7 @@ export class DigitsEngine {
   private mdfa_singularity_alpha: number = 0.50; // Central singularity tracking exponent α
   private mdfa_spectrum_f: number = 1.00; // Localized fractal dimension scaling boundary f(α)
 
-     constructor(bufferSize: number = NAV_BUFFER_SIZE) {
+    constructor(bufferSize: number = NAV_BUFFER_SIZE) {
     const size = Math.round(clamp(bufferSize, 2, 600));
     this.bufferSize = size;
     this.buffer = new Uint8Array(size);
@@ -613,17 +613,17 @@ export class DigitsEngine {
 
     // Build discrete Volterra decaying exponential memory kernel matrix h(t)
     for (let t = 0; t < 64; t++) {
-      this.volterra_kernel[t] = Math.exp(-0.08 * t); // Decays gracefully over historical scale steps
+      this.volterra_kernel[t] = Math.exp(-0.08 * t);
     }
 
     // Initialize Uniform Wavefunction Superposition amplitudes ψ_0
-    const flatAmplitude = Math.sqrt(0.10); // Sum of squares is perfectly 1.0
+    const flatAmplitude = Math.sqrt(0.10);
     for (let d = 0; d < 10; d++) {
       this.quantum_psi_real[d] = flatAmplitude;
       this.quantum_psi_imag[d] = 0.0;
     }
   }
- 
+
     // Initialize HMM B emission profiles cleanly (Laplace smoothed priors)
     for (let d = 0; d < 10; d++) {
       // Hidden State 0 (Balanced Uniform Noise distribution)
