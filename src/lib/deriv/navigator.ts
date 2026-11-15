@@ -565,28 +565,7 @@ export class DigitsEngine {
     this.tailWindow = clamp(Math.round(size * 0.15), 3, 15);
     this.recentWindow = size <= 25 ? 3 : 4;
     this.countWindow = clamp(Math.round(size * 0.12), 3, 12);
-    this.lorenz_x = 1.0;
-    this.lorenz_y = 1.0;
-    this.lorenz_z = 1.0;
-
-    // Initialize HMM B emission profiles cleanly (Laplace smoothed priors)
-    for (let d = 0; d < 10; d++) {
-      this.hmm_B[0 * 10 + d] = 0.10;
-      this.hmm_B[1 * 10 + d] = (d % 2 === 0) ? 0.15 : 0.05;
-      this.hmm_B[2 * 10 + d] = (d >= 3 && d <= 6) ? 0.16 : 0.06;
-    }
-
-    // Build discrete Volterra decaying exponential memory kernel matrix h(t)
-    for (let t = 0; t < 64; t++) {
-      this.volterra_kernel[t] = Math.exp(-0.08 * t);
-    }
-
-        // Initialize Uniform Wavefunction Superposition amplitudes ψ_0
-    const flatAmplitude = Math.sqrt(0.10);
-    for (let d = 0; d < 10; d++) {
-      this.quantum_psi_real[d] = flatAmplitude;
-      this.quantum_psi_imag[d] = 0.0;
-    }
+    
     // Safe initialization anchors for structural discrete random number engine mappers
     this.cgr_x = 0.50;
     this.cgr_y = 0.50;
