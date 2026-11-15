@@ -1146,21 +1146,8 @@ if (this.bm_current_linear_complexity < (maxBmLength * 0.35)) {
       }
     }
 
-        // 4. Clean Post-Horizon Linear Ensemble Confluence Fusion Vector Merging
-    const destinationStateMatrixOffset = currDigit * 10;
-    let postHorizonEnsembleBlendNormalizeSum = 0.0;
-    for (let d = 0; d < 10; d++) {
-      // Blends 75% uncorrupted frequentist matrix leaps with 25% balanced algorithmic tracking priors
-      const unifiedPrngPrior = 0.50 * prng_ensemble_prior[d] + 0.50 * ctw_prior[d];
-      this.TD[destinationStateMatrixOffset + d] = 0.75 * this.TD[destinationStateMatrixOffset + d] + 0.25 * unifiedPrngPrior;
-      postHorizonEnsembleBlendNormalizeSum += this.TD[destinationStateMatrixOffset + d];
-    }
-    
-    if (postHorizonEnsembleBlendNormalizeSum > 0) {
-      const inverseNormalizationWeight = 1.0 / postHorizonEnsembleBlendNormalizeSum;
-      for (let d = 0; d < 10; d++) this.TD[destinationStateMatrixOffset + d] *= inverseNormalizationWeight;
-    }
-
+      // 4. Keep M^D transition matrix mathematically pure for horizon D
+     // (Prevent 1-step heuristics from overwriting D-step transition probabilities)
 
     // 3. Wald-Wolfowitz Runs Test on Parity (scaled to buffer size)
     let runs = 1;
