@@ -212,7 +212,7 @@ function NavigatorPanelImpl({ result, alertElapsedMs, waiting, filled, size, mar
         </div>
       ) : (
         <>
-          {/* Alert decision + 700 ms human-response window (numeric countdown only) */}
+          {/* Alert decision + 600 ms human-response window (numeric countdown only) */}
           <div className={`mb-2 rounded border px-2 py-1.5 ${decisionTone}`}>
             <div className="flex items-center justify-between gap-2">
               <span className="font-mono text-[11px] font-bold">{result.alertDecision}</span>
