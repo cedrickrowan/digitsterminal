@@ -565,6 +565,12 @@ export class DigitsEngine {
     this.tailWindow = clamp(Math.round(size * 0.15), 3, 15);
     this.recentWindow = size <= 25 ? 3 : 4;
     this.countWindow = clamp(Math.round(size * 0.12), 3, 12);
+
+for (let d = 0; d < 10; d++) {
+  this.hmm_B[0 * 10 + d] = 0.10;
+  this.hmm_B[1 * 10 + d] = (d % 2 === 0) ? 0.15 : 0.05;
+  this.hmm_B[2 * 10 + d] = (d >= 3 && d <= 6) ? 0.16 : 0.06;
+}
     
     // Safe initialization anchors for structural discrete random number engine mappers
     this.cgr_x = 0.50;
