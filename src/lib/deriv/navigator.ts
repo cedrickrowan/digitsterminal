@@ -1052,63 +1052,6 @@ export class DigitsEngine {
       decodedHiddenRegimeState = bestFinalState;
     }
 
-        // =========================================================================
-    // 6. QUANTUM SCHRÖDINGER AMPlITUDE PROJECTION (WAVEFUNCTION COLLAPSE)
-    // =========================================================================
-    {
-      // 1. Construct Self-Adjoint Potential Energy Operator Matrix H utilizing VMM transition fields
-      for (let i = 0; i < 10; i++) {
-        const rowOffset = i * 10;
-        for (let j = 0; j < 10; j++) {
-          // Off-diagonal interference maps mirror the raw statistical jump intensities
-          const basePotential = this.T1[rowOffset + j];
-          this.quantum_hamiltonian[rowOffset + j] = (i === j) ? basePotential + (Math.abs(i - 4.5) * 0.05) : -0.10 * basePotential;
-        }
-      }
-
-      // 2. Compute discrete unitary phase propagation step vector ψ(t+dt) via complex matrix multiplication
-      const dt_q = 0.10; // Quantum clock segmentation step
-      const temp_real = new Float64Array(10);
-      const temp_imag = new Float64Array(10);
-
-      for (let i = 0; i < 10; i++) {
-        let h_real = 0.0;
-        let h_imag = 0.0;
-        const offset = i * 10;
-        for (let j = 0; j < 10; j++) {
-          const H_ij = this.quantum_hamiltonian[offset + j];
-          // Real(i * H * ψ) = -H * Imag(ψ) | Imag(i * H * ψ) = H * Real(ψ)
-          h_real += -H_ij * this.quantum_psi_imag[j];
-          h_imag += H_ij * this.quantum_psi_real[j];
-        }
-        temp_real[i] = this.quantum_psi_real[i] + h_real * dt_q;
-        temp_imag[i] = this.quantum_psi_imag[i] + h_imag * dt_q;
-      }
-
-      // 3. Force total unitary state vector normalize collapse into probability space densities
-      let totalProbabilityDensity = 0.0;
-      for (let d = 0; d < 10; d++) {
-        const normSquare = (temp_real[d] * temp_real[d]) + (temp_imag[d] * temp_imag[d]);
-        this.quantum_interference[d] = normSquare;
-        totalProbabilityDensity += normSquare;
-      }
-
-      // 4. Normalize phase vectors and inject constructive interference nodes into current state row
-      if (totalProbabilityDensity > 0) {
-        const invQSum = 1.0 / Math.sqrt(totalProbabilityDensity);
-        const currentRowOffset = currDigit * 10;
-        
-        for (let d = 0; d < 10; d++) {
-          this.quantum_psi_real[d] = temp_real[d] * invQSum;
-          this.quantum_psi_imag[d] = temp_imag[d] * invQSum;
-          
-          // Blend 20% quantum wavefunction amplitude collapse fields with your standard transition fields
-          const collapsedStateDensity = this.quantum_interference[d] / totalProbabilityDensity;
-          this.T1[currentRowOffset + d] = 0.80 * this.T1[currentRowOffset + d] + 0.20 * collapsedStateDensity;
-        }
-      }
-    }
-
     // =========================================================================
     // 7. VOLATILITY-ADJUSTED VOLTERRA NON-LOCAL INTEGRO-DIFFERENTIAL KERNEL
     // =========================================================================
