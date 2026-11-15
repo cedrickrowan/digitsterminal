@@ -1052,60 +1052,6 @@ export class DigitsEngine {
       decodedHiddenRegimeState = bestFinalState;
     }
 
-    // =========================================================================
-    // 8. MULTIFRACTAL DETRENDED FLUCTUATION ANALYSIS EXPlONENT MONITOR
-    // =========================================================================
-    {
-      const totalElements = Math.min(this.deltaCount, 64);
-      if (totalElements >= 32) {
-        const segSize = 16; // 16-tick scale intervals
-        const numSegs = 2; // 2 distinct non-overlapping timeline windows
-        const q_orders = [-2, -1, 1, 2]; // Multi-scale variance exponent weights
-        const f_q = new Float64Array(4);
-
-        // 1. Calculate detrended local variances utilizing polynomial subtraction loops
-        for (let s = 0; s < numSegs; s++) {
-          const segStart = totalElements - (s + 1) * segSize;
-          let localMean = 0.0;
-          for (let i = 0; i < segSize; i++) {
-            localMean += this.deltas[(segStart + i) % 64];
-          }
-          localMean /= segSize;
-
-          let squaredFluctuationSum = 0.0;
-          for (let i = 0; i < segSize; i++) {
-            const residual = this.deltas[(segStart + i) % 64] - localMean;
-            squaredFluctuationSum += residual * residual;
-          }
-          this.mdfa_segments[s] = squaredFluctuationSum / segSize;
-        }
-
-        // 2. Compute q-order multi-scale fluctuation functions
-        for (let q_idx = 0; q_idx < 4; q_idx++) {
-          const q = q_orders[q_idx];
-          let qSum = 0.0;
-          for (let s = 0; s < numSegs; s++) {
-            qSum += Math.pow(this.mdfa_segments[s] + 1e-8, q / 2.0);
-          }
-          f_q[q_idx] = Math.pow(qSum / numSegs, 1.0 / q);
-        }
-
-        // 3. Extract singular multifractal exponent alpha α and spectrum scale function f(α)
-        const d_ln_f = Math.log(f_q[3] + 1e-8) - Math.log(f_q[0] + 1e-8);
-        this.mdfa_singularity_alpha = clamp(0.50 + (d_ln_f / 4.0), 0.10, 0.90);
-        this.mdfa_spectrum_f = clamp(1.0 - Math.abs(this.mdfa_singularity_alpha - 0.50) * 1.5, 0.05, 1.0);
-
-        // Security perimeter enforcement: if singularity alpha falls into extreme chaos zone, decay matrix triggers
-        if (this.mdfa_singularity_alpha > 0.72 || this.mdfa_spectrum_f < 0.35) {
-          // Force matrix rows toward uniform entropy configuration to kill dangerous signals instantly
-          const activeOffset = currDigit * 10;
-          for (let j = 0; j < 10; j++) {
-            this.T1[activeOffset + j] = 0.70 * this.T1[activeOffset + j] + 0.30 * 0.10;
-          }
-        }
-      }
-    }
-
     // 1b. Fuse Unified Physics + Order 1..7+ VMM + Context prior into current state row
     if (input.unifiedPrior && input.unifiedPrior.length === 10) {
       const currOffset = currDigit * 10;
