@@ -137,7 +137,7 @@ self.onmessage = (e: MessageEvent<InMsg>) => {
       const report = engine.analyze(msg.cfg);
       post({ type: "report", report });
 
-      // Track live prices & deltas inside worker for unified context & physics
+       // Track live prices & deltas inside worker for unified context & discrete PRNG tracking
       if (Number.isFinite(msg.quote) && msg.quote > 0) {
         if (workerPrices.length > 0) {
           workerDeltas.push(Math.abs(msg.quote - workerPrices[workerPrices.length - 1]));
