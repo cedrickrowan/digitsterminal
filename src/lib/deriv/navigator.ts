@@ -959,37 +959,6 @@ export class DigitsEngine {
       for (let j = 0; j < 10; j++) this.T1[offset + j] *= inv;
     }
     
-        // =========================================================================
-    // 3. ADVANCED PHYSICS MODULE: ORNSTEIN–UHLENBECK REVERSION DISCRETIZATION
-    // =========================================================================
-    let ouMeanReversionElasticity = 0.0;
-    {
-      let sumX = 0.0;
-      let sumY = 0.0;
-      let sumXX = 0.0;
-      let sumXY = 0.0;
-      const ouN = Math.min(N - 1, 100);
-      const startIdx = N - ouN;
-      
-      for (let i = startIdx; i < N; i++) {
-        const x_t = this.buffer[i - 1];
-        const x_next = this.buffer[i];
-        sumX += x_t;
-        sumY += x_next;
-        sumXX += x_t * x_t;
-        sumXY += x_t * x_next;
-      }
-      
-      const denominator = (ouN * sumXX - sumX * sumX);
-      const phi = denominator !== 0 ? (ouN * sumXY - sumX * sumY) / denominator : 0.0;
-      
-      if (phi > 0 && phi < 1) {
-        this.ou_theta = -Math.log(phi);
-      }
-      
-      ouMeanReversionElasticity = this.ou_theta * Math.abs(currDigit - this.ou_mu);
-    }
-
     // =========================================================================
     // 5. ADVANCED MODULE: HIDDEN MARKOV MODEL VITERBI REGIME PATH DECODER
     // =========================================================================
