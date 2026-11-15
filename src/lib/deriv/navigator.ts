@@ -1017,6 +1017,8 @@ export class DigitsEngine {
       }
 
       let L = 0; // Current computed discrete linear complexity length register
+      let m = -1; // System linear step shift memory register anchor
+      
       
 
       // Execute Berlekamp-Massey discrete loop minimization passes
