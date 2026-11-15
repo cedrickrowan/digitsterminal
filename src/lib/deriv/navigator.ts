@@ -554,10 +554,14 @@ export class DigitsEngine {
   private bm_current_linear_complexity: number = 32;          // System shift register length index (0..64)
   private readonly bm_scratch_C = new Int32Array(64);          // Berlekamp-Massey connectivity state tracker array
   private readonly bm_scratch_B = new Int32Array(64);          // Berlekamp-Massey historical feedback correction array
-
+  // ---- HIDDEN MARKOV MODEL & VITERBI DECODER SCRATCH MATRICES ----
+  private readonly hmm_A = new Float64Array(9);
+  private readonly hmm_B = new Float64Array(30);
+  private readonly viterbi_matrix = new Float64Array(300);
+  private readonly viterbi_pointer = new Int32Array(300);
 
     constructor(bufferSize: number = NAV_BUFFER_SIZE) {
-    const size = Math.round(clamp(bufferSize, 2, 600));
+    const size = Math.round(clamp(bufferSize, 2, 900));
     this.bufferSize = size;
     this.buffer = new Uint8Array(size);
     
@@ -566,12 +570,13 @@ export class DigitsEngine {
     this.recentWindow = size <= 25 ? 3 : 4;
     this.countWindow = clamp(Math.round(size * 0.12), 3, 12);
 
-for (let d = 0; d < 10; d++) {
-  this.hmm_B[0 * 10 + d] = 0.10;
-  this.hmm_B[1 * 10 + d] = (d % 2 === 0) ? 0.15 : 0.05;
-  this.hmm_B[2 * 10 + d] = (d >= 3 && d <= 6) ? 0.16 : 0.06;
-}
-    
+    this.hmm_A.fill(1.0 / 3.0);
+    for (let d = 0; d < 10; d++) {
+      this.hmm_B[0 * 10 + d] = 0.10;
+      this.hmm_B[1 * 10 + d] = (d % 2 === 0) ? 0.15 : 0.05;
+      this.hmm_B[2 * 10 + d] = (d >= 3 && d <= 6) ? 0.16 : 0.06;
+    }
+
     // Safe initialization anchors for structural discrete random number engine mappers
     this.cgr_x = 0.50;
     this.cgr_y = 0.50;
