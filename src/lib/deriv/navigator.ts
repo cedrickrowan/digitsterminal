@@ -1060,23 +1060,20 @@ export class DigitsEngine {
 
       this.bm_current_linear_complexity = clamp(L, 0, 64);
       this.bm_complexity_profile[this.deltaCount % 64] = this.bm_current_linear_complexity;
+    }
 
-      // Prepare baseline distribution array before linear complexity check
-const prng_ensemble_prior = new Float64Array(10);
-prng_ensemble_prior.fill(0.10);
-
-// Security perimeter filter: if linear complexity drops, force safety dilution
-if (this.bm_current_linear_complexity < (maxBmLength * 0.35)) {
-  for (let j = 0; j < 10; j++) {
-    prng_ensemble_prior[j] = 0.65 * prng_ensemble_prior[j] + 0.35 * ctw_prior[j];
-  }
-}
-}
-        // =========================================================================
+    // =========================================================================
     // PARALLEL DISCRETE PRNG ENGINE STRUCTURE TRACKING CHANNELS
     // =========================================================================
     const prng_ensemble_prior = new Float64Array(10);
-    prng_ensemble_prior.fill(0.10); // Prepare standard uniform baseline distribution array
+    prng_ensemble_prior.fill(0.10);
+
+    // Security perimeter filter: if linear complexity drops, force safety dilution
+    if (this.bm_current_linear_complexity < (Math.min(this.count, 64) * 0.35)) {
+      for (let j = 0; j < 10; j++) {
+        prng_ensemble_prior[j] = 0.65 * prng_ensemble_prior[j] + 0.35 * ctw_prior[j];
+      }
+    }
 
     // 1. Chaos Game Representation (CGR) Coordinate Quadrant Fractal Mapping
     {
