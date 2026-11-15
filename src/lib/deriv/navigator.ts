@@ -537,60 +537,14 @@ export class DigitsEngine {
 
   // CUSUM / Page-Hinkley state
   private cusumAcc: number = 0;
-    
-  // ---- LORENZ CHAOTIC ATTRACTOR PHASE SPACE ANCHORS ----
-  private lorenz_x: number = 1.0;
-  private lorenz_y: number = 1.0;
-  private lorenz_z: number = 1.0;
-  private readonly lorenz_sigma: number = 10.0;
-  private readonly lorenz_beta: number = 8.0 / 3.0;
-  private readonly lorenz_rho: number = 28.0; // Standard chaotic attractor parameter
-    // ---- ORNSTEIN–UHLENBECK ELASTIC REVERSION MEMORY STRUCTURES ----
-  private ou_theta: number = 0.15;      // Rate of mean reversion elasticity
-  private ou_mu: number = 4.5;         // Long-term equilibrium mean of the uniform distribution [0..9]
-  private ou_sigma: number = 1.2;      // Volatility profile parameter
-  private readonly ou_history = new Float64Array(100); // Volatility profile memory lookback
-
-  // ---- FOKKER–PLANCK PROBABILITY DENSITY DIFFUSION TABLES ----
-  private readonly fp_density = new Float64Array(10);   // Live discrete system state density profile p(x, t)
-  private readonly fp_drift = new Float64Array(10);     // Drift vectors D_1(x, t)
-  private readonly fp_diffusion = new Float64Array(10); // Diffusion dispersion coefficients D_2(x, t)
-
-  // ---- HIDDEN MARKOV MODEL AND VITERBI REGIME PATH MEMORY ----
-  // States: 0 = BALANCED_RANDOM, 1 = PARITY_CLUSTERING, 2 = MEAN_REVERTING
-  private readonly hmm_A = new Float64Array([
-    0.80, 0.10, 0.10, // Transition dynamics from state 0
-    0.15, 0.75, 0.10, // Transition dynamics from state 1
-    0.10, 0.10, 0.80  // Transition dynamics from state 2
-  ]);
-  private readonly hmm_B = new Float64Array(30); // Emission densities for 3 hidden states × 10 visible symbols
-  private readonly viterbi_matrix = new Float64Array(300 * 3); // LIFO Trellis trellis history space tracking table
-  private readonly viterbi_pointer = new Int32Array(300 * 3);  // Trellis backtracking register path space allocation
-
-    // ---- PARALLEL DISCRETE PRNG ENGINE MEMORY STORAGE CHANNELS ----
+      // ---- PARALLEL DISCRETE PRNG ENGINE MEMORY STORAGE CHANNELS ----
   private cgr_x: number = 0.50;
   private cgr_y: number = 0.50;
-  private readonly cgr_density_grid = new Float64Array(16); // 4x4 discrete spatial quadrants density mapping [0..15]
-  private renyi_entropy_q2: number = 3.32;                  // Alpha=2 quadratic pattern entropy sensitivity monitor
+  private readonly cgr_density_grid = new Float64Array(16);
+  private renyi_entropy_q2: number = 3.32;
   private readonly renyi_window_history = new Float64Array(10);
-  private readonly mrf_clique_potentials = new Float64Array(100); // Spatial pairwise digit configuration energy grid
+  private readonly mrf_clique_potentials = new Float64Array(100);
 
-    // ---- QUANTUM WAVEFUNCTION SUPERPOSITION AND PHASE MEMORY SHIFTS ----
-  private readonly quantum_psi_real = new Float64Array(10); // Real component of structural wavefunction amplitude vector ψ
-  private readonly quantum_psi_imag = new Float64Array(10); // Imaginary phase component of structural wavefunction amplitude vector ψ
-  private readonly quantum_hamiltonian = new Float64Array(100); // 10x10 Self-adjoint Potential Energy Operator Matrix H
-  private readonly quantum_interference = new Float64Array(10); // Extracted constructive/destructive node density arrays
-
-  // ---- VOLTERRA INTEGRO-DIFFERENTIAL VOLATILITY MEMORY KERNELS ----
-  private readonly volterra_kernel = new Float64Array(64); // Exponentially decaying non-local memory weights h(t)
-  private readonly volterra_feedback = new Float64Array(10); // History integrated drag coefficients per digit profile
-
-  // ---- MULTIFRACTAL DETRENDED FLUCTUATION ANALYSIS REGIME MATRICES ----
-  private readonly mdfa_segments = new Float64Array(32); // Sliced local variance profile mappings Y_s(t)
-  private readonly mdfa_fluctuations = new Float64Array(5); // Multi-scale exponents q-order variance fields [-2, -1, 0, 1, 2]
-  private mdfa_singularity_alpha: number = 0.50; // Central singularity tracking exponent α
-  private mdfa_spectrum_f: number = 1.00; // Localized fractal dimension scaling boundary f(α)
-   
   // ---- ADVANCED CONTEXT-TREE WEIGHTING (CTW) MEMORY STRUCTURES ----
   private readonly ctw_tree_counts = new Int32Array(4096 * 2); // Multi-order binary bit tracking dictionary tree nodes
   private readonly ctw_node_weights = new Float64Array(4096);  // Log-likelihood context tree blend estimators
