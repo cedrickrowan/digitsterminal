@@ -1010,13 +1010,14 @@ export class DigitsEngine {
       }
 
       // Initialize shift registers and feedback connectivity correction vectors
-      this.bm_scratch_C.fill(0);
-      this.bm_scratch_B.fill(0);
-      this.bm_scratch_C[0] = 1;
-      this.bm_scratch_B[0] = 1;
+      // Set the feedback connection roots cleanly across all array indices using loop index tracker 'k'
+      for (let k = 0; k < 64; k++) {
+        this.bm_scratch_C[k] = 1;
+        this.bm_scratch_B[k] = 1;
+      }
 
-      let L = 0; // Current computed linear complexity length register
-      let m = -1;
+      let L = 0; // Current computed discrete linear complexity length register
+      
 
       // Execute Berlekamp-Massey discrete loop minimization passes
       for (let i = 0; i < maxBmLength; i++) {
