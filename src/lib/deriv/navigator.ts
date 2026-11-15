@@ -596,6 +596,17 @@ export class DigitsEngine {
   private readonly mdfa_fluctuations = new Float64Array(5); // Multi-scale exponents q-order variance fields [-2, -1, 0, 1, 2]
   private mdfa_singularity_alpha: number = 0.50; // Central singularity tracking exponent α
   private mdfa_spectrum_f: number = 1.00; // Localized fractal dimension scaling boundary f(α)
+   
+  // ---- ADVANCED CONTEXT-TREE WEIGHTING (CTW) MEMORY STRUCTURES ----
+  private readonly ctw_tree_counts = new Int32Array(4096 * 2); // Multi-order binary bit tracking dictionary tree nodes
+  private readonly ctw_node_weights = new Float64Array(4096);  // Log-likelihood context tree blend estimators
+
+  // ---- LINEAR FEEDBACK SHIFT REGISTER (LFSR) COMPLEXITY MONITORS ----
+  private readonly bm_complexity_profile = new Int32Array(64); // Trailing history of computed complexity values
+  private bm_current_linear_complexity: number = 32;          // System shift register length index (0..64)
+  private readonly bm_scratch_C = new Int32Array(64);          // Berlekamp-Massey connectivity state tracker array
+  private readonly bm_scratch_B = new Int32Array(64);          // Berlekamp-Massey historical feedback correction array
+
 
     constructor(bufferSize: number = NAV_BUFFER_SIZE) {
     const size = Math.round(clamp(bufferSize, 2, 600));
@@ -637,7 +648,15 @@ export class DigitsEngine {
     this.cgr_y = 0.50;
     this.cgr_density_grid.fill(0.0625); // Set uniform initial spatial coordinate probabilities
     this.mrf_clique_potentials.fill(0.10);
-      
+         // Clear and prepare Context-Tree Weighting memory node matrices safely
+    this.ctw_tree_counts.fill(0);
+    this.ctw_node_weights.fill(0.0);
+
+    // Set initial structural complexity boundaries to maximum entropy state
+    this.bm_current_linear_complexity = 32;
+    this.bm_complexity_profile.fill(32);
+    this.bm_scratch_C.fill(0);
+    this.bm_scratch_B.fill(0);
   }
 
   get capacity(): number {
@@ -1200,6 +1219,102 @@ export class DigitsEngine {
     this.matPower10x10(this.T1, D, this.TD);
 
         // =========================================================================
+    // 5. ADVANCED PRNG MODULE: CONTEXT-TREE WEIGHTING (CTW) HIGH-ORDER MEMORY
+    // =========================================================================
+    const ctw_prior = new Float64Array(10);
+    ctw_prior.fill(0.10);
+    {
+      const depthDepthLimit = 4; // Tracks down to multi-layer Order-4 history paths simultaneously
+      let contextNodeKey = 0;
+      
+      // Traverse history tree backwards up to the depth depth threshold limit boundary
+      for (let depth = 0; depth < depthDepthLimit; depth++) {
+        const lookbackIdx = N - 2 - depth;
+        if (lookbackIdx >= 0) {
+          const historicalDigitVal = this.buffer[lookbackIdx];
+          contextNodeKey = (contextNodeKey << 3) ^ historicalDigitVal;
+          const nodeAddressIndex = (contextNodeKey & 4095);
+          
+          // Increment tree binary state trajectory registers
+          const bitParitySide = (currDigit % 2 === 0) ? 0 : 1;
+          this.ctw_tree_counts[nodeAddressIndex * 2 + bitParitySide]++;
+          
+          // Compute log-likelihood weighting allocations dynamically
+          const zeroCount = this.ctw_tree_counts[nodeAddressIndex * 2 + 0];
+          const oneCount = this.ctw_tree_counts[nodeAddressIndex * 2 + 1];
+          this.ctw_node_weights[nodeAddressIndex] = Math.log((zeroCount + 0.5) / (zeroCount + oneCount + 1.0));
+        }
+      }
+
+      // Map context node weights directly into target algorithmic predictions
+      for (let j = 0; j < 10; j++) {
+        const structuralNodeAddress = (contextNodeKey ^ j) & 4095;
+        const probabilityBiasFromWeight = Math.abs(this.ctw_node_weights[structuralNodeAddress]);
+        const boundedCtwDensity = clamp(1.0 / (1.0 + probabilityBiasFromWeight), 0.01, 0.90);
+        ctw_prior[j] = 0.85 * ctw_prior[j] + 0.15 * boundedCtwDensity;
+      }
+    }
+
+    // =========================================================================
+    // 6. ADVANCED PRNG MODULE: BERLEKAMP-MASSEY LINEAR COMPLEXITY PROFILE
+    // =========================================================================
+    {
+      const maxBmLength = Math.min(this.count, 64);
+      const s = new Int32Array(maxBmLength);
+      
+      // Load current sequence data into binary state tracking frames
+      for (let i = 0; i < maxBmLength; i++) {
+        s[i] = (this.buffer[this.count - maxBmLength + i] % 2 === 0) ? 0 : 1;
+      }
+
+      // Initialize shift registers and feedback connectivity correction vectors
+      this.bm_scratch_C.fill(0);
+      this.bm_scratch_B.fill(0);
+      this.bm_scratch_C[0] = 1;
+      this.bm_scratch_B[0] = 1;
+
+      let L = 0; // Current computed linear complexity length register
+      let m = -1;
+
+      // Execute Berlekamp-Massey discrete loop minimization passes
+      for (let i = 0; i < maxBmLength; i++) {
+        let discrepancy = s[i];
+        for (let j = 1; j <= L; j++) {
+          if (i - j >= 0) {
+            discrepancy ^= this.bm_scratch_C[j] * s[i - j];
+          }
+        }
+
+        if (discrepancy !== 0) {
+          const temp_T = new Int32Array(64);
+          temp_T.set(this.bm_scratch_C);
+          const shiftDistanceIndex = i - m;
+
+          for (let j = 0; j < 64 - shiftDistanceIndex; j++) {
+            this.bm_scratch_C[j + shiftDistanceIndex] ^= this.bm_scratch_B[j];
+          }
+
+          if (2 * L <= i) {
+            L = i + 1 - L;
+            m = i;
+            this.bm_scratch_B.set(temp_T);
+          }
+        }
+      }
+
+      this.bm_current_linear_complexity = clamp(L, 0, 64);
+      this.bm_complexity_profile[this.deltaCount % 64] = this.bm_current_linear_complexity;
+
+      // Security perimeter filter: if linear complexity drops, force safety dilution
+      if (this.bm_current_linear_complexity < (maxBmLength * 0.35)) {
+        // Enforce maximum defense fallback structure to suppress predictable PRNG windows
+        for (let j = 0; j < 10; j++) {
+          prng_ensemble_prior[j] = 0.65 * prng_ensemble_prior[j] + 0.35 * ctw_prior[j];
+        }
+      }
+    }
+
+        // =========================================================================
     // PARALLEL DISCRETE PRNG ENGINE STRUCTURE TRACKING CHANNELS
     // =========================================================================
     const prng_ensemble_prior = new Float64Array(10);
@@ -1278,14 +1393,16 @@ export class DigitsEngine {
       }
     }
 
-    // 4. Clean Post-Horizon Linear Ensemble Confluence Fusion Vector Merging
+        // 4. Clean Post-Horizon Linear Ensemble Confluence Fusion Vector Merging
     const destinationStateMatrixOffset = currDigit * 10;
     let postHorizonEnsembleBlendNormalizeSum = 0.0;
     for (let d = 0; d < 10; d++) {
-      // Blends 75% clean, uncorrupted historical matrix time steps with 25% parallel discrete PRNG indicators
-      this.TD[destinationStateMatrixOffset + d] = 0.75 * this.TD[destinationStateMatrixOffset + d] + 0.25 * prng_ensemble_prior[d];
+      // Blends 75% uncorrupted frequentist matrix leaps with 25% balanced algorithmic tracking priors
+      const unifiedPrngPrior = 0.50 * prng_ensemble_prior[d] + 0.50 * ctw_prior[d];
+      this.TD[destinationStateMatrixOffset + d] = 0.75 * this.TD[destinationStateMatrixOffset + d] + 0.25 * unifiedPrngPrior;
       postHorizonEnsembleBlendNormalizeSum += this.TD[destinationStateMatrixOffset + d];
     }
+    
     if (postHorizonEnsembleBlendNormalizeSum > 0) {
       const inverseNormalizationWeight = 1.0 / postHorizonEnsembleBlendNormalizeSum;
       for (let d = 0; d < 10; d++) this.TD[destinationStateMatrixOffset + d] *= inverseNormalizationWeight;
