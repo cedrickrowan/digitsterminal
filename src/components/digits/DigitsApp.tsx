@@ -1077,8 +1077,8 @@ export default function DigitsApp() {
           purchaseInMs={purchaseInMs}
         />
               
-        <PredictedDigit
-          digit={cfg.market === "matches" || cfg.market === "differs" ? cfg.predictDigit : context.topDigit}
+                <PredictedDigit
+          digit={cfg.market === "differs" ? cfg.predictDigit : context.topDigit}
           entryPrice={openEntry?.price ?? null}
           lastPrice={lastPrice}
           pip={pip}
@@ -1087,18 +1087,17 @@ export default function DigitsApp() {
           confidence={
             cfg.market === "differs" && navResult?.digits[cfg.predictDigit]
               ? 1 - navResult.digits[cfg.predictDigit].landingProb
-              : cfg.market === "matches" && navResult?.digits[cfg.predictDigit]
-                ? navResult.digits[cfg.predictDigit].landingProb
-                : Math.min(1, (context.weighted[cfg.market === "matches" ? cfg.predictDigit : context.topDigit] ?? 0) * (engineReport?.confidenceAdjust ?? 1))
+              : navResult?.marketRecProb !== undefined
+                ? navResult.marketRecProb
+                : Math.min(1, (context.weighted[context.topDigit] ?? 0))
           }
           highlight={
-            cfg.market === "matches" && navResult?.digits[cfg.predictDigit]
-              ? navResult.alertDecision === "READY / MANUAL ALERT" || navResult.digits[cfg.predictDigit].landingProb >= 0.20
-              : cfg.market === "differs" && navResult?.digits[cfg.predictDigit]
-                ? 1 - navResult.digits[cfg.predictDigit].landingProb >= 0.92
+            cfg.market === "differs" && navResult?.digits[cfg.predictDigit]
+              ? 1 - navResult.digits[cfg.predictDigit].landingProb >= 0.92
+              : navResult?.digits[context.topDigit]
+                ? navResult.alertDecision === "READY / MANUAL ALERT" || navResult.digits[context.topDigit].landingProb >= 0.20
                 : false
           }
-                  
         />
         <NavigatorPanel
           result={navResult}
@@ -1113,9 +1112,7 @@ export default function DigitsApp() {
           <summary className="cursor-pointer list-none font-mono text-[11px] font-semibold uppercase tracking-wider text-cyan">
             ▼ ANALYTICS DETAIL
           </summary>
-        {(() => {
-          return null;
-        })()}
+  
         <PreArrivalPanel
           forecasts={context.pre.forecasts}
           physics={context.pre.physics}
