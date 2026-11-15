@@ -1053,45 +1053,6 @@ export class DigitsEngine {
     }
 
     // =========================================================================
-    // 7. VOLATILITY-ADJUSTED VOLTERRA NON-LOCAL INTEGRO-DIFFERENTIAL KERNEL
-    // =========================================================================
-    {
-      this.volterra_feedback.fill(0.0);
-      const ringTotal = Math.min(this.deltaCount, 64);
-      
-      // Calculate hereditary Volterra memory integration over price volatility loops
-      if (ringTotal > 5) {
-        for (let d = 0; d < 10; d++) {
-          let integratedIntegral = 0.0;
-          const centerlineOffset = Math.abs(d - 4.5);
-          
-          for (let t = 0; t < ringTotal; t++) {
-            const index = (this.deltaCount - 1 - t) % 64;
-            const pastVolatilityDelta = this.deltas[index];
-            const memoryWeight = this.volterra_kernel[t];
-            
-            // Volterra convolution tracking non-local memory paths
-            integratedIntegral += pastVolatilityDelta * memoryWeight * (1.0 / (1.0 + centerlineOffset));
-          }
-          this.volterra_feedback[d] = integratedIntegral;
-        }
-
-        // Alter transition matrix weights with memory kernel drag fields
-        const rowStart = currDigit * 10;
-        let volterraRowSum = 0.0;
-        for (let j = 0; j < 10; j++) {
-          const structuralDrag = 0.05 * this.volterra_feedback[j];
-          this.T1[rowStart + j] = Math.max(1e-5, this.T1[rowStart + j] - structuralDrag);
-          volterraRowSum += this.T1[rowStart + j];
-        }
-        if (volterraRowSum > 0) {
-          const invVolterraSum = 1.0 / volterraRowSum;
-          for (let j = 0; j < 10; j++) this.T1[rowStart + j] *= invVolterraSum;
-        }
-      }
-    }
-
-    // =========================================================================
     // 8. MULTIFRACTAL DETRENDED FLUCTUATION ANALYSIS EXPlONENT MONITOR
     // =========================================================================
     {
