@@ -1056,15 +1056,17 @@ for (let d = 0; d < 10; d++) {
       this.bm_current_linear_complexity = clamp(L, 0, 64);
       this.bm_complexity_profile[this.deltaCount % 64] = this.bm_current_linear_complexity;
 
-      // Security perimeter filter: if linear complexity drops, force safety dilution
-      if (this.bm_current_linear_complexity < (maxBmLength * 0.35)) {
-        // Enforce maximum defense fallback structure to suppress predictable PRNG windows
-        for (let j = 0; j < 10; j++) {
-          prng_ensemble_prior[j] = 0.65 * prng_ensemble_prior[j] + 0.35 * ctw_prior[j];
-        }
-      }
-    }
+      // Prepare baseline distribution array before linear complexity check
+const prng_ensemble_prior = new Float64Array(10);
+prng_ensemble_prior.fill(0.10);
 
+// Security perimeter filter: if linear complexity drops, force safety dilution
+if (this.bm_current_linear_complexity < (maxBmLength * 0.35)) {
+  for (let j = 0; j < 10; j++) {
+    prng_ensemble_prior[j] = 0.65 * prng_ensemble_prior[j] + 0.35 * ctw_prior[j];
+  }
+}
+}
         // =========================================================================
     // PARALLEL DISCRETE PRNG ENGINE STRUCTURE TRACKING CHANNELS
     // =========================================================================
