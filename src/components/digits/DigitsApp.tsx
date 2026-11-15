@@ -318,10 +318,14 @@ export default function DigitsApp() {
         }
         return;
       }
-      if (e.data?.type === "nav") {
+     if (e.data?.type === "nav") {
         const nav = e.data.result ?? null;
         if (nav && nav.tickId !== totalTicksRef.current) return;
+        if (nav) {
+          setNavStatus({ filled: nav.bufferFilled, size: nav.bufferSize });
+        }
         const currentCfg = cfgRef.current;
+
         const currentGapBudget = Math.max(
           currentCfg.safeGapMs,
           cadenceOf(currentCfg.symbol, gapsRef.current?.median() ?? 0) * 1.6,
