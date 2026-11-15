@@ -537,13 +537,7 @@ export class DigitsEngine {
 
   // CUSUM / Page-Hinkley state
   private cusumAcc: number = 0;
-    // ---- KALMAN FILTER REAL-TIME TRACKING MEMORY INITIALIZATION ----
-  private kalman_x: number = 0; // Estimated true price state
-  private kalman_P: number = 1.0; // Estimate error variance memory
-  private readonly kalman_Q: number = 0.0001; // Process noise covariance prior
-  private readonly kalman_R: number = 0.01; // Measurement noise covariance threshold
-  private kalman_initialized: boolean = false;
-
+    
   // ---- LORENZ CHAOTIC ATTRACTOR PHASE SPACE ANCHORS ----
   private lorenz_x: number = 1.0;
   private lorenz_y: number = 1.0;
@@ -617,10 +611,6 @@ export class DigitsEngine {
     this.tailWindow = clamp(Math.round(size * 0.15), 3, 15);
     this.recentWindow = size <= 25 ? 3 : 4;
     this.countWindow = clamp(Math.round(size * 0.12), 3, 12);
-
-    this.kalman_x = 0;
-    this.kalman_P = 1.0;
-    this.kalman_initialized = false;
     this.lorenz_x = 1.0;
     this.lorenz_y = 1.0;
     this.lorenz_z = 1.0;
