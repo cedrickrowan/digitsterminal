@@ -278,6 +278,31 @@ function ControlsImpl({ cfg, onChange, connected, onConnect, onDisconnect, armed
                 className="rounded border border-input bg-background px-2 py-1.5 font-mono"
                 value={cfg.navThresholds.deadZoneThresholdPct ?? 10}
                 onChange={(e) => setNavThreshold("deadZoneThresholdPct", Number(e.target.value))}
+           <div className="flex items-center justify-between text-[11px]">
+            <span className="text-muted-foreground">Bot Jump (ticks, 0 = off):</span>
+            <input
+              type="number"
+              min={0}
+              max={5}
+              step={1}
+              className="w-14 rounded border border-border bg-input px-1 py-0.5 text-right font-mono text-[10px]"
+              value={cfg.navThresholds.botJumpTicks ?? 0}
+              onChange={(e) => setNavThreshold("botJumpTicks", Math.max(0, Math.min(5, Math.floor(Number(e.target.value)))))}
+            />
+          </div>
+          <div className="flex items-center justify-between text-[11px]">
+            <span className="text-muted-foreground">Entry Delay (ticks):</span>
+            <input
+              type="number"
+              min={1}
+              max={4}
+              step={1}
+              className="w-14 rounded border border-border bg-input px-1 py-0.5 text-right font-mono text-[10px]"
+              value={cfg.navThresholds.entryDelayTicks ?? 2}
+              onChange={(e) => setNavThreshold("entryDelayTicks", Math.max(1, Math.min(4, Math.floor(Number(e.target.value)))))}
+            />
+          </div>
+
               />
             </label>
             <div className="flex flex-col justify-center text-[10px] text-muted-foreground">
