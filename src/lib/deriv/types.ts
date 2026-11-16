@@ -64,6 +64,8 @@ export interface NavThresholds {
   differsColdGapMin: number;
   hurstMinEdge: number;
   deadZoneThresholdPct?: number;
+  botJumpTicks?: number;
+  entryDelayTicks?: number;
 }
 export interface AppConfig {
   symbol: string;
@@ -183,6 +185,8 @@ export const DEFAULT_CONFIG: AppConfig = {
     differsColdGapMin: 5,
     hurstMinEdge: 0.05,
     differsMaxFreqPct: 8,
+    botJumpTicks: 0,
+    entryDelayTicks: 2,
   },
 };
 // Verified live against Deriv (app_id 1089). 1HZ200V / 1HZ300V are not offered.
