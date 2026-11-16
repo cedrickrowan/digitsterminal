@@ -373,7 +373,7 @@ export default function DigitsApp() {
             pendingSimRef.current.push({
               id: sigId,
               tickIndex: totalTicksRef.current + currentCfg.duration,
-              predicted: currentCfg.market === "differs" ? nav!.navTargetDigit : nav!.topTargetDigit,
+              predicted: nav!.navTargetDigit,
               entryPrice,
               market: currentCfg.market,
               barrier: currentCfg.barrier,
@@ -1078,28 +1078,24 @@ export default function DigitsApp() {
           purchaseInMs={purchaseInMs}
         />
               
-                <PredictedDigit
-          digit={cfg.market === "differs" ? cfg.predictDigit : context.topDigit}
+        <PredictedDigit
+          digit={cfg.predictDigit}
           entryPrice={openEntry?.price ?? null}
           lastPrice={lastPrice}
-          pip={pip}
           matched={matched}
-          armed={armed}
+          armed={cfg.armed}
+          pip={pip}
           confidence={
-            cfg.market === "differs" && navResult?.digits[cfg.predictDigit]
-              ? 1 - navResult.digits[cfg.predictDigit].landingProb
-              : navResult?.marketRecProb !== undefined
-                ? navResult.marketRecProb
-                : Math.min(1, (context.weighted[context.topDigit] ?? 0))
+            cfg.market === "differs"
+             ? (navResult?.digits[cfg.predictDigit] ? 1 - navResult.digits[cfg.predictDigit].landingProb : 0.9)
+             : (navResult?.digits[cfg.predictDigit] ? navResult.digits[cfg.predictDigit].landingProb : Math.min(1, (context.weighted[cfg.predictDigit] ?? 0.1)))
           }
           highlight={
-            cfg.market === "differs" && navResult?.digits[cfg.predictDigit]
-              ? 1 - navResult.digits[cfg.predictDigit].landingProb >= 0.92
-              : navResult?.digits[context.topDigit]
-                ? navResult.alertDecision === "READY / MANUAL ALERT" || navResult.digits[context.topDigit].landingProb >= 0.20
-                : false
+            cfg.market === "differs"
+              ? (navResult?.digits[cfg.predictDigit] ? 1 - navResult.digits[cfg.predictDigit].landingProb >= 0.92 : false)
+              : (navResult ? (navResult.alertDecision === "READY / MANUAL ALERT" && navResult.navTargetDigit === cfg.predictDigit) : false)
           }
-        />
+          />
         <NavigatorPanel
           result={navResult}
           alertElapsedMs={navElapsed}
