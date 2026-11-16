@@ -683,83 +683,118 @@ export class DigitsEngine {
   }
 
   /** Exact probability of reaching a specified hit count in D future ticks. */
-  private computeHitCountProb(
+    private computeHitCountProb(
     startDigit: number,
     targetDigit: number,
     D: number,
     requiredHits: number,
-    current: Float64Array,
-    next: Float64Array,
+    bufA: Float64Array,
+    bufB: Float64Array,
+    botJump: number = 0,
+    entryDelay: number = 1
   ): number {
-    if (D < requiredHits) return 0.0;
+    if (requiredHits <= 0) return 1.0;
+    const stride = 1 + botJump;
+    const totalSteps = botJump > 0 ? entryDelay + (D - 1) * stride : D;
+    if (totalSteps <= 0 || D < requiredHits) return 0.0;
+
     const width = requiredHits + 1;
-    current.fill(0);
-    next.fill(0);
-    current[startDigit * width] = 1.0;
-    for (let step = 0; step < D; step++) {
+    bufA.fill(0);
+    bufA[startDigit * width + 0] = 1.0;
+    let current = bufA;
+    let next = bufB;
+
+    for (let step = 1; step <= totalSteps; step++) {
       next.fill(0);
+      const isContract = botJump === 0 || (step >= entryDelay && (step - entryDelay) % stride === 0);
+
       for (let x = 0; x < 10; x++) {
-        for (let c = 0; c < width; c++) {
+        const rowOffset = x * 10;
+        for (let c = 0; c <= requiredHits; c++) {
           const p = current[x * width + c];
           if (p === 0) continue;
           for (let y = 0; y < 10; y++) {
-            const nc = Math.min(requiredHits, c + (y === targetDigit ? 1 : 0));
-            next[y * width + nc] += p * this.T1[x * 10 + y];
+            const trans = this.T1[rowOffset + y];
+            if (trans === 0) continue;
+            const nc = isContract ? Math.min(requiredHits, c + (y === targetDigit ? 1 : 0)) : c;
+            next[y * width + nc] += p * trans;
           }
         }
       }
-      // swap in place (both are preallocated scratch buffers)
-      for (let i = 0; i < 10 * width; i++) {
-        const t = current[i];
-        current[i] = next[i];
-        next[i] = t;
-      }
+      const tmp = current;
+      current = next;
+      next = tmp;
     }
-    let result = 0;
-    for (let x = 0; x < 10; x++) result += current[x * width + requiredHits];
-    return result;
+
+    let result = 0.0;
+    for (let x = 0; x < 10; x++) {
+      result += current[x * width + requiredHits];
+    }
+    return Math.min(1.0, Math.max(0.0, result));
   }
 
   /** Exact probability of seeing at least one run of runLength target digits in the D future ticks. */
-  private computeRunAtLeastOnce(
+    private computeRunAtLeastOnce(
     startDigit: number,
     targetDigit: number,
     D: number,
     runLength: number,
-    current: Float64Array,
-    next: Float64Array,
+    bufA: Float64Array,
+    bufB: Float64Array,
+    botJump: number = 0,
+    entryDelay: number = 1
   ): number {
-    if (D < runLength) return 0.0;
-    const runStates = runLength + 1;
-    const stateCount = 10 * runStates * 2; // digit × current run length × event seen
-    current.fill(0);
-    next.fill(0);
-    const idx = (digit: number, run: number, seen: number) => (digit * runStates + run) * 2 + seen;
-    current[idx(startDigit, 0, 0)] = 1.0; // current observation is outside future horizon
-    for (let step = 0; step < D; step++) {
+    if (runLength <= 0) return 1.0;
+    const stride = 1 + botJump;
+    const totalSteps = botJump > 0 ? entryDelay + (D - 1) * stride : D;
+    if (totalSteps <= 0 || D < runLength) return 0.0;
+
+    const width = (runLength + 1) * 2;
+    bufA.fill(0);
+    bufA[startDigit * width + 0] = 1.0;
+    let current = bufA;
+    let next = bufB;
+
+    for (let step = 1; step <= totalSteps; step++) {
       next.fill(0);
+      const isContract = botJump === 0 || (step >= entryDelay && (step - entryDelay) % stride === 0);
+
       for (let x = 0; x < 10; x++) {
-        for (let run = 0; run < runStates; run++) {
+        const rowOffset = x * 10;
+        for (let r = 0; r <= runLength; r++) {
           for (let seen = 0; seen <= 1; seen++) {
-            const p = current[idx(x, run, seen)];
+            const p = current[x * width + r * 2 + seen];
             if (p === 0) continue;
             for (let y = 0; y < 10; y++) {
-              const nr = y === targetDigit ? Math.min(runLength, run + 1) : 0;
-              const ns = seen || nr >= runLength ? 1 : 0;
-              next[idx(y, nr, ns)] += p * this.T1[x * 10 + y];
+              const trans = this.T1[rowOffset + y];
+              if (trans === 0) continue;
+              let nr = r;
+              let nseen = seen;
+              if (isContract) {
+                if (y === targetDigit) {
+                  nr = Math.min(runLength, r + 1);
+                  if (nr >= runLength) nseen = 1;
+                } else {
+                  nr = 0;
+                }
+              }
+              next[y * width + nr * 2 + nseen] += p * trans;
             }
           }
         }
       }
-      for (let i = 0; i < stateCount; i++) {
-        const t = current[i];
-        current[i] = next[i];
-        next[i] = t;
+      const tmp = current;
+      current = next;
+      next = tmp;
+    }
+
+    let result = 0.0;
+    for (let x = 0; x < 10; x++) {
+      for (let r = 0; r <= runLength; r++) {
+        result += current[x * width + r * 2 + 1];
       }
     }
-    let result = 0;
-    for (let x = 0; x < 10; x++) for (let run = 0; run < runStates; run++) result += current[idx(x, run, 1)];
-    return result;
+    return Math.min(1.0, Math.max(0.0, result));
   }
 
   /** AMI between X_t and X_{t+k} with Miller-Madow bias correction (bits). */
@@ -969,7 +1004,11 @@ export class DigitsEngine {
       }
     }
     // 2. Matrix Exponentiation for Landing Probability M^D
-    this.matPower10x10(this.T1, D, this.TD);
+    const botJump = input.navThresholds?.botJumpTicks ?? 0;
+    const entryDelay = input.navThresholds?.entryDelayTicks ?? (botJump > 0 ? 2 : 1);
+    const landingHorizon = botJump > 0 ? entryDelay : D;
+    this.matPower10x10(this.T1, landingHorizon, this.TD);
+
 
         // =========================================================================
     // 5. ADVANCED PRNG MODULE: CONTEXT-TREE WEIGHTING (CTW) HIGH-ORDER MEMORY
@@ -1261,10 +1300,10 @@ export class DigitsEngine {
       const consecProb = pFirst * Math.pow(pStay, D - 1);
 
       // Exact Multi-Appearance via Dynamic Programming
-      const multiHitProb = this.computeHitCountProb(currDigit, d, D, 2, this.dpHitA, this.dpHitB);
-      const threeHitProb = this.computeHitCountProb(currDigit, d, D, 3, this.dpHitB, this.dpHitA);
-      const pairProb = this.computeRunAtLeastOnce(currDigit, d, D, 2, this.dpRunA, this.dpRunB);
-      const tripleProb = this.computeRunAtLeastOnce(currDigit, d, D, 3, this.dpRunB, this.dpRunA);
+      const multiHitProb = this.computeHitCountProb(currDigit, d, D, 2, this.dpHitA, this.dpHitB, botJump, entryDelay);
+      const threeHitProb = this.computeHitCountProb(currDigit, d, D, 3, this.dpHitB, this.dpHitA, botJump, entryDelay);
+      const pairProb = this.computeRunAtLeastOnce(currDigit, d, D, 2, this.dpRunA, this.dpRunB, botJump, entryDelay);
+      const tripleProb = this.computeRunAtLeastOnce(currDigit, d, D, 3, this.dpRunB, this.dpRunA, botJump, entryDelay);
 
       digitMetrics.push({
         digit: d,
