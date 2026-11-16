@@ -278,7 +278,15 @@ function ControlsImpl({ cfg, onChange, connected, onConnect, onDisconnect, armed
                 className="rounded border border-input bg-background px-2 py-1.5 font-mono"
                 value={cfg.navThresholds.deadZoneThresholdPct ?? 10}
                 onChange={(e) => setNavThreshold("deadZoneThresholdPct", Number(e.target.value))}
-           <div className="flex items-center justify-between text-[11px]">
+              />
+            </label>
+            <div className="flex flex-col justify-center text-[10px] text-muted-foreground">
+              Blocks alerts if the losing barrier tie probability reaches or exceeds this % (default 10%).
+            </div>
+          </div>
+        </div>
+      )}
+                <div className="flex items-center justify-between text-[11px]">
             <span className="text-muted-foreground">Bot Jump (ticks, 0 = off):</span>
             <input
               type="number"
@@ -302,15 +310,6 @@ function ControlsImpl({ cfg, onChange, connected, onConnect, onDisconnect, armed
               onChange={(e) => setNavThreshold("entryDelayTicks", Math.max(1, Math.min(4, Math.floor(Number(e.target.value)))))}
             />
           </div>
-
-              />
-            </label>
-            <div className="flex flex-col justify-center text-[10px] text-muted-foreground">
-              Blocks alerts if the losing barrier tie probability reaches or exceeds this % (default 10%).
-            </div>
-          </div>
-        </div>
-      )}
 
       <div className="flex items-center gap-1 border-t border-border pt-2">
         <span className="mr-1 text-muted-foreground">Mode</span>
