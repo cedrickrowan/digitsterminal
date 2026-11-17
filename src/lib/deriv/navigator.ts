@@ -694,7 +694,7 @@ export class DigitsEngine {
     entryDelay: number = 1
   ): number {
     if (requiredHits <= 0) return 1.0;
-    const contractDuration = Math.max(1, entryDelay - 1);
+    const contractDuration = Math.max(1, D);
     const stride = botJump > 0 ? contractDuration + botJump : 1;
     const totalSteps = botJump > 0 ? entryDelay + (D - 1) * stride : D;
     if (totalSteps <= 0 || D < requiredHits) return 0.0;
@@ -746,7 +746,7 @@ export class DigitsEngine {
     entryDelay: number = 1
   ): number {
     if (runLength <= 0) return 1.0;
-    const contractDuration = Math.max(1, entryDelay - 1);
+    const contractDuration = Math.max(1, D);
     const stride = botJump > 0 ? contractDuration + botJump : 1;
     const totalSteps = botJump > 0 ? entryDelay + (D - 1) * stride : D;
     if (totalSteps <= 0 || D < runLength) return 0.0;
