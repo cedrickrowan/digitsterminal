@@ -694,7 +694,8 @@ export class DigitsEngine {
     entryDelay: number = 1
   ): number {
     if (requiredHits <= 0) return 1.0;
-    const stride = 1 + botJump;
+    const contractDuration = Math.max(1, entryDelay - 1);
+    const stride = botJump > 0 ? contractDuration + botJump : 1;
     const totalSteps = botJump > 0 ? entryDelay + (D - 1) * stride : D;
     if (totalSteps <= 0 || D < requiredHits) return 0.0;
 
@@ -745,7 +746,8 @@ export class DigitsEngine {
     entryDelay: number = 1
   ): number {
     if (runLength <= 0) return 1.0;
-    const stride = 1 + botJump;
+    const contractDuration = Math.max(1, entryDelay - 1);
+    const stride = botJump > 0 ? contractDuration + botJump : 1;
     const totalSteps = botJump > 0 ? entryDelay + (D - 1) * stride : D;
     if (totalSteps <= 0 || D < runLength) return 0.0;
 
@@ -1005,10 +1007,9 @@ export class DigitsEngine {
     }
     // 2. Matrix Exponentiation for Landing Probability M^D
     const botJump = input.navThresholds?.botJumpTicks ?? 0;
-    const entryDelay = input.navThresholds?.entryDelayTicks ?? (botJump > 0 ? 2 : 1);
+    const rawDelay = input.navThresholds?.entryDelayTicks;
+    const entryDelay = (rawDelay && rawDelay > 0) ? rawDelay : (botJump > 0 ? 2 : 1);
     const landingHorizon = botJump > 0 ? entryDelay : D;
-    this.matPower10x10(this.T1, landingHorizon, this.TD);
-
 
         // =========================================================================
     // 5. ADVANCED PRNG MODULE: CONTEXT-TREE WEIGHTING (CTW) HIGH-ORDER MEMORY
