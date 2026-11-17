@@ -1010,6 +1010,8 @@ export class DigitsEngine {
     const rawDelay = input.navThresholds?.entryDelayTicks;
     const entryDelay = (rawDelay && rawDelay > 0) ? rawDelay : (botJump > 0 ? 2 : 1);
     const landingHorizon = botJump > 0 ? entryDelay : D;
+    this.matPower10x10(this.T1, landingHorizon, this.TD);
+
 
         // =========================================================================
     // 5. ADVANCED PRNG MODULE: CONTEXT-TREE WEIGHTING (CTW) HIGH-ORDER MEMORY
