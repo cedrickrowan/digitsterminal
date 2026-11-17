@@ -101,7 +101,9 @@ function decisionFor(p: Props): { side: string; conf: number; tone: "cyan" | "ma
         ? { side: "FALL", conf: b.pFall, tone: "magenta", source: "navigator" }
         : { side: "RISE", conf: b.pRise, tone: "cyan", source: "navigator" };
     }
-    return { side: `MATCH ${nav.topTargetDigit}`, conf: p.ensemble.posterior[nav.topTargetDigit] ?? nav.topTargetProb, tone: "cyan", source: "navigator" };
+const target = p.predictDigit;
+const targetProb = nav.digits[target]?.landingProb ?? nav.topTargetProb;
+return { side: `MATCH ${target}`, conf: targetProb, tone: "cyan", source: "navigator" };
   }
   // Legacy fallback (navigator still seeding).
   switch (p.market) {
@@ -161,10 +163,10 @@ function decisionFor(p: Props): { side: string; conf: number; tone: "cyan" | "ma
 function EnsemblePanelImpl(p: Props) {
   const dir = decisionFor(p);
     // Horizon probability grid: navigator landing probabilities when live.
-  const posterior: number[] = p.market === "matches" ? p.ensemble.posterior : (p.nav ? p.nav.digits.map((d) => d.landingProb) : p.ensemble.posterior);
-  const highlightDigit = p.nav
-    ? p.nav.topTargetDigit
-    : p.market === "matches" ? p.predictDigit : p.ensemble.topDigit;
+  const posterior: number[] = p.nav ? p.nav.digits.map((d) => d.landingProb) : p.ensemble.posterior;
+  const highlightDigit = (p.market === "matches" || p.market === "differs")
+  ? p.predictDigit
+  : (p.nav ? p.nav.topTargetDigit : p.ensemble.topDigit);
 
   // Strict execution safety window — synchronized with the master 600ms cutoff rule.
   const cutoff = p.nav?.executionCutoffMs ?? 600;
