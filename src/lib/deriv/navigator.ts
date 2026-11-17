@@ -1515,30 +1515,39 @@ export class DigitsEngine {
       const targetColdGap = N - 1 - (this.buffer.lastIndexOf(targetDigit));
       
       const differsMathReady = targetLanding <= differsCeiling && targetColdGap >= differsColdGapMin;
-      const combinedDiffersReady = differsMathReady && (selectedCount === 0 || allSelectedPass);
+      const combinedDiffersReady = differsMathReady && selectedCount > 0 && allSelectedPass;
 
       if (combinedDiffersReady) alertDecision = "READY / MANUAL ALERT";
       else alertDecision = "HOLD / RULES NOT MET";
-    } else if (market === "overunder") {
-      if (overUnder?.deadZone) {
-        alertDecision = "HOLD / DEAD ZONE";
-      } else if (overUnder && overUnder.rec !== "HOLD") {
-        if (barrier === 0 || barrier === 9) {
-          if (overUnder.pTie < 0.15 && overUnder.prob >= 0.85) {
-            alertDecision = "READY / MANUAL ALERT";
-          }
-        } else {
-          const isImbalance = overUnder.prob > 0.65 && overUnder.pTie < 0.07;
-          const isEdgeOk = (overUnder.prob - (overUnder.rec === "OVER" ? overUnder.baselineOver : overUnder.baselineUnder)) >= NAV_EDGE_FLOOR && overUnder.pTie < deadZoneLimit;
-          if (isImbalance || isEdgeOk) {
-            alertDecision = "READY / MANUAL ALERT";
-          }
+        } else if (market === "overunder") {
+      if (overUnder && overUnder.rec !== "HOLD") {
+        const isBoundary = barrier === 0 || barrier === 9;
+        const ouMathReady = isBoundary
+          ? (overUnder.pTie < 0.15 && overUnder.prob >= 0.85)
+          : (overUnder.pTie < deadZoneLimit && (
+              (overUnder.prob > 0.65 && overUnder.pTie < 0.07) ||
+              (overUnder.prob - (overUnder.rec === "OVER" ? overUnder.baselineOver : overUnder.baselineUnder) >= NAV_EDGE_FLOOR)
+            ));
+        if (ouMathReady && (selectedCount === 0 || allSelectedPass)) {
+          alertDecision = "READY / MANUAL ALERT";
+        } else if (selectedCount > 0 && !allSelectedPass) {
+          alertDecision = "HOLD / RULES NOT MET";
         }
       }
     } else if (market === "evenodd") {
-      if (evenOdd && evenOdd.rec !== "HOLD" && marketEdge >= NAV_EDGE_FLOOR) alertDecision = "READY / MANUAL ALERT";
+      const eoMathReady = evenOdd && evenOdd.rec !== "HOLD" && marketEdge >= NAV_EDGE_FLOOR;
+      if (eoMathReady && (selectedCount === 0 || allSelectedPass)) {
+        alertDecision = "READY / MANUAL ALERT";
+      } else if (selectedCount > 0 && !allSelectedPass) {
+        alertDecision = "HOLD / RULES NOT MET";
+      }
     } else if (market === "risefall") {
-      if (riseFall && riseFall.rec !== "HOLD" && marketEdge >= NAV_EDGE_FLOOR) alertDecision = "READY / MANUAL ALERT";
+      const rfMathReady = riseFall && riseFall.rec !== "HOLD" && marketEdge >= NAV_EDGE_FLOOR;
+      if (rfMathReady && (selectedCount === 0 || allSelectedPass)) {
+        alertDecision = "READY / MANUAL ALERT";
+      } else if (selectedCount > 0 && !allSelectedPass) {
+        alertDecision = "HOLD / RULES NOT MET";
+      }
     }
     const decisionSignature = alertDecisionSignature({
       symbol: input.symbol,
