@@ -286,16 +286,19 @@ function ControlsImpl({ cfg, onChange, connected, onConnect, onDisconnect, armed
           </div>
         </div>
       )}
-                <div className="flex items-center justify-between text-[11px]">
+                          <div className="flex items-center justify-between text-[11px]">
             <span className="text-muted-foreground">Bot Jump (ticks, 0 = off):</span>
             <input
               type="number"
               min={0}
-              max={5}
+              max={10}
               step={1}
               className="w-14 rounded border border-border bg-input px-1 py-0.5 text-right font-mono text-[10px]"
               value={cfg.navThresholds.botJumpTicks ?? 0}
-              onChange={(e) => setNavThreshold("botJumpTicks", Math.max(0, Math.min(5, Math.floor(Number(e.target.value)))))}
+              onChange={(e) => {
+                const val = e.target.value;
+                setNavThreshold("botJumpTicks", val === "" ? 0 : Math.max(0, Math.floor(Number(val))));
+              }}
             />
           </div>
           <div className="flex items-center justify-between text-[11px]">
@@ -303,11 +306,15 @@ function ControlsImpl({ cfg, onChange, connected, onConnect, onDisconnect, armed
             <input
               type="number"
               min={1}
-              max={4}
+              max={20}
               step={1}
               className="w-14 rounded border border-border bg-input px-1 py-0.5 text-right font-mono text-[10px]"
-              value={cfg.navThresholds.entryDelayTicks ?? 2}
-              onChange={(e) => setNavThreshold("entryDelayTicks", Math.max(1, Math.min(4, Math.floor(Number(e.target.value)))))}
+              value={cfg.navThresholds.entryDelayTicks || ""}
+              placeholder="1"
+              onChange={(e) => {
+                const val = e.target.value;
+                setNavThreshold("entryDelayTicks", val === "" ? (0 as unknown as number) : Math.max(1, Math.floor(Number(val))));
+              }}
             />
           </div>
 
