@@ -125,9 +125,26 @@ function SplitPanelImpl(p: Props) {
   const pOdd = evenOdd ? evenOdd.pOdd : (1 - p.fallback.pEven);
   
   const b = overUnder?.barrier ?? p.barrier;
-  const pOver = overUnder ? overUnder.pOver : p.fallback.pHigh;
-  const pUnder = overUnder ? overUnder.pUnder : (1 - p.fallback.pHigh);
-  const pTie = overUnder ? overUnder.pTie : Math.max(0, 1 - pOver - pUnder);
+let pUnder = 0;
+let pTie = 0;
+let pOver = 0;
+if (overUnder) {
+  pUnder = overUnder.pUnder;
+  pTie = overUnder.pTie;
+  pOver = overUnder.pOver;
+} else if (p.fallback.distribution && p.fallback.distribution.length === 10) {
+  for (let d = 0; d < 10; d++) {
+    const freq = p.fallback.distribution[d];
+    if (d < b) pUnder += freq;
+    else if (d === b) pTie += freq;
+    else pOver += freq;
+  }
+} else {
+  pOver = p.fallback.pHigh;
+  pUnder = 1 - p.fallback.pHigh;
+  pTie = 0;
+}
+
   const deadZone = overUnder ? overUnder.deadZone : pTie >= 0.10;
   
   const pRise = direction ? direction.pRise : p.fallback.riseUp / Math.max(1, p.fallback.riseUp + p.fallback.riseDown);
