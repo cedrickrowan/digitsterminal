@@ -361,8 +361,8 @@ function buildNavRuleHits(
     rule: "multiHit",
     label: `Multi-hit ≥ 2 (${duration})`,
     enabled: on("multiHit"),
-    pass: duration < 3 ? true : mHit >= mHitThr,
-    detail: duration < 3 ? `Auto (D<3)` : `≥ ${mHitThr}% (Live: ${mHit.toFixed(1)}%)`,
+    pass: duration < 2 ? false : mHit >= mHitThr,
+    detail: duration < 2 ? `Impossible (D < 2)` : `≥ ${mHitThr}% (Live: ${mHit.toFixed(1)}%)`,
   });
 
   // 9. Adjacent pair inside horizon
