@@ -824,12 +824,24 @@ export default function DigitsApp() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tickKey, cfg.lookback, cfg.predictDigit]);
 
-  // Background market-context layer — EMA direction, tick-Δ volatility,
-  // 3-state HMM regime, Poisson cluster weights, and a consolidated signal
-  // router payload. Feeds only the prediction math; UI is unchanged.
+    // Background market-context layer — guarded safely against initial empty startup states
   const context = useMemo(() => {
-    const p = priceSeriesRef.current!.toArray();
-    const d = priceDeltasRef.current!.toArray();
+    const p = priceSeriesRef.current ? priceSeriesRef.current.toArray() : [];
+    const d = priceDeltasRef.current ? priceDeltasRef.current.toArray() : [];
+    
+    // Safety guard: if the app just booted up and has no ticks yet, return a perfect blank baseline state
+    if (buf.length === 0 || p.length === 0) {
+      return {
+        ema: { direction: "FLAT" as const },
+        vol: { state: "LOW" as const },
+        hmm: { state: "BALANCED_RANDOM" as const },
+        weighted: new Array(10).fill(0.10),
+        topDigit: 0,
+        router: null,
+        pre: { forecasts: [], physics: { ready: false } }
+      };
+    }
+
     const ema = priceEma(p);
     const vol = volatilityState(d);
     const hmm = hmmState(buf);
@@ -840,13 +852,12 @@ export default function DigitsApp() {
       hmm: hmm.state,
       poissonWeights: poissonW,
     });
-    // Zero-lag pre-arrival layer: 3rd-order Markov tensor, Lyapunov, Hurst,
-    // Fourier harmonics, KS bias and AR-Poisson intensity — fused into the
-    // posterior with micro-fatigue muting.
+    
     const pre = runPreArrivalAnalysis(buf, d, assetTypeOf(cfgRef.current.symbol), cfg.duration);
     const weighted = pre.physics.ready
       ? fusePreArrival(ctxWeighted, pre.forecasts)
       : ctxWeighted;
+      
     let topDigit = 0;
     for (let i = 1; i < 10; i++) if (weighted[i] > weighted[topDigit]) topDigit = i;
     const router = buildSignalRouter(weighted, derived.split.pEven, {
