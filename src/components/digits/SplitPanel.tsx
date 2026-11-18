@@ -132,12 +132,15 @@ if (overUnder) {
   pUnder = overUnder.pUnder;
   pTie = overUnder.pTie;
   pOver = overUnder.pOver;
-} else if (p.fallback.distribution && p.fallback.distribution.length === 10) {
-  for (let d = 0; d < 10; d++) {
-    const freq = p.fallback.distribution[d];
-    if (d < b) pUnder += freq;
-    else if (d === b) pTie += freq;
-    else pOver += freq;
+} else if (p.hotFreq && p.hotFreq.length === 10) {
+  const total = p.hotFreq.reduce((sum, n) => sum + n, 0);
+  if (total > 0) {
+    for (let d = 0; d < 10; d++) {
+      const freq = p.hotFreq[d] / total;
+      if (d < b) pUnder += freq;
+      else if (d === b) pTie += freq;
+      else pOver += freq;
+    }
   }
 } else {
   pOver = p.fallback.pHigh;
