@@ -748,22 +748,24 @@ export class DigitsEngine {
     return Math.min(1.0, Math.max(0.0, result));
   }
 
-  /** Exact probability of seeing at least one run of runLength target digits in the D future ticks. */
-    private computeRunAtLeastOnce(
+    /** Exact probability of seeing a consecutive run matching the user's custom bot thresholds. */
+  private computeRunAtLeastOnce(
     startDigit: number,
     targetDigit: number,
     D: number,
     runLength: number,
     bufA: Float64Array,
     bufB: Float64Array,
-    botJump: number = 0,
+    botJump: number = 3,
     entryDelay: number = 1
   ): number {
     if (runLength <= 0) return 1.0;
-    const contractDuration = Math.max(1, D);
-    const stride = botJump > 0 ? contractDuration + botJump : 1;
-    const totalSteps = botJump > 0 ? entryDelay + (D - 1) * stride : D;
-    if (totalSteps <= 0 || D < runLength) return 0.0;
+    
+    const initialDelay = entryDelay > 0 ? entryDelay : 1; 
+    const postContractRest = botJump > 0 ? botJump : 3; 
+    
+    const totalSteps = initialDelay + D + (runLength - 1) * (postContractRest + D);
+    if (totalSteps <= 0) return 0.0;
 
     const width = (runLength + 1) * 2;
     bufA.fill(0);
@@ -773,7 +775,17 @@ export class DigitsEngine {
 
     for (let step = 1; step <= totalSteps; step++) {
       next.fill(0);
-      const isContract = botJump === 0 || (step >= entryDelay && (step - entryDelay) % stride === 0);
+      
+      let isContract = false;
+      let checkStep = step - initialDelay;
+      
+      if (checkStep > 0) {
+        const cyclePeriod = D + postContractRest;
+        const stepWithinCycle = (checkStep - 1) % cyclePeriod + 1;
+        if (stepWithinCycle <= D) {
+          isContract = true;
+        }
+      }
 
       for (let x = 0; x < 10; x++) {
         const rowOffset = x * 10;
