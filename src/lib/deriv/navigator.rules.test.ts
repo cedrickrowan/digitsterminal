@@ -82,8 +82,13 @@ function run(target: number, rules: NavRuleToggles, thresholds = thr, symbol = "
     barrier: 4,
     predictDigit: target,
     navRules: rules,
-    navThresholds: thresholds,
+    navThresholds: {
+      ...thresholds,
+      entryDelayTicks: Number(thresholds?.entryDelayTicks ?? 1),
+      botJumpTicks: Number(thresholds?.botJumpTicks ?? 3),
+    },
   });
+
   if (!r) throw new Error("engine returned null");
   return r;
 }
