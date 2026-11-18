@@ -399,18 +399,20 @@ export default function DigitsApp() {
         }
 
         if (ready && !wasReady && currentCfg.mode === "alert") {
-          setSignals((prev) => [
-            ...prev.slice(-40),
-            {
-              id: Date.now() + Math.random(),
-              ts: Date.now(),
-              reason: `NAV READY · digit ${nav!.navTargetDigit} · rules ${nav!.navRulesEnabled ? "AND-met" : "default floor"} · edge ${(nav!.marketEdge * 100).toFixed(1)}%`,
-              predicted: nav!.navTargetDigit,
-              market: cfgRef.current.market,
-              expected: nav!.marketRecProb,
-              mode: cfgRef.current.mode,
-            },
-          ]);
+                      setSignals((prev) => [
+              ...prev.slice(-40),
+              {
+                id: sigId,
+                ts: Date.now(),
+                reason: `${currentCfg.mode.toUpperCase()} · ${nav!.marketAction || currentCfg.market} · edge ${(nav!.marketEdge * 100).toFixed(1)}%`,
+                predicted: nav!.navTargetDigit, // Explicitly locks onto your custom prediction target number
+                market: currentCfg.market,
+                expected: nav!.marketRecProb,
+                mode: currentCfg.mode,
+                entryPrice,
+                entryTick: totalTicksRef.current,
+              },
+            ]);
         } else if (!ready && navWasReadyRef.current) {
           cancelLeadUpFire();
           navReadyAtRef.current = 0;
