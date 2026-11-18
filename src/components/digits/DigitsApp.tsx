@@ -178,12 +178,14 @@ export default function DigitsApp() {
     nextFireAtRef.current = 0;
   }, []);
 
-  /** SINGLE legacy lead-up scheduler — the only place an audible fire is
+    /** SINGLE legacy lead-up scheduler — the only place an audible fire is
    *  scheduled. Target = next expected tick arrival − (ping + drift +
    *  configured latency offset), on performance.now() so wall-clock jitter
-   *  can't skew it. One pending fire at a time: re-arming clears the old
+   *  can't skew it. One pending fire at a time: re-armed clears the old
    *  timer, so a navigator READY and a legacy trigger can never double-beep. */
   const scheduleLeadUpFire = useCallback(() => {
+    // Safety guard: do not schedule audio beeps if the ring buffer hasn't received ticks yet
+    if (!gapsRef.current || gapsRef.current.length === 0 || totalTicksRef.current === 0) return;
     const cfgNow = cfgRef.current;
     const now = performance.now();
     const interval = cadenceOf(cfgNow.symbol, gapsRef.current?.median() ?? 0);
