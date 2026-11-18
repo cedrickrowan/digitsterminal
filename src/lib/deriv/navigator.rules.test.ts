@@ -44,6 +44,7 @@ const allOff: NavRuleToggles = {
   markovD: false,
   hurstFilter: false,
   macroConfluence: false,
+  differsProbabilityCeiling: false,
 };
 const thr: NavThresholds = {
   // Legacy 7
