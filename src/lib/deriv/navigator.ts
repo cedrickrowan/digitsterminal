@@ -1470,30 +1470,39 @@ export class DigitsEngine {
     }
 
     // 9. Alert decision — dual ping gates + market-aware probability floors.
-        let alertDecision: EngineResult["alertDecision"] = "HOLD / NO SIGNAL";
-    
-    // Evaluate selected trigger rules once so all markets have access to strict-AND pass state
-    let allSelectedPass = true;
-    let selectedCount = 0;
-    const checkedRules = input.navRules ?? {};
-    for (const ruleKey in checkedRules) {
-      if (checkedRules[ruleKey as keyof typeof checkedRules]) {
-        selectedCount++;
-        const match = navRuleHits.find((h) => h.rule === ruleKey);
-        if (!match?.pass) {
-          allSelectedPass = false;
-        }
-      }
-    }
-
+           let alertDecision: EngineResult["alertDecision"] = "HOLD / NO SIGNAL";
     if (!pingOk) {
       alertDecision = "HOLD / UNSAFE LATENCY";
     } else if (market === "matches") {
+      let allSelectedPass = true;
+      let selectedCount = 0;
+      const checkedRules = input.navRules ?? {};
+      for (const ruleKey in checkedRules) {
+        if (checkedRules[ruleKey as keyof typeof checkedRules]) {
+          selectedCount++;
+          const match = navRuleHits.find((h) => h.rule === ruleKey);
+          if (!match?.pass) {
+            allSelectedPass = false;
+          }
+        }
+      }
       const combinedMatchesReady = selectedCount > 0 && allSelectedPass;
       if (combinedMatchesReady) alertDecision = "READY / MANUAL ALERT";
       else if (selectedCount > 0) alertDecision = "HOLD / RULES NOT MET";
       else alertDecision = "HOLD / NO SIGNAL";
     } else if (market === "differs") {
+      let allSelectedPass = true;
+      let selectedCount = 0;
+      const checkedRules = input.navRules ?? {};
+      for (const ruleKey in checkedRules) {
+        if (checkedRules[ruleKey as keyof typeof checkedRules]) {
+          selectedCount++;
+          const match = navRuleHits.find((h) => h.rule === ruleKey);
+          if (!match?.pass) {
+            allSelectedPass = false;
+          }
+        }
+      }
       const targetDigit = input.predictDigit ?? 0;
       const targetLanding = this.digitsMetrics[targetDigit]?.landingProb ?? 0.1;
       const differsCeiling = (input.navThresholds?.differsProbabilityCeilingPct ?? 12) / 100;
@@ -1504,12 +1513,9 @@ export class DigitsEngine {
       const combinedDiffersReady = differsMathReady && selectedCount > 0 && allSelectedPass;
 
       if (combinedDiffersReady) alertDecision = "READY / MANUAL ALERT";
-      else if (selectedCount > 0 && !allSelectedPass) alertDecision = "HOLD / RULES NOT MET";
-      else alertDecision = "HOLD / NO SIGNAL";
-    } else if (market === "overunder") {
-      if (overUnder?.deadZone) {
-        alertDecision = "HOLD / DEAD ZONE";
-      } else if (overUnder && overUnder.rec !== "HOLD") {
+      else alertDecision = "HOLD / RULES NOT MET";
+        } else if (market === "overunder") {
+      if (overUnder && overUnder.rec !== "HOLD") {
         const isBoundary = barrier === 0 || barrier === 9;
         const ouMathReady = isBoundary
           ? (overUnder.pTie < 0.15 && overUnder.prob >= 0.85)
@@ -1521,11 +1527,7 @@ export class DigitsEngine {
           alertDecision = "READY / MANUAL ALERT";
         } else if (selectedCount > 0 && !allSelectedPass) {
           alertDecision = "HOLD / RULES NOT MET";
-        } else {
-          alertDecision = "HOLD / NO SIGNAL";
         }
-      } else {
-        alertDecision = "HOLD / NO SIGNAL";
       }
     } else if (market === "evenodd") {
       const eoMathReady = evenOdd && evenOdd.rec !== "HOLD" && marketEdge >= NAV_EDGE_FLOOR;
@@ -1533,8 +1535,6 @@ export class DigitsEngine {
         alertDecision = "READY / MANUAL ALERT";
       } else if (selectedCount > 0 && !allSelectedPass) {
         alertDecision = "HOLD / RULES NOT MET";
-      } else {
-        alertDecision = "HOLD / NO SIGNAL";
       }
     } else if (market === "risefall") {
       const rfMathReady = riseFall && riseFall.rec !== "HOLD" && marketEdge >= NAV_EDGE_FLOOR;
@@ -1542,10 +1542,8 @@ export class DigitsEngine {
         alertDecision = "READY / MANUAL ALERT";
       } else if (selectedCount > 0 && !allSelectedPass) {
         alertDecision = "HOLD / RULES NOT MET";
-      } else {
-        alertDecision = "HOLD / NO SIGNAL";
       }
-    }
+    } 
     const decisionSignature = alertDecisionSignature({
       symbol: input.symbol,
       market,
