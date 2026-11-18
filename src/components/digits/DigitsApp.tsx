@@ -1078,17 +1078,17 @@ export default function DigitsApp() {
           purchaseInMs={purchaseInMs}
         />
               
-        <PredictedDigit
+                <PredictedDigit
           digit={cfg.predictDigit}
           entryPrice={openEntry?.price ?? null}
           lastPrice={lastPrice}
           matched={matched}
-          armed={cfg.armed}
+          armed={armed} // Cleanly uses the true standalone state tracker
           pip={pip}
           confidence={
             cfg.market === "differs"
              ? (navResult?.digits[cfg.predictDigit] ? 1 - navResult.digits[cfg.predictDigit].landingProb : 0.9)
-             : (navResult?.digits[cfg.predictDigit] ? navResult.digits[cfg.predictDigit].landingProb : Math.min(1, (context.weighted[cfg.predictDigit] ?? 0.1)))
+             : (navResult?.marketRecProb !== undefined ? navResult.marketRecProb : Math.min(1, (context.weighted[cfg.predictDigit] ?? 0.1)))
           }
           highlight={
             cfg.market === "differs"
