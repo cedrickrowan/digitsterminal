@@ -1104,8 +1104,11 @@ export default function DigitsApp() {
           confidence={
             cfg.market === "differs"
              ? (navResult?.digits[cfg.predictDigit] ? 1 - navResult.digits[cfg.predictDigit].landingProb : 0.9)
-             : (navResult?.marketRecProb !== undefined ? navResult.marketRecProb : Math.min(1, (context.weighted[cfg.predictDigit] ?? 0.1)))
+             : (navResult?.marketRecProb !== undefined 
+                 ? navResult.marketRecProb 
+                 : Math.min(1, Number(context.weighted?.[cfg.predictDigit] ?? 0.10)))
           }
+
           highlight={
             cfg.market === "differs"
               ? (navResult?.digits[cfg.predictDigit] ? 1 - navResult.digits[cfg.predictDigit].landingProb >= 0.92 : false)
