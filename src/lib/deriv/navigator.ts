@@ -1424,7 +1424,7 @@ export class DigitsEngine {
     const pMarkov1Target = this.T1[currOffset + targetDigit];
     const win = Array.from(this.buffer.subarray(0, N));
 
-    // Evaluate the trigger rules checklist
+        // Evaluate the trigger rules checklist using your exact bot landing horizon steps
     const navRuleHits = buildNavRuleHits(
       targetDigit,
       tm,
@@ -1440,10 +1440,10 @@ export class DigitsEngine {
       pMarkovDTarget,
       hurstH,
       win,
-      D,
+      landingHorizon, // Synchronized perfectly with your entry delay loops
       pMarkov1Target,
     );
-    
+
     // Push master confluence feedback into your panel UI list
     navRuleHits.push({
       rule: "macroConfluence",
