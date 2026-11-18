@@ -113,7 +113,7 @@ self.onmessage = (e: MessageEvent<InMsg>) => {
             unifiedPrior = sum > 0 ? rawPrior.map((p) => p / sum) : undefined;
           }
         }
-        result = scanEngine.evaluateSnapshot(digits, msg.prices, {
+                result = scanEngine.evaluateSnapshot(digits, msg.prices, {
           price: msg.prices[msg.prices.length - 1] ?? 0,
           pip: msg.pip,
           epoch: 0,
@@ -124,7 +124,12 @@ self.onmessage = (e: MessageEvent<InMsg>) => {
           barrier: msg.barrier,
           predictDigit: msg.predictDigit,
           navRules: msg.navRules,
-          navThresholds: msg.navThresholds,
+          navThresholds: {
+            ...msg.navThresholds,
+            // If empty, safety defaults to 1 tick. Otherwise, it obeys your input field perfectly!
+            entryDelayTicks: Number(msg.navThresholds?.entryDelayTicks ?? 1),
+            botJumpTicks: Number(msg.navThresholds?.botJumpTicks ?? 3),
+          },
           unifiedPrior,
         });
       }
