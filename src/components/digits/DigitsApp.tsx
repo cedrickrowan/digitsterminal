@@ -186,6 +186,7 @@ export default function DigitsApp() {
   const scheduleLeadUpFire = useCallback(() => {
     // Safety guard: do not schedule audio beeps if the ring buffer hasn't received ticks yet
     if (!gapsRef.current || gapsRef.current.length === 0 || totalTicksRef.current === 0) return;
+    
     const cfgNow = cfgRef.current;
     const now = performance.now();
     const interval = cadenceOf(cfgNow.symbol, gapsRef.current?.median() ?? 0);
