@@ -174,7 +174,7 @@ self.onmessage = (e: MessageEvent<InMsg>) => {
         unifiedPrior = pre.physics.ready ? fusePreArrival(ctxWeighted, pre.forecasts) : ctxWeighted;
       }
 
-      // Digits Navigator corrected engine — full calculation per tick.
+            // Digits Navigator corrected engine — full calculation per tick with explicit threshold mappings.
       const nav = ensureNav(msg.cfg.lookback);
       const navResult = nav.calculate({
         price: msg.quote,
@@ -189,7 +189,12 @@ self.onmessage = (e: MessageEvent<InMsg>) => {
         barrier: msg.cfg.barrier,
         predictDigit: msg.cfg.predictDigit,
         navRules: msg.cfg.navRules,
-        navThresholds: msg.cfg.navThresholds,
+        navThresholds: {
+          ...msg.cfg.navThresholds,
+          // Explicitly lock values to ensure your custom entry delay and jump cadences pass without truncation
+          entryDelayTicks: Number(msg.cfg.navThresholds?.entryDelayTicks ?? 1),
+          botJumpTicks: Number(msg.cfg.navThresholds?.botJumpTicks ?? 3),
+        },
         unifiedPrior,
       });
       if (navResult) {
