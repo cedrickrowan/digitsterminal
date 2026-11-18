@@ -1497,8 +1497,8 @@ export class DigitsEngine {
       marketScore = Math.max(0, marketEdge);
             } else {
       marketAction = `DIGIT ${topPick}`;
-      // Map straight to the uncorrupted single-digit frequentist matrix row landing odds
-      const trueLandingProb = digitMetrics[topPick].landingProb;
+      // Map straight to the uncorrupted single-digit frequentist matrix row landing odds synchronized with your entry delay loops
+      const trueLandingProb = this.TD[currOffset + topPick];
       marketRecProb = trueLandingProb;
       marketEdge = trueLandingProb - 0.10; // Edge over the 10% uniform random floor
       marketScore = Math.max(0, marketEdge);
