@@ -827,11 +827,11 @@ export default function DigitsApp() {
   }, [tickKey, cfg.lookback, cfg.predictDigit]);
 
     // Background market-context layer — guarded safely against initial empty startup states
-  const context = useMemo(() => {
+    const context = useMemo(() => {
     const p = priceSeriesRef.current ? priceSeriesRef.current.toArray() : [];
     const d = priceDeltasRef.current ? priceDeltasRef.current.toArray() : [];
     
-    // Safety guard: if the app just booted up and has no ticks yet, return a perfect blank baseline state
+    // Safety guard: if the app has just booted up and contains no metrics, return a balanced baseline state
     if (buf.length === 0 || p.length === 0) {
       return {
         ema: { direction: "FLAT" as const },
