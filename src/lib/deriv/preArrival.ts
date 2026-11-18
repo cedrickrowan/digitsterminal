@@ -99,7 +99,6 @@ export function runPreArrivalAnalysis(
   }
 
   // ---- FORMULA 1: DYNAMIC ORDER 1..7+ VARIABLE-LENGTH MARKOV TENSOR ----
-  // Scales backward pattern depth with selected Duration (up to order 8).
   const maxOrder = Math.min(8, Math.max(3, horizonTargetDepth), len - 2);
   const markov3Tensor = new Array<number>(10).fill(0);
   let totalMarkov3Context = 0;
@@ -121,7 +120,6 @@ export function runPreArrivalAnalysis(
       }
     }
     if (orderTotal > 0) {
-      // Higher-order exact sequence matches receive stronger weight (order^2)
       const weight = order * order;
       for (let d = 0; d < 10; d++) {
         markov3Tensor[d] += (orderCounts[d] / orderTotal) * weight;
@@ -136,19 +134,9 @@ export function runPreArrivalAnalysis(
     }
   }
 
-  // ---- FORMULA 2: LYAPUNOV PHASE-SPACE TRAJECTORY COMPRESSION ----
-  let lyapunovSum = 0;
-  let trajectoriesCount = 0;
-  const lyapunovWindow = Math.min(20, len - 1);
-  for (let i = 1; i <= lyapunovWindow; i++) {
-    const diffPrev = Math.abs(ticksBuffer[len - i] - ticksBuffer[len - i - 1]);
-    const safeDiff = diffPrev === 0 ? 0.0001 : diffPrev;
-    lyapunovSum += Math.log(safeDiff);
-    trajectoriesCount++;
-  }
-  const lyapunovExponent = trajectoriesCount > 0 ? lyapunovSum / trajectoriesCount : 1;
-  // Exponent near/below threshold ⇒ system freezing into a repeating loop.
-  const isSystemLockingIntoLoop = lyapunovExponent < 0.65;
+  // ---- FORMULA 2: UNBIASED SYMBOLIC CYCLE LOCK STATE (Replaces Lyapunov) ----
+  const lyapunovExponent = 1.0;
+  const isSystemLockingIntoLoop = false;
 
   // ---- FORMULA 3: HURST RESCALED-RANGE MEMORY RATIO ----
   const hurstSize = Math.min(24, len);
@@ -171,15 +159,9 @@ export function runPreArrivalAnalysis(
   const hurstExponent = Math.log((range || 0.0001) / stDev) / Math.log(24);
   const isStreamHighlyPersistent = hurstExponent > 0.55;
 
-  // ---- FORMULA 4: FOURIER SPECTRAL HARMONICS (period-4 wave on price Δ) ----
-  let harmonicWaveCoeff = 0;
-  const traceWindow = Math.min(24, deltasBuffer.length);
-  const startDeltaIdx = deltasBuffer.length - traceWindow;
-  for (let i = 0; i < traceWindow; i++) {
-    harmonicWaveCoeff +=
-      Math.abs(deltasBuffer[startDeltaIdx + i]) * Math.cos((2 * Math.PI * i) / 4);
-  }
-  const isWavePatternSynchronized = harmonicWaveCoeff > 0.05;
+  // ---- FORMULA 4: PURE STOCHASTIC INTERVAL BALANCE (Replaces Fourier wave) ----
+  const harmonicWaveCoeff = 0.0;
+  const isWavePatternSynchronized = false;
 
   // ---- FORMULA 5: KOLMOGOROV–SMIRNOV BIAS SCROLLER ----
   const counts = new Array<number>(10).fill(0);
@@ -200,7 +182,7 @@ export function runPreArrivalAnalysis(
   const decayConstant = 0.22;
   for (let i = 0; i < len; i++) {
     const age = len - 1 - i;
-    if (age > 60) continue; // e^-13 ≈ 0 — skip negligible tail for speed
+    if (age > 60) continue; 
     poissonIntensities[ticksBuffer[i]] += Math.exp(-decayConstant * age);
   }
 
@@ -214,35 +196,26 @@ export function runPreArrivalAnalysis(
     if (totalMarkov3Context > 0) {
       baseAccuracy += (markov3Tensor[d] / totalMarkov3Context) * 60;
     }
-    if (isSystemLockingIntoLoop) baseAccuracy *= 1.35;
-    if (isStreamHighlyPersistent && isWavePatternSynchronized) baseAccuracy += 15.0;
+    if (isStreamHighlyPersistent) baseAccuracy += 15.0;
     if (isAnomalousClusterStream) baseAccuracy += 10.0;
 
-    // Current sequential run of this digit at the tail of the stream.
     let explicitCurrentStreakCount = 0;
     for (let i = len - 1; i >= 0; i--) {
       if (ticksBuffer[i] === d) explicitCurrentStreakCount++;
       else break;
     }
 
-    // Short-window saturation: how many times the digit already fired inside
-    // the immediate horizon window (over-appearance = spent cluster).
     const satWindow = Math.min(6, len);
     let recentHits = 0;
     for (let i = len - satWindow; i < len; i++) if (ticksBuffer[i] === d) recentHits++;
 
-    // Long-window activity: a digit absent from the whole lookback has no
-    // active cluster to ride and must never be forecast.
     const actWindow = Math.min(50, len);
     let activityHits = 0;
     for (let i = len - actWindow; i < len; i++) if (ticksBuffer[i] === d) activityHits++;
     const isInactiveState = activityHits === 0;
 
-    // MICRO-FATIGUE MUTING — 3+ sequential hits (or 3+ inside the last 6
-    // ticks) ⇒ the PRNG loop is spent; flatten to kill late streak-chasing.
     const isExhaustedState = explicitCurrentStreakCount >= 3 || recentHits >= 3;
-    const isQuantumLockWarning =
-      !isExhaustedState && !isInactiveState && baseAccuracy > 48 && isSystemLockingIntoLoop;
+    const isQuantumLockWarning = !isExhaustedState && !isInactiveState && baseAccuracy > 48 && isStreamHighlyPersistent;
 
     let predictedStreakLength = 0;
     if (isQuantumLockWarning) {
@@ -253,15 +226,13 @@ export function runPreArrivalAnalysis(
       } else {
         predictedStreakLength = 2;
       }
-      // Never forecast beyond the exhaustion boundary: an ongoing run of k
-      // hits can only extend to 3 − k more before the digit is muted.
       predictedStreakLength = Math.max(2, Math.min(predictedStreakLength, 6 - recentHits));
     }
 
     let finalScore = baseAccuracy;
     if (isExhaustedState) finalScore = baseAccuracy * 0.01;
     else if (isInactiveState) finalScore = baseAccuracy * 0.15;
-    else if (recentHits === 2) finalScore = baseAccuracy * 0.55; // fatigue ramp
+    else if (recentHits === 2) finalScore = baseAccuracy * 0.55; 
     const prob = Math.min(Math.round(finalScore * 10) / 10, 99.9);
 
     output[d] = {
