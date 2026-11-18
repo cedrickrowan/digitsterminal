@@ -1539,7 +1539,8 @@ export class DigitsEngine {
         }
       }
       const targetDigit = input.predictDigit ?? 0;
-      const targetLanding = this.digitsMetrics[targetDigit]?.landingProb ?? 0.1;
+      // Read directly from the verified local array variable 'digitMetrics'
+      const targetLanding = digitMetrics[targetDigit]?.landingProb ?? 0.1;
       const differsCeiling = (input.navThresholds?.differsProbabilityCeilingPct ?? 12) / 100;
       const differsColdGapMin = input.navThresholds?.differsColdGapMin ?? 5;
       const targetColdGap = N - 1 - (this.buffer.lastIndexOf(targetDigit));
