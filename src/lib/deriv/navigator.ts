@@ -992,19 +992,28 @@ export class DigitsEngine {
       decodedHiddenRegimeState = bestFinalState;
     }
 
-    // 1b. Fuse Unified Physics + Order 1..7+ VMM + Context prior into current state row
+        // 1b. Symmetrically Fuse Unified Context + VMM priors across ALL rows weighted by historical marginal frequency
     if (input.unifiedPrior && input.unifiedPrior.length === 10) {
-      const currOffset = currDigit * 10;
-      let blendSum = 0;
-      for (let j = 0; j < 10; j++) {
-        const pPrior = Math.max(1e-6, input.unifiedPrior[j]);
-        this.T1[currOffset + j] = 0.65 * this.T1[currOffset + j] + 0.35 * pPrior;
-        blendSum += this.T1[currOffset + j];
-      }
-      if (blendSum > 0) {
-        for (let j = 0; j < 10; j++) this.T1[currOffset + j] /= blendSum;
+      for (let row = 0; row < 10; row++) {
+        const rowOffset = row * 10;
+        let rowBlendSum = 0.0;
+        
+        for (let j = 0; j < 10; j++) {
+          const pPrior = Math.max(1e-6, input.unifiedPrior[j]);
+          // Weights the prior by historical marginal probability to maintain absolute structural stability across matrix powers
+          const marginalWeight = (this.freq100[j] + 1.0) / (N + 10.0);
+          
+          this.T1[rowOffset + j] = 0.65 * this.T1[rowOffset + j] + 0.35 * pPrior * (marginalWeight / 0.10);
+          rowBlendSum += this.T1[rowOffset + j];
+        }
+        
+        if (rowBlendSum > 0) {
+          const invSum = 1.0 / rowBlendSum;
+          for (let j = 0; j < 10; j++) this.T1[rowOffset + j] *= invSum;
+        }
       }
     }
+
     // 2. Matrix Exponentiation for Landing Probability M^D
     const botJump = input.navThresholds?.botJumpTicks ?? 0;
     const rawDelay = input.navThresholds?.entryDelayTicks;
