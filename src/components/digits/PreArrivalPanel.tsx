@@ -38,12 +38,10 @@ function PreArrivalPanelImpl({ forecasts, physics, topDigit }: Props) {
         <Flag on={physics.isAnomalousClusterStream} label="cluster bias" />
       </div>
 
-      <div className="mb-2 grid grid-cols-3 gap-1 font-mono text-[10px] text-muted-foreground">
-        <div>λ <span className="text-foreground">{physics.lyapunovExponent.toFixed(3)}</span></div>
-        <div>H <span className="text-foreground">{physics.hurstExponent.toFixed(3)}</span></div>
-        <div>FFT <span className="text-foreground">{physics.harmonicWaveCoeff.toFixed(3)}</span></div>
-        <div>KS <span className="text-foreground">{physics.ksDivergence.toFixed(3)}</span></div>
-        <div>M3 <span className="text-foreground">{physics.markov3Context}</span></div>
+       <div className="mb-2 grid grid-cols-4 gap-1 font-mono text-[10px] text-muted-foreground">
+        <div>H <span className="text-foreground">{Number(physics?.hurstExponent ?? 0).toFixed(3)}</span></div>
+        <div>KS <span className="text-foreground">{Number(physics?.ksDivergence ?? 0).toFixed(3)}</span></div>
+        <div>M3 <span className="text-foreground">{physics?.markov3Context ?? 0}</span></div>
         <div>top <span className="text-foreground">{topDigit >= 0 ? topDigit : "—"}</span></div>
       </div>
 
