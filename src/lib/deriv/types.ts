@@ -186,7 +186,7 @@ export const DEFAULT_CONFIG: AppConfig = {
     hurstMinEdge: 0.05,
     differsMaxFreqPct: 8,
     botJumpTicks: 0,
-    entryDelayTicks: 2,
+    entryDelayTicks: 1,
   },
 };
 // Verified live against Deriv (app_id 1089). 1HZ200V / 1HZ300V are not offered.
