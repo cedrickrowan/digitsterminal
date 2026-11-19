@@ -841,10 +841,24 @@ export default function DigitsApp() {
         weighted: new Array(10).fill(0.10),
         topDigit: 0,
         router: null,
-        pre: { forecasts: [], physics: { ready: false } }
-      };
-    }
-
+       pre: {
+          forecasts: [],
+          physics: {
+            lyapunovExponent: 0,
+            hurstExponent: 0,
+            harmonicWaveCoeff: 0,
+            ksDivergence: 0,
+            markov3Context: 0,
+            horizonTargetDepth: cfgRef.current.duration ?? 1,
+            isSystemLockingIntoLoop: false,
+            isStreamHighlyPersistent: false,
+            isWavePatternSynchronized: false,
+            isAnomalousClusterStream: false,
+            computeMs: 0,
+            ready: false,
+          },
+        }
+      
     const ema = priceEma(p);
     const vol = volatilityState(d);
     const hmm = hmmState(buf);
