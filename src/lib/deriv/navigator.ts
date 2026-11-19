@@ -683,7 +683,7 @@ export class DigitsEngine {
   }
 
    /** Exact probability of reaching a specified hit count in D future ticks matching the user's custom bot thresholds. */
-  private computeHitCountProb(
+    private computeHitCountProb(
     startDigit: number,
     targetDigit: number,
     D: number,
@@ -695,10 +695,13 @@ export class DigitsEngine {
   ): number {
     if (requiredHits <= 0) return 1.0;
     
-    const initialDelay = entryDelay > 0 ? entryDelay : 1; 
-    const postContractRest = botJump > 0 ? botJump : 3; 
+    const initialDelay = entryDelay >= 0 ? entryDelay : 1; 
+    const postContractRest = botJump >= 0 ? botJump : 0; 
+    const isBotStrideMode = postContractRest > 0 || initialDelay > 0;
     
-    const totalSteps = initialDelay + D + (requiredHits - 1) * (postContractRest + D);
+    const totalSteps = isBotStrideMode
+      ? initialDelay + D + (requiredHits - 1) * (postContractRest + D)
+      : D;
     if (totalSteps <= 0) return 0.0;
 
     const width = requiredHits + 1;
@@ -710,16 +713,19 @@ export class DigitsEngine {
     for (let step = 1; step <= totalSteps; step++) {
       next.fill(0);
       
-      let isContract = false;
-      let checkStep = step - initialDelay;
-      
-      if (checkStep > 0) {
-        const cyclePeriod = D + postContractRest;
-        const stepWithinCycle = (checkStep - 1) % cyclePeriod + 1;
-        
-        if (stepWithinCycle <= D) {
-          isContract = true;
+      let isSettlement = false;
+      if (isBotStrideMode) {
+        const checkStep = step - initialDelay;
+        if (checkStep > 0) {
+          const cyclePeriod = D + postContractRest;
+          const stepWithinCycle = (checkStep - 1) % cyclePeriod + 1;
+          // Deriv evaluates outcome strictly on the final settlement tick
+          if (stepWithinCycle === D) {
+            isSettlement = true;
+          }
         }
+      } else {
+        isSettlement = true;
       }
 
       for (let x = 0; x < 10; x++) {
@@ -730,7 +736,7 @@ export class DigitsEngine {
           for (let y = 0; y < 10; y++) {
             const trans = this.T1[rowOffset + y];
             if (trans === 0) continue;
-            const nc = isContract ? Math.min(requiredHits, c + (y === targetDigit ? 1 : 0)) : c;
+            const nc = isSettlement ? Math.min(requiredHits, c + (y === targetDigit ? 1 : 0)) : c;
             next[y * width + nc] += p * trans;
           }
         }
@@ -739,7 +745,6 @@ export class DigitsEngine {
       current = next;
       next = tmp;
     }
- 
 
     let result = 0.0;
     for (let x = 0; x < 10; x++) {
@@ -749,7 +754,7 @@ export class DigitsEngine {
   }
 
     /** Exact probability of seeing a consecutive run matching the user's custom bot thresholds. */
-  private computeRunAtLeastOnce(
+    private computeRunAtLeastOnce(
     startDigit: number,
     targetDigit: number,
     D: number,
@@ -761,10 +766,13 @@ export class DigitsEngine {
   ): number {
     if (runLength <= 0) return 1.0;
     
-    const initialDelay = entryDelay > 0 ? entryDelay : 1; 
-    const postContractRest = botJump > 0 ? botJump : 3; 
+    const initialDelay = entryDelay >= 0 ? entryDelay : 1; 
+    const postContractRest = botJump >= 0 ? botJump : 0; 
+    const isBotStrideMode = postContractRest > 0 || initialDelay > 0;
     
-    const totalSteps = initialDelay + D + (runLength - 1) * (postContractRest + D);
+    const totalSteps = isBotStrideMode
+      ? initialDelay + D + (runLength - 1) * (postContractRest + D)
+      : D;
     if (totalSteps <= 0) return 0.0;
 
     const width = (runLength + 1) * 2;
@@ -776,15 +784,18 @@ export class DigitsEngine {
     for (let step = 1; step <= totalSteps; step++) {
       next.fill(0);
       
-      let isContract = false;
-      let checkStep = step - initialDelay;
-      
-      if (checkStep > 0) {
-        const cyclePeriod = D + postContractRest;
-        const stepWithinCycle = (checkStep - 1) % cyclePeriod + 1;
-        if (stepWithinCycle <= D) {
-          isContract = true;
+      let isSettlement = false;
+      if (isBotStrideMode) {
+        const checkStep = step - initialDelay;
+        if (checkStep > 0) {
+          const cyclePeriod = D + postContractRest;
+          const stepWithinCycle = (checkStep - 1) % cyclePeriod + 1;
+          if (stepWithinCycle === D) {
+            isSettlement = true;
+          }
         }
+      } else {
+        isSettlement = true;
       }
 
       for (let x = 0; x < 10; x++) {
@@ -798,7 +809,7 @@ export class DigitsEngine {
               if (trans === 0) continue;
               let nr = r;
               let nseen = seen;
-              if (isContract) {
+              if (isSettlement) {
                 if (y === targetDigit) {
                   nr = Math.min(runLength, r + 1);
                   if (nr >= runLength) nseen = 1;
@@ -1040,13 +1051,14 @@ export class DigitsEngine {
       }
     }
 
-    // 2. Matrix Exponentiation for Landing Probability M^D
-    const botJump = input.navThresholds?.botJumpTicks ?? 0;
+       // 2. Matrix Exponentiation for Landing Probability M^D
+    const botJump = Math.max(0, input.navThresholds?.botJumpTicks ?? 0);
     const rawDelay = input.navThresholds?.entryDelayTicks;
-    const entryDelay = (rawDelay && rawDelay > 0) ? rawDelay : (botJump > 0 ? 2 : 1);
-    const landingHorizon = botJump > 0 ? entryDelay : D;
+    const entryDelay = Number.isFinite(rawDelay) ? Math.max(0, rawDelay!) : (botJump > 0 ? 1 : 0);
+    // Contract 1 settles at entryDelay + D ticks from the alert
+    const landingHorizon = Math.max(1, entryDelay + D);
     this.matPower10x10(this.T1, landingHorizon, this.TD);
-
+ 
 
         // =========================================================================
     // 5. ADVANCED PRNG MODULE: CONTEXT-TREE WEIGHTING (CTW) HIGH-ORDER MEMORY
