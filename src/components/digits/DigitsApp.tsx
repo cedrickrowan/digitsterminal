@@ -858,7 +858,8 @@ export default function DigitsApp() {
             ready: false,
           },
         }
-      
+      };
+    }
     const ema = priceEma(p);
     const vol = volatilityState(d);
     const hmm = hmmState(buf);
