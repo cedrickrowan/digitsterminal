@@ -305,15 +305,14 @@ function ControlsImpl({ cfg, onChange, connected, onConnect, onDisconnect, armed
             <span className="text-muted-foreground">Entry Delay (ticks):</span>
             <input
               type="number"
-              min={1}
+              min={0}
               max={20}
               step={1}
               className="w-14 rounded border border-border bg-input px-1 py-0.5 text-right font-mono text-[10px]"
-              value={cfg.navThresholds.entryDelayTicks || ""}
-              placeholder="1"
+              value={cfg.navThresholds.entryDelayTicks ?? 1}
               onChange={(e) => {
                 const val = e.target.value;
-                setNavThreshold("entryDelayTicks", val === "" ? (0 as unknown as number) : Math.max(1, Math.floor(Number(val))));
+                setNavThreshold("entryDelayTicks", val === "" ? 0 : Math.max(0, Math.floor(Number(val))));
               }}
             />
           </div>
