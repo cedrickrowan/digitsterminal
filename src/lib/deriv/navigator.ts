@@ -954,9 +954,10 @@ export class DigitsEngine {
 
   /** Full engine pipeline — assumes the buffer is already filled with the
    *  newest observation last and that `digit` equals that observation. */
-  private computeAll(digit: number, input: EngineTickInput, t0: number): EngineResult | null {
-    const N = this.bufferSize;
-    const D = Math.max(1, Math.floor(input.duration || 3));
+    private computeAll(digit: number, input: EngineTickInput, t0: number): EngineResult | null {
+    const N = Math.min(this.count, this.bufferSize);
+    if (N < 2) return null;
+    const D = Math.max(1, Math.min(100, Math.floor(input.duration || 3)));
     const currDigit = this.buffer[N - 1];
 
         // 1. Build transition matrix with Laplace smoothing (+1 prior)
@@ -1370,8 +1371,8 @@ export class DigitsEngine {
       });
     }
 
-    // Never fall back to tired targets for Matches. If none are fresh, no signal.
-    if (freshPool.length === 0 && (input.market ?? "matches") === "matches") return null;
+    // If no fresh digits are found for Matches, flag HOLD rather than returning null
+    const noFreshMatches = freshPool.length === 0 && (input.market ?? "matches") === "matches";
     // Rank candidates STRICTLY by exact multi-appearance probability
     const eligiblePool = freshPool.slice();
     eligiblePool.sort((a, b) => digitMetrics[b].multiHitProb - digitMetrics[a].multiHitProb);
@@ -1530,15 +1531,22 @@ export class DigitsEngine {
         if (checkedRules[ruleKey as keyof typeof checkedRules]) {
           selectedCount++;
           const match = navRuleHits.find((h) => h.rule === ruleKey);
-          if (!match?.pass) {
-            allSelectedPass = false;
-          }
-        }
-      }
-      const combinedMatchesReady = selectedCount > 0 && allSelectedPass;
+     if (market === "matches") {
+      const targetMetric = digitMetrics[selectedPredictDigit];
+      const targetIsFresh = freshPool.includes(selectedPredictDigit);
+      const combinedMatchesReady =
+        !noFreshMatches &&
+        targetIsFresh &&
+        matchesMathReady &&
+        selectedCount > 0 &&
+        allSelectedPass;
+
       if (combinedMatchesReady) alertDecision = "READY / MANUAL ALERT";
+      else if (noFreshMatches) alertDecision = "HOLD / TIRED TARGET";
       else if (selectedCount > 0) alertDecision = "HOLD / RULES NOT MET";
       else alertDecision = "HOLD / NO SIGNAL";
+    }
+
     } else if (market === "differs") {
       let allSelectedPass = true;
       let selectedCount = 0;
