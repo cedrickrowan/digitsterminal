@@ -401,7 +401,7 @@ export default function DigitsApp() {
           }
         }
 
-                if (ready && !wasReady && currentCfg.mode === "alert") {
+        if (ready && !wasReady && currentCfg.mode === "alert") {
           const sigId = Date.now() + Math.random();
           const entryPrice = lastPriceRef.current;
           setSignals((prev) => [
@@ -418,7 +418,7 @@ export default function DigitsApp() {
               entryTick: totalTicksRef.current,
             },
           ]);
-        }
+        
         } else if (!ready && navWasReadyRef.current) {
           cancelLeadUpFire();
           navReadyAtRef.current = 0;
