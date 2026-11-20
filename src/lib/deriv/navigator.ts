@@ -376,13 +376,13 @@ function buildNavRuleHits(
     detail: `pair ${pctOf(tm.pairProb)} ≥ ${t.pairRunPct}%`,
   });
 
-  // 10. Landing probability at t+D
+    // 10. Landing probability at t+D
   hits.push({
     rule: "landing",
     label: NAV_RULE_LABELS.landing,
     enabled: on("landing"),
-    pass: tm.landingProb >= t.landingPct / 100,
-    detail: `t+D ${pctOf(tm.landingProb)} ≥ ${t.landingPct}%`,
+    pass: pMarkovDTarget >= t.landingPct / 100,
+    detail: `t+D ${pctOf(pMarkovDTarget)} ≥ ${t.landingPct}%`,
   });
 
   // 11. Anti-tired freshness
