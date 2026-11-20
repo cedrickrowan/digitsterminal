@@ -111,7 +111,7 @@ function TradeConsoleImpl({
             type="number" min={1} max={10} inputMode="numeric"
             className="h-10 rounded border border-input bg-background px-2 font-mono text-sm"
             value={duration}
-            onChange={(e) => onDurationChange(Math.max(1, Math.min(10, Number(e.target.value))))}
+            onChange={(e) => onDurationChange(Math.max(1, Number(e.target.value)))}
           />
         </label>
         <label className="flex flex-col gap-1">
