@@ -787,9 +787,11 @@ export default function DigitsApp() {
     const gaps = gapsSinceLast(win);
     let coldDigit = 0;
     for (let i = 1; i < 10; i++) if (gaps[i] > gaps[coldDigit]) coldDigit = i;
-    const followHorizon = Math.max(1, cfg.duration);
+    const entryDelay = Math.max(0, Number(cfg.navThresholds?.entryDelayTicks ?? 1));
+    const followHorizon = entryDelay + Math.max(1, cfg.duration);
+    const patternLen = Math.max(1, cfg.duration);
     const followPrefix: number[] | null =
-      buf.length >= 1 ? buf.slice(-Math.min(followHorizon, buf.length)) : null;
+      buf.length >= 1 ? buf.slice(-Math.min(patternLen, buf.length)) : null;
     const follow = followPrefix
       ? sequenceFollowups(win, followPrefix, followHorizon)
       : { probs: new Array(10).fill(0), total: 0, counts: [] };
