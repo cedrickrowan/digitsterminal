@@ -24,9 +24,9 @@ function PreArrivalPanelImpl({ forecasts, physics, topDigit }: Props) {
     <div className="rounded-md border border-border bg-card px-2 py-2 text-[11px]">
       <div className="mb-1 flex items-center justify-between px-1">
         <span className="font-semibold">
-          Pre-Arrival Engine <span className="text-muted-foreground">· horizon {physics.horizonTargetDepth}t</span>
+          Pre-Arrival Engine <span className="text-muted-foreground">· horizon {physics?.horizonTargetDepth ?? 1}t</span>
         </span>
-         <span className="font-mono text-[10px] text-muted-foreground">
+        <span className="font-mono text-[10px] text-muted-foreground">
           {physics?.ready && typeof physics?.computeMs === "number"
             ? `${physics.computeMs.toFixed(1)}ms`
             : "warming…"}
@@ -34,10 +34,8 @@ function PreArrivalPanelImpl({ forecasts, physics, topDigit }: Props) {
       </div>
 
       <div className="mb-2 flex flex-wrap gap-1">
-        <Flag on={physics.isSystemLockingIntoLoop} label="loop lock" />
-        <Flag on={physics.isStreamHighlyPersistent} label="persistent" />
-        <Flag on={physics.isWavePatternSynchronized} label="wave sync" />
-        <Flag on={physics.isAnomalousClusterStream} label="cluster bias" />
+        <Flag on={!!physics?.isStreamHighlyPersistent} label="persistent" />
+        <Flag on={!!physics?.isAnomalousClusterStream} label="cluster bias" />
       </div>
 
        <div className="mb-2 grid grid-cols-4 gap-1 font-mono text-[10px] text-muted-foreground">
