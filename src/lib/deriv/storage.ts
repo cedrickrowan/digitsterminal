@@ -2,10 +2,10 @@ import { DEFAULT_CONFIG, SYMBOLS, type AppConfig } from "./types";
 
 const KEY = "deriv-digits-config-v2";
 
-/** Lookback is always a multiple of 3 in [3, 900] — snap anything else. */
+/** Clamp lookback freely in [3, 900] without snapping to multiples of 3. */
 export function snapLookback(v: number): number {
   if (!Number.isFinite(v)) return DEFAULT_CONFIG.lookback;
-  return Math.min(900, Math.max(3, Math.round(v / 3) * 3));
+  return Math.min(900, Math.max(3, Math.round(v)));
 }
 
 export function loadConfig(): AppConfig {
@@ -20,7 +20,11 @@ export function loadConfig(): AppConfig {
       symbol: SYMBOLS.some((item) => item.value === parsed.symbol)
         ? parsed.symbol
         : DEFAULT_CONFIG.symbol,
-      lookback: snapLookback(Number(parsed.lookback ?? DEFAULT_CONFIG.lookback)),
+      /** Clamp lookback freely in [3, 900] without snapping to multiples of 3. */
+export function snapLookback(v: number): number {
+  if (!Number.isFinite(v)) return DEFAULT_CONFIG.lookback;
+  return Math.min(900, Math.max(3, Math.round(v)));
+}
       rules: { ...DEFAULT_CONFIG.rules, ...(parsed.rules ?? {}) },
       navRules: { ...DEFAULT_CONFIG.navRules, ...(parsed.navRules ?? {}) },
       navThresholds: { ...DEFAULT_CONFIG.navThresholds, ...(parsed.navThresholds ?? {}) },
