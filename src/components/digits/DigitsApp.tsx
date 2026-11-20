@@ -1111,27 +1111,33 @@ export default function DigitsApp() {
           purchaseInMs={purchaseInMs}
         />
               
-                <PredictedDigit
+                        <PredictedDigit
           digit={cfg.predictDigit}
-          entryPrice={openEntry?.price ?? null}
-          lastPrice={lastPrice}
-          matched={matched}
-          armed={armed} // Cleanly uses the true standalone state tracker
-          pip={pip}
           confidence={
             cfg.market === "differs"
-             ? (navResult?.digits[cfg.predictDigit] ? 1 - navResult.digits[cfg.predictDigit].landingProb : 0.9)
-             : (navResult?.marketRecProb !== undefined 
-                 ? navResult.marketRecProb 
-                 : Math.min(1, Number(context.weighted?.[cfg.predictDigit] ?? 0.10)))
+              ? (navResult?.digits?.[cfg.predictDigit]?.landingProb !== undefined
+                  ? 1 - navResult.digits[cfg.predictDigit].landingProb
+                  : 0.9)
+              : (navResult?.marketRecProb !== undefined
+                  ? navResult.marketRecProb
+                  : Math.min(1, Number(context.weighted?.[cfg.predictDigit] ?? 0.10)))
           }
-
+          confidenceAdjust={engineReport?.confidenceAdjust}
           highlight={
             cfg.market === "differs"
-              ? (navResult?.digits[cfg.predictDigit] ? 1 - navResult.digits[cfg.predictDigit].landingProb >= 0.92 : false)
-              : (navResult ? (navResult.alertDecision === "READY / MANUAL ALERT" && navResult.navTargetDigit === cfg.predictDigit) : false)
+              ? (navResult?.digits?.[cfg.predictDigit]?.landingProb !== undefined
+                  ? 1 - navResult.digits[cfg.predictDigit].landingProb >= 0.92
+                  : false)
+              : Boolean(
+                  navResult &&
+                  navResult.alertDecision === "READY / MANUAL ALERT" &&
+                  navResult.navTargetDigit === cfg.predictDigit
+                )
           }
-          />
+          entryPrice={openEntry?.price}
+          lastPrice={lastPrice}
+          pip={pip}
+        />
         <NavigatorPanel
           result={navResult}
           alertElapsedMs={navElapsed}
