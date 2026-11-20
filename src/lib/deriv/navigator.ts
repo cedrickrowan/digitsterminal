@@ -1674,6 +1674,7 @@ export class DigitsEngine {
    *    Barrier 9: Under 9 only (digits 0-8 win, 9 loses). P(Over) = 0.
    */
     private computeOverUnder(currOffset: number, barrier: number, deadZoneLimit = NAV_TIE_DEAD_ZONE): OverUnderBlock {
+      ;
     const N = this.bufferSize;
     let rawOver = 0.0;
     let rawUnder = 0.0;
