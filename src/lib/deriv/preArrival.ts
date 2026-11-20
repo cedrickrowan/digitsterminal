@@ -75,7 +75,7 @@ export function runPreArrivalAnalysis(
   const t0 = performance.now();
   const output = emptyForecasts();
   const len = ticksBuffer.length;
-  const horizonTargetDepth = Math.max(1, Math.min(10, Math.floor(selectedDuration ?? horizonFor(assetType))));
+  const horizonTargetDepth = Math.max(1, Math.floor(selectedDuration ?? horizonFor(assetType)));
 
   if (len < 20) {
     return {
