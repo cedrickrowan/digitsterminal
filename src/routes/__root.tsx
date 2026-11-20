@@ -41,15 +41,28 @@ function ErrorComponent({ error, reset }: { error: unknown; reset: () => void })
     reportLovableError(error, { boundary: "tanstack_root_error_component" });
   }, [error]);
 
+  const errorDetails =
+    error instanceof Error
+      ? `${error.name}: ${error.message}\n${error.stack ?? ""}`
+      : typeof error === "object" && error !== null
+        ? JSON.stringify(error, null, 2)
+        : String(error);
+
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background px-4">
-      <div className="max-w-md text-center">
+    <div className="flex min-h-screen items-center justify-center bg-background px-4 py-6">
+      <div className="max-w-xl w-full text-center">
         <h1 className="text-xl font-semibold tracking-tight text-foreground">
-          This page didn't load
+          This page encountered an error
         </h1>
         <p className="mt-2 text-sm text-muted-foreground">
-          Something went wrong on our end. You can try refreshing or head back home.
+          The runtime caught an unhandled exception during live analysis:
         </p>
+
+        {/* Live Diagnostics Card */}
+        <pre className="mt-4 max-h-60 overflow-auto rounded border border-border bg-card p-3 text-left font-mono text-[11px] text-destructive">
+          {errorDetails}
+        </pre>
+
         <div className="mt-6 flex flex-wrap justify-center gap-2">
           <button
             onClick={() => {
@@ -59,6 +72,14 @@ function ErrorComponent({ error, reset }: { error: unknown; reset: () => void })
             className="inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
           >
             Try again
+          </button>
+          <button
+            onClick={() => {
+              navigator.clipboard?.writeText(errorDetails);
+            }}
+            className="inline-flex items-center justify-center rounded-md border border-input bg-background px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-accent"
+          >
+            Copy error
           </button>
           <a
             href="/"
