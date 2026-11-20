@@ -785,6 +785,22 @@ export default function DigitsApp() {
     const win20 = buf.slice(-20);
     const win50 = buf.slice(-50);
     const win100 = buf.slice(-100);
+        if (win.length === 0) {
+      const flatFreq = new Array(10).fill(0);
+      return {
+        freq: flatFreq, win, win20, win50, win100,
+        chi: 0, chiIndep: 0, h20: 2.3, h50: 2.3, h100: 2.3,
+        hZ20: 0, hZ50: 0, bias: 0, coldDigit: 0, coldGap: 0,
+        follow: { probs: new Array(10).fill(0), total: 0, counts: [] },
+        followPrefix: null,
+        mk: Array.from({ length: 10 }, () => new Array(10).fill(0.1)),
+        split: { pEven: 0.5, pHigh: 0.5 },
+        hc: { hot: [], cold: [], freq: flatFreq },
+        rf: { up: 0.5, down: 0.5 },
+        ens: { posterior: new Array(10).fill(0.1), topDigit: 0, confidence: 0.1 },
+        bigrams: [], trigrams: [],
+      };
+    }
     const freq = frequencies(win);
     const f100 = frequencies(win100);
     const gaps = gapsSinceLast(win);
