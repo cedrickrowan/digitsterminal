@@ -26,8 +26,10 @@ function PreArrivalPanelImpl({ forecasts, physics, topDigit }: Props) {
         <span className="font-semibold">
           Pre-Arrival Engine <span className="text-muted-foreground">· horizon {physics.horizonTargetDepth}t</span>
         </span>
-        <span className="font-mono text-[10px] text-muted-foreground">
-          {physics.ready ? `${physics.computeMs.toFixed(1)}ms` : "warming…"}
+         <span className="font-mono text-[10px] text-muted-foreground">
+          {physics?.ready && typeof physics?.computeMs === "number"
+            ? `${physics.computeMs.toFixed(1)}ms`
+            : "warming…"}
         </span>
       </div>
 
@@ -60,9 +62,10 @@ function PreArrivalPanelImpl({ forecasts, physics, topDigit }: Props) {
               }`}
               style={{ backgroundColor: `hsl(var(--primary-hsl) / ${alpha})` }}
             >
-              <div className="font-mono text-sm font-bold tabular-nums">{f.digit}</div>
-              <div className="font-mono text-[10px] tabular-nums">
-                {f.preArrivalProbability.toFixed(1)}%
+               <div className="font-mono text-[10px] tabular-nums">
+                {typeof f.preArrivalProbability === "number"
+                  ? `${f.preArrivalProbability.toFixed(1)}%`
+                  : "—"}
               </div>
               <div className="text-[9px] uppercase text-muted-foreground">
                 {f.isExhaustedState
