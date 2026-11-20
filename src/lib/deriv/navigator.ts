@@ -319,9 +319,11 @@ function buildNavRuleHits(
     detail: `freq ${targetFreqPct.toFixed(1)}% < ${t.triggerProbBelow}%`,
   });
 
-  // 5. Sequence followup horizon D
-  const horizon = Math.max(1, duration);
-  const pattern = win.slice(-Math.min(horizon, win.length));
+    // 5. Sequence followup horizon: entryDelay + D
+  const entryDelay = Math.max(0, Number(t.entryDelayTicks ?? 1));
+  const horizon = entryDelay + Math.max(1, duration);
+  const patternLen = Math.max(1, duration);
+  const pattern = win.slice(-Math.min(patternLen, win.length));
   const seq = sequenceFollowups(win, pattern, horizon);
   const pSeq = (seq.probs[target] ?? 0) * 100;
   hits.push({
