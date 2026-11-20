@@ -1519,61 +1519,48 @@ export class DigitsEngine {
       marketScore = Math.max(0, marketEdge);
     }
 
-    // 9. Alert decision — dual ping gates + market-aware probability floors.
-           let alertDecision: EngineResult["alertDecision"] = "HOLD / NO SIGNAL";
+        // 9. Alert decision — dual ping gates + market-aware probability floors.
+    let alertDecision: EngineResult["alertDecision"] = "HOLD / NO SIGNAL";
+
+    let allSelectedPass = true;
+    let selectedCount = 0;
+    const checkedRules = input.navRules ?? {};
+    for (const ruleKey in checkedRules) {
+      if (checkedRules[ruleKey as keyof typeof checkedRules]) {
+        selectedCount++;
+        const match = navRuleHits.find((h) => h.rule === ruleKey);
+        if (!match?.pass) {
+          allSelectedPass = false;
+        }
+      }
+    }
+
     if (!pingOk) {
       alertDecision = "HOLD / UNSAFE LATENCY";
     } else if (market === "matches") {
-      let allSelectedPass = true;
-      let selectedCount = 0;
-      const checkedRules = input.navRules ?? {};
-      for (const ruleKey in checkedRules) {
-        if (checkedRules[ruleKey as keyof typeof checkedRules]) {
-          selectedCount++;
-          const match = navRuleHits.find((h) => h.rule === ruleKey);
-     if (market === "matches") {
-      const targetMetric = digitMetrics[selectedPredictDigit];
-      const targetIsFresh = freshPool.includes(selectedPredictDigit);
-      const combinedMatchesReady =
-        !noFreshMatches &&
-        targetIsFresh &&
-        matchesMathReady &&
-        selectedCount > 0 &&
-        allSelectedPass;
-
-      if (combinedMatchesReady) alertDecision = "READY / MANUAL ALERT";
-      else if (noFreshMatches) alertDecision = "HOLD / TIRED TARGET";
-      else if (selectedCount > 0) alertDecision = "HOLD / RULES NOT MET";
-      else alertDecision = "HOLD / NO SIGNAL";
-    }
-
-    } else if (market === "differs") {
-      let allSelectedPass = true;
-      let selectedCount = 0;
-      const checkedRules = input.navRules ?? {};
-      for (const ruleKey in checkedRules) {
-        if (checkedRules[ruleKey as keyof typeof checkedRules]) {
-          selectedCount++;
-          const match = navRuleHits.find((h) => h.rule === ruleKey);
-          if (!match?.pass) {
-            allSelectedPass = false;
-          }
-        }
+      if (selectedCount === 0) {
+        alertDecision = "HOLD / NO SIGNAL";
+      } else if (matchesReady && allSelectedPass) {
+        alertDecision = "READY / MANUAL ALERT";
+      } else {
+        alertDecision = "HOLD / RULES NOT MET";
       }
-      const targetDigit = input.predictDigit ?? 0;
-      // Read directly from the verified local array variable 'digitMetrics'
+    } else if (market === "differs") {
       const targetLanding = digitMetrics[targetDigit]?.landingProb ?? 0.1;
       const differsCeiling = (input.navThresholds?.differsProbabilityCeilingPct ?? 12) / 100;
       const differsColdGapMin = input.navThresholds?.differsColdGapMin ?? 5;
       const targetColdGap = N - 1 - (this.buffer.lastIndexOf(targetDigit));
-      
+
       const differsMathReady = targetLanding <= differsCeiling && targetColdGap >= differsColdGapMin;
       const combinedDiffersReady = differsMathReady && selectedCount > 0 && allSelectedPass;
 
       if (combinedDiffersReady) alertDecision = "READY / MANUAL ALERT";
+      else if (selectedCount === 0) alertDecision = "HOLD / NO SIGNAL";
       else alertDecision = "HOLD / RULES NOT MET";
-        } else if (market === "overunder") {
-      if (overUnder && overUnder.rec !== "HOLD") {
+    } else if (market === "overunder") {
+      if (overUnder && overUnder.deadZone) {
+        alertDecision = "HOLD / DEAD ZONE";
+      } else if (overUnder && overUnder.rec !== "HOLD") {
         const isBoundary = barrier === 0 || barrier === 9;
         const ouMathReady = isBoundary
           ? (overUnder.pTie < 0.15 && overUnder.prob >= 0.85)
@@ -1601,7 +1588,7 @@ export class DigitsEngine {
       } else if (selectedCount > 0 && !allSelectedPass) {
         alertDecision = "HOLD / RULES NOT MET";
       }
-    } 
+    }
     const decisionSignature = alertDecisionSignature({
       symbol: input.symbol,
       market,
