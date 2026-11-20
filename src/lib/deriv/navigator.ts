@@ -1557,37 +1557,9 @@ export class DigitsEngine {
       if (combinedDiffersReady) alertDecision = "READY / MANUAL ALERT";
       else if (selectedCount === 0) alertDecision = "HOLD / NO SIGNAL";
       else alertDecision = "HOLD / RULES NOT MET";
-    } else if (market === "overunder") {
-      if (overUnder && overUnder.deadZone) {
-        alertDecision = "HOLD / DEAD ZONE";
-      } else if (overUnder && overUnder.rec !== "HOLD") {
-        const isBoundary = barrier === 0 || barrier === 9;
-        const ouMathReady = isBoundary
-          ? (overUnder.pTie < 0.15 && overUnder.prob >= 0.85)
-          : (overUnder.pTie < deadZoneLimit && (
-              (overUnder.prob > 0.65 && overUnder.pTie < 0.07) ||
-              (overUnder.prob - (overUnder.rec === "OVER" ? overUnder.baselineOver : overUnder.baselineUnder) >= NAV_EDGE_FLOOR)
-            ));
-        if (ouMathReady && (selectedCount === 0 || allSelectedPass)) {
-          alertDecision = "READY / MANUAL ALERT";
-        } else if (selectedCount > 0 && !allSelectedPass) {
-          alertDecision = "HOLD / RULES NOT MET";
-        }
-      }
-    } else if (market === "evenodd") {
-      const eoMathReady = evenOdd && evenOdd.rec !== "HOLD" && marketEdge >= NAV_EDGE_FLOOR;
-      if (eoMathReady && (selectedCount === 0 || allSelectedPass)) {
-        alertDecision = "READY / MANUAL ALERT";
-      } else if (selectedCount > 0 && !allSelectedPass) {
-        alertDecision = "HOLD / RULES NOT MET";
-      }
-    } else if (market === "risefall") {
-      const rfMathReady = riseFall && riseFall.rec !== "HOLD" && marketEdge >= NAV_EDGE_FLOOR;
-      if (rfMathReady && (selectedCount === 0 || allSelectedPass)) {
-        alertDecision = "READY / MANUAL ALERT";
-      } else if (selectedCount > 0 && !allSelectedPass) {
-        alertDecision = "HOLD / RULES NOT MET";
-      }
+        } else if (market === "overunder" || market === "evenodd" || market === "risefall") {
+      // Analysis-only markets: calculations run continuously, alerts stay restricted to Matches & Differs
+      alertDecision = "HOLD / NO SIGNAL";
     }
     const decisionSignature = alertDecisionSignature({
       symbol: input.symbol,
