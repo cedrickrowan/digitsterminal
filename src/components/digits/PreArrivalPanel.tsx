@@ -44,7 +44,7 @@ function PreArrivalPanelImpl({ forecasts, physics, topDigit }: Props) {
         <div>M3 <span className="text-foreground">{physics?.markov3Context ?? 0}</span></div>
         <div>top <span className="text-foreground">{topDigit >= 0 ? topDigit : "—"}</span></div>
       </div>
-
+      
       <div className="grid grid-cols-5 gap-1">
         {forecasts.map((f) => {
           const alpha = Math.min(0.85, f.preArrivalProbability / 90);
