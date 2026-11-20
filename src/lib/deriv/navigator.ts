@@ -954,7 +954,7 @@ export class DigitsEngine {
    *  newest observation last and that `digit` equals that observation. */
   private computeAll(digit: number, input: EngineTickInput, t0: number): EngineResult | null {
     const N = this.bufferSize;
-    const D = Math.max(1, Math.min(10, Math.floor(input.duration || 3)));
+    const D = Math.max(1, Math.floor(input.duration || 3));
     const currDigit = this.buffer[N - 1];
 
         // 1. Build transition matrix with Laplace smoothing (+1 prior)
