@@ -934,7 +934,7 @@ export class DigitsEngine {
     this.pushTick(digit);
     this.pushPrice(input.price);
 
-    if (this.count < this.bufferSize) return null;
+    if (this.count < Math.min(this.bufferSize, 21)) return null;
     return this.computeAll(digit, input, t0);
   }
 
