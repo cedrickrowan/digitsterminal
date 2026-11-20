@@ -58,13 +58,17 @@ function PreArrivalPanelImpl({ forecasts, physics, topDigit }: Props) {
                     ? "border-success ring-1 ring-success"
                     : "border-input"
               }`}
-              style={{ backgroundColor: `hsl(var(--primary-hsl) / ${alpha})` }}
+             style={{ backgroundColor: `hsl(var(--primary-hsl) / ${alpha})` }}
             >
-               <div className="font-mono text-[10px] tabular-nums">
+              <div className={`font-mono text-xs font-bold leading-tight ${f.digit === topDigit ? "text-cyan" : "text-foreground"}`}>
+                {f.digit}
+              </div>
+              <div className="font-mono text-[10px] tabular-nums">
                 {typeof f.preArrivalProbability === "number"
                   ? `${f.preArrivalProbability.toFixed(1)}%`
                   : "—"}
               </div>
+ 
               <div className="text-[9px] uppercase text-muted-foreground">
                 {f.isExhaustedState
                   ? "spent"
