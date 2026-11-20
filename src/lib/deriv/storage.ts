@@ -20,11 +20,7 @@ export function loadConfig(): AppConfig {
       symbol: SYMBOLS.some((item) => item.value === parsed.symbol)
         ? parsed.symbol
         : DEFAULT_CONFIG.symbol,
-      /** Clamp lookback freely in [3, 900] without snapping to multiples of 3. */
-export function snapLookback(v: number): number {
-  if (!Number.isFinite(v)) return DEFAULT_CONFIG.lookback;
-  return Math.min(900, Math.max(3, Math.round(v)));
-}
+     lookback: snapLookback(Number(parsed.lookback ?? DEFAULT_CONFIG.lookback)),
       rules: { ...DEFAULT_CONFIG.rules, ...(parsed.rules ?? {}) },
       navRules: { ...DEFAULT_CONFIG.navRules, ...(parsed.navRules ?? {}) },
       navThresholds: { ...DEFAULT_CONFIG.navThresholds, ...(parsed.navThresholds ?? {}) },
