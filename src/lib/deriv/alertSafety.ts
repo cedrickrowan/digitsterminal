@@ -40,6 +40,14 @@ export function alertDecisionSignature(
   rules: NavRuleToggles | undefined = config.navRules,
   thresholds: NavThresholds | undefined = config.navThresholds,
 ): string {
+  const normalizedThresholds = thresholds
+    ? {
+        ...thresholds,
+        entryDelayTicks: Number(thresholds.entryDelayTicks ?? 1),
+        botJumpTicks: Number(thresholds.botJumpTicks ?? 3),
+      }
+    : null;
+
   return JSON.stringify([
     config.symbol,
     config.market,
@@ -47,7 +55,7 @@ export function alertDecisionSignature(
     config.predictDigit,
     config.barrier,
     rules ? Object.values(rules) : null,
-    thresholds ? Object.values(thresholds) : null,
+    normalizedThresholds ? Object.values(normalizedThresholds) : null,
   ]);
 }
 
