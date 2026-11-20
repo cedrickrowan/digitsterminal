@@ -101,11 +101,16 @@ function ControlsImpl({ cfg, onChange, connected, onConnect, onDisconnect, armed
           <span className="text-muted-foreground">Lookback (×3, 3-900)</span>
           <div className="flex gap-1">
             <input
-              type="number" min={3} max={900} step={3}
-              className="w-16 rounded border border-input bg-background px-2 py-1.5 font-mono"
-              value={cfg.lookback}
-              onChange={(e) => onChange({ lookback: snapLookback(Number(e.target.value)) })}
-            />
+  type="number" min={3} max={900} step={1}
+  className="w-16 rounded border border-input bg-background px-2 py-1.5 font-mono"
+  value={cfg.lookback}
+  onChange={(e) => {
+    const val = Number(e.target.value);
+    if (Number.isFinite(val) && val > 0) {
+      onChange({ lookback: Math.min(900, Math.max(3, val)) });
+    }
+  }}
+/>
             <select
               className="min-w-0 flex-1 rounded border border-input bg-background px-1 py-1.5 font-mono"
               value={LOOKBACK_PRESETS.includes(cfg.lookback) ? cfg.lookback : ""}
