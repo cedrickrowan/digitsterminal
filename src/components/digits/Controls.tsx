@@ -144,7 +144,7 @@ function ControlsImpl({ cfg, onChange, connected, onConnect, onDisconnect, armed
         <label className="flex flex-col gap-1">
           <span className="text-muted-foreground">Duration (ticks)</span>
           <input
-            type="number" min={1} max={10}
+            type="number" min={1} max={100}
             className="rounded border border-input bg-background px-2 py-1.5 font-mono"
             value={cfg.duration}
             onChange={(e) => onChange({ duration: Math.max(1, Number(e.target.value)) })}
