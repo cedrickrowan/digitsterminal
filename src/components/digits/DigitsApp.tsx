@@ -841,7 +841,7 @@ export default function DigitsApp() {
         weighted: new Array(10).fill(0.10),
         topDigit: 0,
         router: null,
-       pre: {
+               pre: {
           forecasts: [],
           physics: {
             lyapunovExponent: 0,
