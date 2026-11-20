@@ -149,11 +149,18 @@ function ControlsImpl({ cfg, onChange, connected, onConnect, onDisconnect, armed
         <label className="flex flex-col gap-1">
           <span className="text-muted-foreground">Duration (ticks)</span>
           <input
-            type="number" min={1} max={100}
-            className="rounded border border-input bg-background px-2 py-1.5 font-mono"
-            value={cfg.duration}
-            onChange={(e) => onChange({ duration: Math.max(1, Number(e.target.value)) })}
-          />
+  type="number" min={1} max={100}
+  className="rounded border border-input bg-background px-2 py-1.5 font-mono"
+  value={cfg.duration || ""}
+  onChange={(e) => {
+    const raw = e.target.value;
+    if (raw === "") { onChange({ duration: 0 }); return; }
+    onChange({ duration: Math.min(100, Math.max(1, Math.floor(Number(raw)))) });
+  }}
+  onBlur={() => {
+    if (!cfg.duration || cfg.duration < 1) onChange({ duration: 1 });
+  }}
+/>
         </label>
         <label className="flex flex-col gap-1">
           <span className="text-muted-foreground">Exec lag (ms)</span>
