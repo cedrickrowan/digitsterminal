@@ -1444,7 +1444,7 @@ export class DigitsEngine {
     const pMarkov1Target = this.T1[currOffset + targetDigit];
     const win = Array.from(this.buffer.subarray(0, N));
 
-        // Evaluate the trigger rules checklist using your exact bot landing horizon steps
+       // Evaluate the trigger rules checklist against the sharp D-step horizon
     const navRuleHits = buildNavRuleHits(
       targetDigit,
       tm,
@@ -1460,7 +1460,7 @@ export class DigitsEngine {
       pMarkovDTarget,
       hurstH,
       win,
-      landingHorizon, // Synchronized perfectly with your entry delay loops
+      D,
       pMarkov1Target,
     );
 
