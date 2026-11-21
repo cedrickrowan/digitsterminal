@@ -912,7 +912,7 @@ export default function DigitsApp() {
     });
     return { ema, vol, hmm, weighted, topDigit, router, pre };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tickKey, derived, cfg.symbol]);
+  }, [tickKey, derived, cfg.symbol, cfg.duration]);
 
   // Router payload is kept as a live diagnostic even though the UI shell
   // does not surface it — downstream consumers (worker, logs) read it.
