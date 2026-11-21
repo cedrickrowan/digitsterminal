@@ -561,9 +561,12 @@ export default function DigitsApp() {
     }
 
     const entryPrice = lastPriceRef.current;
+    const entryDelay = Math.max(0, Number(cfgNow.navThresholds?.entryDelayTicks ?? 1));
+    const settleHorizon = entryDelay + Math.max(1, cfgNow.duration);
     pendingSimRef.current.push({
       id: sig.id,
-      tickIndex: totalTicksRef.current + cfgNow.duration,
+      tickIndex: totalTicksRef.current + settleHorizon,
+      settleHorizon,
       predicted: cfgNow.predictDigit,
       entryPrice,
       market: cfgNow.market,
