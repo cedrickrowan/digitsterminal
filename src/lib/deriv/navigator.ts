@@ -1637,8 +1637,8 @@ export class DigitsEngine {
    *    Barrier 0: Over 0 only (digits 1-9 win, 0 loses). P(Under) = 0.
    *    Barrier 9: Under 9 only (digits 0-8 win, 9 loses). P(Over) = 0.
    */
-    private computeOverUnder(currOffset: number, barrier: number, deadZoneLimit = NAV_TIE_DEAD_ZONE): OverUnderBlock {
-    const N = this.bufferSize;
+      private computeOverUnder(currOffset: number, barrier: number, deadZoneLimit = NAV_TIE_DEAD_ZONE): OverUnderBlock {
+    const N = Math.min(this.count, this.bufferSize);
     let rawOver = 0.0;
     let rawUnder = 0.0;
     for (let d = 0; d < 10; d++) {
@@ -1667,12 +1667,13 @@ export class DigitsEngine {
       if (d > barrier) microOverCount += this.freqMicro[d];
       else if (d < barrier) microUnderCount += this.freqMicro[d];
     }
-    const microOver = this.microWindow > 0 ? microOverCount / this.microWindow : 0;
-    const microUnder = this.microWindow > 0 ? microUnderCount / this.microWindow : 0;
+    const microN = Math.min(N, this.microWindow);
+    const microOver = microN > 0 ? microOverCount / microN : 0;
+    const microUnder = microN > 0 ? microUnderCount / microN : 0;
     const momentumOver = microOver - baselineOver;
     const momentumUnder = microUnder - baselineUnder;
 
-        // Dead Zone Filter:
+    // Dead Zone Filter:
     // - 3-way middle barriers (1..8): block if barrier tie >= 10% (lose-lose risk)
     // - 2-way boundaries (0 & 9): block only if losing digit >= 15% (keeps <85% win rate out)
     const isBoundary = barrier === 0 || barrier === 9;
@@ -1682,23 +1683,18 @@ export class DigitsEngine {
     let velocity = 0;
 
     if (barrier === 0) {
-      // Boundary 0: 2-way contract. Deriv allows Over 0 only (digits 1-9 win, 0 loses)
       prob = pOver;
       velocity = momentumOver;
       if (!deadZone && pOver >= 0.85 && (momentumOver >= 0 || pOver >= baselineOver)) {
         rec = "OVER";
       }
     } else if (barrier === 9) {
-      // Boundary 9: 2-way contract. Deriv allows Under 9 only (digits 0-8 win, 9 loses)
       prob = pUnder;
       velocity = momentumUnder;
       if (!deadZone && pUnder >= 0.85 && (momentumUnder >= 0 || pUnder >= baselineUnder)) {
         rec = "UNDER";
       }
     } else {
-      // Middle barriers 1..8: 3-way probabilities (Tie loses both sides)
-      // Imbalance Trigger: Only trade Under X if P(Under) > 65% AND P(Barrier) < 7%
-      // Symmetrically: Only trade Over X if P(Over) > 65% AND P(Barrier) < 7%
       const canUnder = pUnder > 0.65 && pTie < 0.07;
       const canOver = pOver > 0.65 && pTie < 0.07;
 
@@ -1712,14 +1708,14 @@ export class DigitsEngine {
           prob = pOver;
           velocity = momentumOver;
         } else {
-          // Score comparison if within acceptable tie risk (<10%) and edge is present
-          const overScore = pOver + Math.max(0, momentumOver);
-          const underScore = pUnder + Math.max(0, momentumUnder);
-          if (overScore > underScore && pOver - baselineOver >= 0.05) {
+          // Signed momentum comparison so falling sides are properly penalized
+          const overScore = pOver + 0.35 * momentumOver;
+          const underScore = pUnder + 0.35 * momentumUnder;
+          if (overScore > underScore && pOver - baselineOver >= 0.04) {
             rec = "OVER";
             prob = pOver;
             velocity = momentumOver;
-          } else if (underScore > overScore && pUnder - baselineUnder >= 0.05) {
+          } else if (underScore > overScore && pUnder - baselineUnder >= 0.04) {
             rec = "UNDER";
             prob = pUnder;
             velocity = momentumUnder;
