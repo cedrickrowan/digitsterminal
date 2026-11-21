@@ -374,9 +374,12 @@ export default function DigitsApp() {
               : actionUpper.includes("RISE") ? "RISE"
               : actionUpper.includes("FALL") ? "FALL"
               : undefined;
+            const entryDelay = Math.max(0, Number(currentCfg.navThresholds?.entryDelayTicks ?? 1));
+            const settleHorizon = entryDelay + Math.max(1, currentCfg.duration);
             pendingSimRef.current.push({
               id: sigId,
-              tickIndex: totalTicksRef.current + currentCfg.duration,
+              tickIndex: totalTicksRef.current,
+              settleHorizon,
               predicted: nav!.navTargetDigit,
               entryPrice,
               market: currentCfg.market,
