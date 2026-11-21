@@ -1218,10 +1218,16 @@ export class DigitsEngine {
       }
     }
 
-    // 3. Discrete Markov Random Fields Spatial Gibbs Clique Energy States
+        // 3. Discrete Markov Random Fields Spatial Gibbs Clique Energy States
     {
+      this.freqMicro.fill(0);
+      const preMicroStart = Math.max(0, N - this.microWindow);
+      for (let i = preMicroStart; i < N; i++) {
+        this.freqMicro[this.buffer[i]]++;
+      }
       const currentTransitionRowStartOffset = currDigit * 10;
       let totalCliqueGridSystemEnergy = 0.0;
+
       
       // Compute spatial cliques potentials over structural lookback limits
       for (let j = 0; j < 10; j++) {
