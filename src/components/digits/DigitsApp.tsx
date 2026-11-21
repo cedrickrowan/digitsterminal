@@ -1222,7 +1222,7 @@ export default function DigitsApp() {
           followPrefix={derived.followPrefix}
           followProbs={derived.follow.probs}
           followTotal={derived.follow.total}
-          followHorizon={Math.max(1, cfg.duration)}
+          followHorizon={Math.max(0, Number(cfg.navThresholds?.entryDelayTicks ?? 1)) + Math.max(1, cfg.duration)}
         />
         <Controls
           cfg={cfg}
