@@ -78,12 +78,9 @@ export function isNavigatorAlertEligible(
     return false;
   }
 
-  if (config.market === "matches" || config.market === "differs") {
-    if (result.navTargetDigit !== config.predictDigit) return false;
-    return result.navRuleHits.every((hit) => !hit.enabled || hit.pass);
+    if (config.market !== "matches" && config.market !== "differs") {
+    return false;
   }
+  return result.navTargetDigit === config.predictDigit;
 
-  if (config.market === "overunder") return result.overUnder?.barrier === config.barrier;
-  return true;
-}
 
