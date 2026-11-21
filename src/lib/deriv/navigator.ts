@@ -1755,38 +1755,42 @@ export class DigitsEngine {
   /** Even/Odd horizon engine (v3): P(Even) = Σ_{even d} [M^D]_{s0,d} via
    *  matrix exponentiation, corroborated by the Wald–Wolfowitz runs Z and
    *  micro-window parity momentum. */
-  private computeParity(currOffset: number): ParityBlock {
-    const N = this.bufferSize;
-    let pEven = 0.0;
-    for (let d = 0; d < 10; d += 2) pEven += this.TD[currOffset + d];
-    const pOdd = 1.0 - pEven;
+    private computeParity(currOffset: number): ParityBlock {
+    const N = Math.min(this.count, this.bufferSize);
+    let rawEven = 0.0;
+    for (let d = 0; d < 10; d += 2) rawEven += this.TD[currOffset + d];
 
     let baseEven = 0;
     for (let d = 0; d < 10; d += 2) baseEven += this.freq100[d];
-    const baselineEven = baseEven / N;
+    const baselineEven = N > 0 ? baseEven / N : 0.5;
     const baselineOdd = 1.0 - baselineEven;
 
     let microEven = 0;
     for (let d = 0; d < 10; d += 2) microEven += this.freqMicro[d];
-    const microEvenFrac = microEven / this.microWindow;
+    const microN = Math.min(N, this.microWindow);
+    const microEvenFrac = microN > 0 ? microEven / microN : 0.5;
     const momentumEven = microEvenFrac - baselineEven;
-    const momentumOdd = 1.0 - microEvenFrac - baselineOdd;
+    const momentumOdd = (1.0 - microEvenFrac) - baselineOdd;
+
+    // Combine M^D matrix probability with signed micro-window momentum
+    const pEven = clamp(rawEven + 0.35 * momentumEven, 0.05, 0.95);
+    const pOdd = 1.0 - pEven;
 
     let rec: ParityBlock["rec"] = "HOLD";
-    let prob = 0;
-    let velocity = 0;
-    const evenScore = pEven + Math.max(0, momentumEven);
-    const oddScore = pOdd + Math.max(0, momentumOdd);
-    if (evenScore >= oddScore) {
-      rec = "EVEN";
-      prob = pEven;
-      velocity = momentumEven;
-    } else {
-      rec = "ODD";
-      prob = pOdd;
-      velocity = momentumOdd;
+    let prob = Math.max(pEven, pOdd);
+    let velocity = pEven >= pOdd ? momentumEven : momentumOdd;
+
+    if (Math.abs(pEven - 0.5) >= 0.035) {
+      if (pEven > pOdd) {
+        rec = "EVEN";
+        prob = pEven;
+        velocity = momentumEven;
+      } else {
+        rec = "ODD";
+        prob = pOdd;
+        velocity = momentumOdd;
+      }
     }
-    if (Math.abs(pEven - 0.5) < 0.02 && Math.abs(momentumEven) < 0.05) rec = "HOLD";
     return { pEven, pOdd, baselineEven, momentumEven, momentumOdd, rec, prob, velocity };
   }
 
