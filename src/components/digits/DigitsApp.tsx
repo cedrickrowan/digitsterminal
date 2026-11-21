@@ -378,7 +378,7 @@ export default function DigitsApp() {
             const settleHorizon = entryDelay + Math.max(1, currentCfg.duration);
             pendingSimRef.current.push({
               id: sigId,
-              tickIndex: totalTicksRef.current,
+              tickIndex: totalTicksRef.current + settleHorizon,
               settleHorizon,
               predicted: nav!.navTargetDigit,
               entryPrice,
