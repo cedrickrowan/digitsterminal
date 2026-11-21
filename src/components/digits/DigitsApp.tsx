@@ -853,7 +853,7 @@ export default function DigitsApp() {
       trigrams,
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tickKey, cfg.lookback, cfg.predictDigit]);
+  }, [tickKey, cfg.lookback, cfg.predictDigit, cfg.duration, cfg.navThresholds?.entryDelayTicks]);
 
     // Background market-context layer — guarded safely against initial empty startup states
   const context = useMemo(() => {
