@@ -82,5 +82,5 @@ export function isNavigatorAlertEligible(
     return false;
   }
   return result.navTargetDigit === config.predictDigit;
-
+}
 
