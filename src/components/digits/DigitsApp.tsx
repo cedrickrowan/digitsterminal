@@ -112,6 +112,7 @@ export default function DigitsApp() {
   const pendingSimRef = useRef<Array<{
     id: number;
     tickIndex: number;
+    settleHorizon: number;
     predicted: number;
     entryPrice: number;
     market: AppConfig["market"];
