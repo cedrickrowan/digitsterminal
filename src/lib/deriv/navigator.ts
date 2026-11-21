@@ -1059,9 +1059,8 @@ export class DigitsEngine {
     const rawDelay = input.navThresholds?.entryDelayTicks;
     const entryDelay = Number.isFinite(rawDelay) ? Math.max(0, rawDelay!) : (botJump > 0 ? 1 : 0);
     // Contract 1 settles at entryDelay + D ticks from the alert
-    const landingHorizon = Math.max(1, entryDelay + D);
-    this.matPower10x10(this.T1, landingHorizon, this.TD);
- 
+    this.matPower10x10(this.T1, D, this.TD);
+
 
         // =========================================================================
     // 5. ADVANCED PRNG MODULE: CONTEXT-TREE WEIGHTING (CTW) HIGH-ORDER MEMORY
