@@ -44,7 +44,7 @@ const allOff: NavRuleToggles = {
   markovD: false,
   hurstFilter: false,
   macroConfluence: false,
-  differsProbabilityCeiling: false, // Locks the tracking matrix array to exactly 19 lines
+  differsDecay: false,
 };
 
 const thr: NavThresholds = {
