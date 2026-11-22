@@ -14,7 +14,10 @@ function SessionScorecardImpl({ signals }: Props) {
   const losses = resolved.length - wins;
   const realized = resolved.length ? wins / resolved.length : 0;
   const expected = resolved.length
-    ? resolved.reduce((a, s) => a + (s.expected ?? 0), 0) / resolved.length
+    ? resolved.reduce(
+        (a, s) => a + (typeof s.expected === "number" && Number.isFinite(s.expected) ? s.expected : 0.1),
+        0,
+      ) / resolved.length
     : 0;
   const edge = realized - expected;
 
