@@ -500,11 +500,11 @@ export default function DigitsApp() {
     scheduleRender();
   }, [cancelLeadUpFire, scheduleRender]);
   
-  const evaluateAndMaybeFire = useCallback(() => {
+    const evaluateAndMaybeFire = useCallback(() => {
     const cfgNow = cfgRef.current;
-    // Navigator is the sole source of alert-mode READY; legacy triggers may
-    // still drive simulated entries but cannot bypass Navigator confluence.
+    // Navigator is the sole source of alert-mode READY; restrict alerts & sims to Matches & Differs only.
     if (cfgNow.mode === "alert") return;
+    if (cfgNow.market !== "matches" && cfgNow.market !== "differs") return;
     const win = bufRef.current!.lastN(cfgNow.lookback);
     if (win.length < 10) return;
 
