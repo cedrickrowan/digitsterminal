@@ -3,7 +3,7 @@ import type { DirectionBlock, EngineResult, OverUnderBlock, ParityBlock } from "
 
 interface Props {
   nav: EngineResult | null;
-  fallback: { pEven: number; pHigh: number; riseUp: number; riseDown: number };
+  fallback: { pEven: number; pHigh: number; riseUp: number; riseDown: number; distribution?: number[] };
   barrier: number;
   hot: number;
   cold: number;
