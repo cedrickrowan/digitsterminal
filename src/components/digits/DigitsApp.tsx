@@ -1193,8 +1193,10 @@ export default function DigitsApp() {
             pEven: navResult?.evenOdd ? navResult.evenOdd.pEven : derived.split.pEven, 
             pHigh: derived.split.pHigh, 
             riseUp: navResult?.riseFall ? navResult.riseFall.pRise : derived.rf.up, 
-            riseDown: navResult?.riseFall ? navResult.riseFall.pFall : derived.rf.down 
+            riseDown: navResult?.riseFall ? navResult.riseFall.pFall : derived.rf.down,
+            distribution: derived.win.length > 0 ? derived.freq.map((c) => c / derived.win.length) : undefined,
           }}
+          barrier={cfg.barrier}
           hot={derived.hc.hot}
           cold={derived.hc.cold}
           hotFreq={derived.hc.freq}
