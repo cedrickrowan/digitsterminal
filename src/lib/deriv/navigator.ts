@@ -1063,12 +1063,13 @@ export class DigitsEngine {
       }
     }
 
-       // 2. Matrix Exponentiation for Landing Probability M^D
+              // 2. Matrix Exponentiation for Landing Probability at exact settlement tick (entryDelay + D)
     const botJump = Math.max(0, input.navThresholds?.botJumpTicks ?? 0);
     const rawDelay = input.navThresholds?.entryDelayTicks;
     const entryDelay = Number.isFinite(rawDelay) ? Math.max(0, rawDelay!) : (botJump > 0 ? 1 : 0);
     // Contract 1 settles at entryDelay + D ticks from the alert
-    this.matPower10x10(this.T1, D, this.TD);
+    const settleStep = Math.max(1, entryDelay + D);
+    this.matPower10x10(this.T1, settleStep, this.TD);
 
 
         // =========================================================================
