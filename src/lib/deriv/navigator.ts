@@ -269,6 +269,7 @@ function buildNavRuleHits(
   win: number[],
   duration: number,
   pMarkov1Target: number,
+  pMarkovLateTarget: number = 0,
 ): NavRuleHit[] {
   const t = thr ?? NAV_THRESHOLDS_DEFAULT;
   const on = (k: keyof NavRuleToggles) => !!rules?.[k];
@@ -1442,9 +1443,14 @@ export class DigitsEngine {
     
     const pMarkovDTarget = this.TD[currOffset + targetDigit];
     const pMarkov1Target = this.T1[currOffset + targetDigit];
+    // Compute 1 tick AFTER contract settlement (TD * T1) to detect late-arriving spikes
+    let pMarkovLateTarget = 0;
+    for (let k = 0; k < 10; k++) {
+      pMarkovLateTarget += this.TD[currOffset + k] * this.T1[k * 10 + targetDigit];
+    }
     const win = Array.from(this.buffer.subarray(0, N));
 
-       // Evaluate the trigger rules checklist against the sharp D-step horizon
+    // Evaluate the trigger rules checklist against the exact settlement horizon
     const navRuleHits = buildNavRuleHits(
       targetDigit,
       tm,
@@ -1462,6 +1468,7 @@ export class DigitsEngine {
       win,
       D,
       pMarkov1Target,
+      pMarkovLateTarget,
     );
 
     // Push master confluence feedback into your panel UI list
