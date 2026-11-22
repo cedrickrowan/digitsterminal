@@ -377,15 +377,23 @@ function buildNavRuleHits(
     detail: `pair ${pctOf(tm.pairProb)} ≥ ${t.pairRunPct}%`,
   });
 
-    // 10. Landing probability at t+D
+       // 10. Exact Settlement Peak: must peak on t + entryDelay + D (neither early on t+1 nor late on t+entryDelay+D+1)
+  const delayTicks = Math.max(0, Number(t.entryDelayTicks ?? 1));
+  const targetStep = delayTicks + duration;
+  const notEarly = delayTicks === 0 || pMarkovDTarget >= pMarkov1Target;
+  const notLate = pMarkovDTarget >= pMarkovLateTarget;
   hits.push({
     rule: "landing",
     label: NAV_RULE_LABELS.landing,
     enabled: on("landing"),
-    pass: pMarkovDTarget >= t.landingPct / 100,
-    detail: `t+D ${pctOf(pMarkovDTarget)} ≥ ${t.landingPct}%`,
+    pass: notEarly && notLate && pMarkovDTarget >= t.landingPct / 100,
+    detail: !notEarly
+      ? `blocked: early t+1 (${pctOf(pMarkov1Target)}) > t+${targetStep}`
+      : !notLate
+        ? `blocked: late t+${targetStep + 1} (${pctOf(pMarkovLateTarget)}) > t+${targetStep}`
+        : `peak @ t+${targetStep} (${pctOf(pMarkovDTarget)} ≥ ${t.landingPct}%)`,
   });
-
+ 
   // 11. Anti-tired freshness
   hits.push({
     rule: "freshness",
