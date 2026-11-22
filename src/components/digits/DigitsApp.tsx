@@ -394,7 +394,7 @@ export default function DigitsApp() {
                 id: sigId,
                 ts: Date.now(),
                 reason: `${currentCfg.mode.toUpperCase()} · ${nav!.marketAction || currentCfg.market} · edge ${(nav!.marketEdge * 100).toFixed(1)}%`,
-                predicted: currentCfg.market === "differs" ? nav!.navTargetDigit : nav!.topTargetDigit,
+                predicted: nav!.navTargetDigit,
                 market: currentCfg.market,
                 expected: nav!.marketRecProb,
                 mode: currentCfg.mode,
