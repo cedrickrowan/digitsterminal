@@ -1187,7 +1187,7 @@ export default function DigitsApp() {
         <DigitGrid freq={derived.freq} total={derived.win.length} predict={cfg.predictDigit} />
         <DigitBadges freq={derived.freq} total={derived.win.length} lastDigit={lastDigit} />
 
-                <SplitPanel
+       <SplitPanel
           nav={navResult}
           fallback={{ 
             pEven: navResult?.evenOdd ? navResult.evenOdd.pEven : derived.split.pEven, 
