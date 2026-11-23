@@ -79,8 +79,60 @@ self.onmessage = (e: MessageEvent<InMsg>) => {
       navEngine = new DigitsEngine(msg.lookback);
       workerPrices.length = 0;
       workerDeltas.length = 0;
+      lastTickMeta = null;
       postNavStatus();
       break;
+    case "recompute": {
+      if (!engine || !lastTickMeta) break;
+      const report = engine.analyze(msg.cfg);
+      const snap = engine.snapshot();
+      let unifiedPrior: number[] | undefined;
+      if (snap.length >= 20) {
+        const base = new Array<number>(10);
+        let baseSum = 0;
+        for (let d = 0; d < 10; d++) {
+          const v = 0.5 * (report.higherOrder.order2[d] ?? 0.1) + 0.5 * (report.higherOrder.order3[d] ?? 0.1);
+          base[d] = Math.max(1e-4, v);
+          baseSum += base[d];
+        }
+        for (let d = 0; d < 10; d++) base[d] /= baseSum;
+        const ema = priceEma(workerPrices);
+        const vol = volatilityState(workerDeltas);
+        const hmm = hmmState(snap);
+        const poissonW = poissonClusterWeights(snap);
+        const ctxWeighted = applyContextWeights(base, {
+          direction: ema.direction,
+          volatility: vol.state,
+          hmm: hmm.state,
+          poissonWeights: poissonW,
+        });
+        const pre = runPreArrivalAnalysis(snap, workerDeltas, assetTypeOf(msg.cfg.symbol), msg.cfg.duration);
+        unifiedPrior = pre.physics.ready ? fusePreArrival(ctxWeighted, pre.forecasts) : ctxWeighted;
+      }
+      const nav = ensureNav(msg.cfg.lookback);
+      const navResult = nav.calculate({
+        price: lastTickMeta.quote,
+        pip: lastTickMeta.pip,
+        epoch: lastTickMeta.ts,
+        tickId: lastTickMeta.tickId,
+        duration: msg.cfg.duration,
+        symbol: msg.cfg.symbol,
+        rttMs: msg.rttMs ?? lastTickMeta.rttMs,
+        digit: lastTickMeta.digit,
+        market: msg.cfg.market,
+        barrier: msg.cfg.barrier,
+        predictDigit: msg.cfg.predictDigit,
+        navRules: msg.cfg.navRules,
+        navThresholds: {
+          ...msg.cfg.navThresholds,
+          entryDelayTicks: Number(msg.cfg.navThresholds?.entryDelayTicks ?? 1),
+          botJumpTicks: Number(msg.cfg.navThresholds?.botJumpTicks ?? 3),
+        },
+        unifiedPrior,
+      });
+      post({ type: "nav", result: navResult ?? null });
+      break;
+    }
     case "navSeed": {
       // Seed the navigator's exact FIFO buffer from history (dynamic size).
       const nav = ensureNav(msg.size);
@@ -139,6 +191,7 @@ self.onmessage = (e: MessageEvent<InMsg>) => {
       break;
     }
     case "tick": {
+      lastTickMeta = { digit: msg.digit, ts: msg.ts, tickId: msg.tickId, quote: msg.quote, pip: msg.pip, rttMs: msg.rttMs };
       if (!engine) engine = new DigitEngine(50);
       engine.push(msg.digit, msg.ts);
       const report = engine.analyze(msg.cfg);
