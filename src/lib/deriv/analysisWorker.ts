@@ -47,6 +47,7 @@ let engine: DigitEngine | null = null;
 let navEngine: DigitsEngine | null = null;
 const workerPrices: number[] = [];
 const workerDeltas: number[] = [];
+let lastTickMeta: { digit: number; ts: number; tickId: number; quote: number; pip: number; rttMs?: number } | null = null;
 
 const post = (msg: OutMsg) => (self as unknown as Worker).postMessage(msg);
 
