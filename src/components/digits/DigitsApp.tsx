@@ -460,6 +460,13 @@ export default function DigitsApp() {
     }
   }, [cfg.lookback]);
 
+  useEffect(() => {
+    workerRef.current?.postMessage({
+      type: "recompute",
+      cfg,
+      rttMs: medianOf(pingMedianRef.current),
+    });
+  }, [cfg]);
   const scheduleRender = useCallback(() => {
     if (renderScheduled.current) return;
     renderScheduled.current = true;
@@ -984,7 +991,7 @@ export default function DigitsApp() {
     setScanRows(
       symbols.map((sym) => ({ symbol: sym, pending: true, ok: false, score: 0, edge: 0, recProb: 0, action: "", rttMs: 0, latencyOk: false })),
     );
-    const fetches = await fetchScanHistories(symbols, cfgNow.lookback);
+    const fetches = await fetchScanHistories(symbols, Math.max(30, cfgNow.lookback));
     scanPendingRef.current = 0;
     fetches.forEach((f, idx) => {
       if (!f.ok) {
@@ -1230,17 +1237,21 @@ export default function DigitsApp() {
           cfg={cfg}
           onChange={setPartial}
           connected={connected}
-          onConnect={handleConnect}
+          onConnect={() => {
+            unlockAudio();
+            handleConnect();
+          }}
           onDisconnect={handleDisconnect}
           armed={armed}
           onToggleArm={() => {
+            unlockAudio();
             setArmed((a) => {
               const next = !a;
               if (next) beep();
               return next;
             });
           }} 
-          />
+          /> 
         <SignalsLog signals={signals} />
         <SessionScorecard signals={signals} />
         <EngineLog
