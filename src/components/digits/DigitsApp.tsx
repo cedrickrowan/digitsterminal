@@ -40,7 +40,7 @@ import {
   fusePreArrival,
   runPreArrivalAnalysis,
 } from "@/lib/deriv/preArrival";
-import { beep } from "@/lib/deriv/audio";
+import { beep, unlockAudio } from "@/lib/deriv/audio";
 
 import { signOut } from "./LoginScreen";
 import { NetworkBadge } from "./NetworkBadge";
