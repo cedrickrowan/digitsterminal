@@ -17,6 +17,7 @@ type InMsg =
   | { type: "init"; lookback: number; seed: number[] }
   | { type: "lookback"; lookback: number }
   | { type: "tick"; digit: number; ts: number; tickId: number; quote: number; pip: number; cfg: AppConfig; rttMs?: number }
+  | { type: "recompute"; cfg: AppConfig; rttMs?: number }
   | { type: "reset"; lookback: number }
   | { type: "navSeed"; digits: number[]; size?: number }
   | { type: "navLookback"; size: number }
