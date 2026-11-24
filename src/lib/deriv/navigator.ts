@@ -280,16 +280,19 @@ function buildNavRuleHits(
   const hits: NavRuleHit[] = [];
 
   // ==================== 7 LEGACY RULES ====================
-  // 1. Ensemble Bayesian fusion
+    // 1. Ensemble Bayesian fusion
   const ens = win.length >= 10 ? ensemblePredict(win, duration) : null;
-  const ensPass = !!ens && ens.topDigit === target && (ens.confidence * 100) > (t.triggerEnsembleAbove ?? 22);
+  const ensConfPct = ens ? ens.confidence * 100 : 0;
+  const ensPass = !!ens && ens.topDigit === target && ensConfPct > (t.triggerEnsembleAbove ?? 22);
   hits.push({
     rule: "ensemble",
     label: NAV_RULE_LABELS.ensemble,
     enabled: on("ensemble"),
     pass: ensPass,
+    metric: ensConfPct,
+    slopeDir: "up",
     detail: ens
-      ? `→${ens.topDigit} ${(ens.confidence * 100).toFixed(0)}% > ${t.triggerEnsembleAbove}%`
+      ? `→${ens.topDigit} ${ensConfPct.toFixed(0)}% > ${t.triggerEnsembleAbove}%`
       : "insufficient history",
   });
 
@@ -300,31 +303,38 @@ function buildNavRuleHits(
     label: NAV_RULE_LABELS.markov,
     enabled: on("markov"),
     pass: pMarkov1Pct > (t.triggerMarkovAbove ?? 18),
+    metric: pMarkov1Pct,
+    slopeDir: "up",
     detail: `P(${target}|${currDigit})=${pMarkov1Pct.toFixed(0)}% > ${t.triggerMarkovAbove}%`,
   });
 
   // 3. Trailing streak of target digit
   const stk = tailStreak(win);
+  const stkLen = stk.digit === target ? stk.len : 0;
   const stkPass = stk.digit === target && stk.len >= (t.triggerStreak ?? 3);
   hits.push({
     rule: "streak",
     label: NAV_RULE_LABELS.streak,
     enabled: on("streak"),
     pass: stkPass,
+    metric: stkLen,
+    slopeDir: "up",
     detail: stk.digit === target ? `${stk.len}×${stk.digit} ≥ ${t.triggerStreak}` : `streak=0 (last=${currDigit})`,
   });
 
-  // 4. Frequency below threshold (reversion)
+  // 4. Frequency below threshold (reversion — strengthens as frequency drops)
   const targetFreqPct = bufferSize > 0 ? (targetFreq / bufferSize) * 100 : 10;
   hits.push({
     rule: "prob",
     label: NAV_RULE_LABELS.prob,
     enabled: on("prob"),
     pass: targetFreqPct < (t.triggerProbBelow ?? 8),
+    metric: targetFreqPct,
+    slopeDir: "down",
     detail: `freq ${targetFreqPct.toFixed(1)}% < ${t.triggerProbBelow}%`,
   });
 
-    // 5. Sequence followup horizon: entryDelay + D
+  // 5. Sequence followup horizon: entryDelay + D
   const entryDelay = Math.max(0, Number(t.entryDelayTicks ?? 1));
   const horizon = entryDelay + Math.max(1, duration);
   const patternLen = Math.max(1, duration);
@@ -336,10 +346,12 @@ function buildNavRuleHits(
     label: NAV_RULE_LABELS.sequence,
     enabled: on("sequence"),
     pass: seq.total >= 3 && pSeq > (t.triggerSequenceAbove ?? 20),
+    metric: pSeq,
+    slopeDir: "up",
     detail: `[${seq.pattern.join("")}]→+${horizon} ${pSeq.toFixed(0)}% > ${t.triggerSequenceAbove}%`,
   });
 
-  // 6. Cold probability based on gap since last appearance
+  // 6. Cold probability based on gap since last appearance (strengthens as cold P drops)
   const g = gapsSinceLast(win)[target] ?? bufferSize;
   const pCold = coldProb(g) * 100;
   hits.push({
@@ -347,6 +359,8 @@ function buildNavRuleHits(
     label: NAV_RULE_LABELS.cold,
     enabled: on("cold"),
     pass: pCold < (t.triggerColdProbBelow ?? 10),
+    metric: pCold,
+    slopeDir: "down",
     detail: `gap=${g} P=${pCold.toFixed(1)}% < ${t.triggerColdProbBelow}%`,
   });
 
@@ -357,11 +371,13 @@ function buildNavRuleHits(
     label: NAV_RULE_LABELS.deviation,
     enabled: on("deviation"),
     pass: devPct > (t.triggerDeviationPct ?? 4),
+    metric: devPct,
+    slopeDir: "up",
     detail: `|Δ|=${devPct.toFixed(1)}% > ${t.triggerDeviationPct}%`,
   });
 
   // ==================== 11 NAVIGATOR RULES ====================
-    // 8. Multi-hit >= 2 in horizon (requires D >= 3 to be mathematically possible)
+  // 8. Multi-hit >= 2 in horizon
   const mHit = tm ? tm.multiHitProb * 100 : 0;
   const mHitThr = t.multiHitPct ?? 7;
   hits.push({
@@ -369,6 +385,8 @@ function buildNavRuleHits(
     label: `Multi-hit ≥ 2 (${duration})`,
     enabled: on("multiHit"),
     pass: duration < 2 ? false : mHit >= mHitThr,
+    metric: mHit,
+    slopeDir: "up",
     detail: duration < 2 ? `Impossible (D < 2)` : `≥ ${mHitThr}% (Live: ${mHit.toFixed(1)}%)`,
   });
 
@@ -378,10 +396,12 @@ function buildNavRuleHits(
     label: NAV_RULE_LABELS.pairRun,
     enabled: on("pairRun"),
     pass: tm.pairProb >= t.pairRunPct / 100,
+    metric: tm.pairProb,
+    slopeDir: "up",
     detail: `pair ${pctOf(tm.pairProb)} ≥ ${t.pairRunPct}%`,
   });
 
-       // 10. Exact Settlement Peak: must peak on t + entryDelay + D (neither early on t+1 nor late on t+entryDelay+D+1)
+  // 10. Exact Settlement Peak
   const delayTicks = Math.max(0, Number(t.entryDelayTicks ?? 1));
   const targetStep = delayTicks + duration;
   const notEarly = delayTicks === 0 || pMarkovDTarget >= pMarkov1Target;
@@ -391,19 +411,22 @@ function buildNavRuleHits(
     label: NAV_RULE_LABELS.landing,
     enabled: on("landing"),
     pass: notEarly && notLate && pMarkovDTarget >= t.landingPct / 100,
+    metric: pMarkovDTarget,
+    slopeDir: "up",
     detail: !notEarly
       ? `blocked: early t+1 (${pctOf(pMarkov1Target)}) > t+${targetStep}`
       : !notLate
         ? `blocked: late t+${targetStep + 1} (${pctOf(pMarkovLateTarget)}) > t+${targetStep}`
         : `peak @ t+${targetStep} (${pctOf(pMarkovDTarget)} ≥ ${t.landingPct}%)`,
   });
- 
-  // 11. Anti-tired freshness
+
+  // 11. Anti-tired freshness (binary gate)
   hits.push({
     rule: "freshness",
     label: NAV_RULE_LABELS.freshness,
     enabled: on("freshness"),
     pass: fresh,
+    slopeDir: "none",
     detail: fresh ? "FRESH · anti-tired ok" : "TIRED · suppressed",
   });
 
@@ -415,6 +438,8 @@ function buildNavRuleHits(
     label: NAV_RULE_LABELS.parity,
     enabled: on("parity"),
     pass: !!parity && pPar >= t.parityPct / 100,
+    metric: pPar,
+    slopeDir: "up",
     detail: parity
       ? `P(${even ? "EVEN" : "ODD"}) ${pctOf(pPar)} ≥ ${t.parityPct}%`
       : "no parity block",
@@ -423,12 +448,15 @@ function buildNavRuleHits(
   // 13. Over/Under barrier confluence
   let barrierPass = false;
   let barrierDetail = "no O/U block";
+  let barrierProb = 0;
   if (ou) {
     if (ou.barrier === 0) {
       barrierPass = target > 0 && ou.rec === "OVER";
+      barrierProb = ou.pOver;
       barrierDetail = `OVER 0 target ${target > 0 ? "ok" : "losing"}`;
     } else if (ou.barrier === 9) {
       barrierPass = target < 9 && ou.rec === "UNDER";
+      barrierProb = ou.pUnder;
       barrierDetail = `UNDER 9 target ${target < 9 ? "ok" : "losing"}`;
     } else if (target === ou.barrier) {
       barrierDetail = `digit = barrier ${ou.barrier} · tie zone`;
@@ -436,9 +464,11 @@ function buildNavRuleHits(
       barrierDetail = `dead zone P(tie) ${pctOf(ou.pTie)} ≥ 10%`;
     } else if (target > ou.barrier) {
       barrierPass = ou.rec === "OVER" && ou.pOver >= t.barrierPct / 100;
+      barrierProb = ou.pOver;
       barrierDetail = `OVER ${pctOf(ou.pOver)} ≥ ${t.barrierPct}%`;
     } else {
       barrierPass = ou.rec === "UNDER" && ou.pUnder >= t.barrierPct / 100;
+      barrierProb = ou.pUnder;
       barrierDetail = `UNDER ${pctOf(ou.pUnder)} ≥ ${t.barrierPct}%`;
     }
   }
@@ -447,25 +477,30 @@ function buildNavRuleHits(
     label: NAV_RULE_LABELS.barrier,
     enabled: on("barrier"),
     pass: barrierPass,
+    metric: barrierProb,
+    slopeDir: "up",
     detail: barrierDetail,
   });
 
-  // 14. Low-entropy regime (bias-corrected Shannon Entropy Z-score)
+  // 14. Low-entropy regime (strengthens as entropy Z drops)
   hits.push({
     rule: "lowEntropy",
     label: NAV_RULE_LABELS.lowEntropy,
     enabled: on("lowEntropy"),
     pass: entropyZ <= t.entropyZMax,
+    metric: entropyZ,
+    slopeDir: "down",
     detail: `H-Z ${entropyZ.toFixed(2)} ≤ ${t.entropyZMax}`,
   });
 
-  // 15. Anti-repeat filter
+  // 15. Anti-repeat filter (binary gate)
   const isRepeat = target === currDigit;
   hits.push({
     rule: "antiRepeat",
     label: NAV_RULE_LABELS.antiRepeat,
     enabled: on("antiRepeat"),
     pass: !isRepeat || on("pairRun"),
+    slopeDir: "none",
     detail: isRepeat ? (on("pairRun") ? "repeat allowed by pairRun" : `repeat blocked (last = ${currDigit})`) : "no repeat ok",
   });
 
@@ -475,6 +510,8 @@ function buildNavRuleHits(
     label: NAV_RULE_LABELS.frequencyEnvelope,
     enabled: on("frequencyEnvelope"),
     pass: targetFreqPct >= t.frequencyMinPct && targetFreqPct <= t.frequencyMaxPct,
+    metric: targetFreqPct,
+    slopeDir: "up",
     detail: `freq ${targetFreqPct.toFixed(1)}% ∈ [${t.frequencyMinPct}%, ${t.frequencyMaxPct}%]`,
   });
 
@@ -485,6 +522,8 @@ function buildNavRuleHits(
     label: NAV_RULE_LABELS.markovD,
     enabled: on("markovD"),
     pass: markovDPct >= t.markovDPct,
+    metric: markovDPct,
+    slopeDir: "up",
     detail: `M^D ${markovDPct.toFixed(1)}% ≥ ${t.markovDPct}%`,
   });
 
@@ -497,6 +536,8 @@ function buildNavRuleHits(
     label: NAV_RULE_LABELS.hurstFilter,
     enabled: on("hurstFilter"),
     pass: hurstEdge >= minEdge,
+    metric: hurstEdge,
+    slopeDir: "up",
     detail: `H=${hurstH.toFixed(2)} (${regimeTag} · |Δ|=${hurstEdge.toFixed(2)} ≥ ${minEdge.toFixed(2)})`,
   });
 
