@@ -962,7 +962,7 @@ export default function DigitsApp() {
   const purchaseInMs = countdownMs - cfg.latencyOffsetMs;
   // Navigator 600 ms human-response window (numeric countdown, no progress bar)
   const navReady = navResult?.alertDecision === "READY / MANUAL ALERT";
-  const navElapsed = navReady && navReadyAtRef.current > 0 ? performance.now() - navReadyAtRef.current : 0;
+  const navElapsed = navReady && navReadyAtRef.current > 0 ? Math.round(performance.now() - navReadyAtRef.current) : 0;
   useEffect(() => {
     if (!navReady) {
       cancelLeadUpFire();
