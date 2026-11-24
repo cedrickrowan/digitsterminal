@@ -570,10 +570,13 @@ export class DigitsEngine {
   private readonly scratchA: Float64Array = new Float64Array(100);
   private readonly scratchB: Float64Array = new Float64Array(100);
 
-  // Scratch vectors
+    // Scratch vectors
   private readonly freq100: Int32Array = new Int32Array(10);
   private readonly freqMicro: Int32Array = new Int32Array(10);
   private readonly freqTail: Int32Array = new Int32Array(10);
+  private readonly prevLandingProb: Float64Array = new Float64Array(10).fill(-1);
+  private readonly prevRuleMetrics: Map<string, number> = new Map();
+  private lastSlopeTickId: number = -1;
 
   // Dynamic Programming state tables for exact multi-hit calculation.
   //   hit-count DP needs 10 × (requiredHits+1) ≤ 40 states,
@@ -694,12 +697,15 @@ export class DigitsEngine {
     for (const d of digits) this.pushTick(d);
   }
 
-  public reset(): void {
+    public reset(): void {
     this.count = 0;
     this.priceCount = 0;
     this.deltaCount = 0;
     this.emaKl = 0.2;
     this.cusumAcc = 0;
+    this.prevLandingProb.fill(-1);
+    this.prevRuleMetrics.clear();
+    this.lastSlopeTickId = -1;
   }
 
   private matMul10x10(A: Float64Array, B: Float64Array, Out: Float64Array): void {
@@ -1600,32 +1606,69 @@ export class DigitsEngine {
         }
       }
     }
+    const currLanding = digitMetrics[targetDigit]?.landingProb ?? 0.1;
+    const prevLanding = this.prevLandingProb[targetDigit];
+    // Strict directional slope:
+    // - Matches: every enabled numeric rule must be strictly strengthening beyond its threshold
+    // - Differs: landing probability must be strictly decreasing below the ceiling
+    let allRulesIncreasing = true;
+    for (const h of navRuleHits) {
+      if (!h.enabled || h.slopeDir === "none" || h.metric === undefined) continue;
+      const key = `${targetDigit}:${h.rule}`;
+      const prevVal = this.prevRuleMetrics.get(key);
+      if (prevVal !== undefined) {
+        if (h.slopeDir === "up" && !(h.metric > prevVal + 1e-6)) {
+          allRulesIncreasing = false;
+          h.detail += ` · ↓/flat (prev ${prevVal.toFixed(2)})`;
+        } else if (h.slopeDir === "down" && !(h.metric < prevVal - 1e-6)) {
+          allRulesIncreasing = false;
+          h.detail += ` · ↑/flat (prev ${prevVal.toFixed(2)})`;
+        }
+      }
+    }
+
+    const differsStrictlyFalling = prevLanding < 0 || currLanding < prevLanding - 1e-6;
 
     if (!pingOk) {
       alertDecision = "HOLD / UNSAFE LATENCY";
     } else if (market === "matches") {
       if (selectedCount === 0) {
         alertDecision = "HOLD / NO SIGNAL";
-      } else if (matchesReady && allSelectedPass) {
+      } else if (matchesReady && allSelectedPass && allRulesIncreasing) {
         alertDecision = "READY / MANUAL ALERT";
       } else {
         alertDecision = "HOLD / RULES NOT MET";
       }
-   } else if (market === "differs") {
-      const targetLanding = digitMetrics[targetDigit]?.landingProb ?? 0.1;
+    } else if (market === "differs") {
       const differsCeiling = (input.navThresholds?.differsProbabilityCeilingPct ?? 12) / 100;
       const differsColdGapMin = input.navThresholds?.differsColdGapMin ?? 5;
       const targetColdGap = N - 1 - (this.buffer.lastIndexOf(targetDigit));
 
-      const differsMathReady = targetLanding <= differsCeiling && targetColdGap >= differsColdGapMin;
+      const differsMathReady =
+        currLanding <= differsCeiling &&
+        targetColdGap >= differsColdGapMin &&
+        differsStrictlyFalling;
       const combinedDiffersReady = differsMathReady && (selectedCount === 0 || allSelectedPass);
 
       if (combinedDiffersReady) alertDecision = "READY / MANUAL ALERT";
       else alertDecision = "HOLD / RULES NOT MET";
-
-        } else if (market === "overunder" || market === "evenodd" || market === "risefall") {
+    } else if (market === "overunder" || market === "evenodd" || market === "risefall") {
       // Analysis-only markets: calculations run continuously, alerts stay restricted to Matches & Differs
       alertDecision = "HOLD / NO SIGNAL";
+    }
+
+    // Update previous-tick baselines ONLY when a new tick arrives (not on UI slider recompute)
+    const tickIdNow = input.tickId ?? -1;
+    if (tickIdNow < 0 || tickIdNow !== this.lastSlopeTickId) {
+      this.lastSlopeTickId = tickIdNow;
+      for (let d = 0; d < 10; d++) {
+        this.prevLandingProb[d] = digitMetrics[d].landingProb;
+      }
+      for (const h of navRuleHits) {
+        if (h.metric !== undefined && h.slopeDir !== "none") {
+          this.prevRuleMetrics.set(`${targetDigit}:${h.rule}`, h.metric);
+        }
+      }
     }
     const decisionSignature = alertDecisionSignature({
       symbol: input.symbol,
