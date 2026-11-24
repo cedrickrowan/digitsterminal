@@ -1566,18 +1566,18 @@ export class DigitsEngine {
       } else {
         alertDecision = "HOLD / RULES NOT MET";
       }
-    } else if (market === "differs") {
+   } else if (market === "differs") {
       const targetLanding = digitMetrics[targetDigit]?.landingProb ?? 0.1;
       const differsCeiling = (input.navThresholds?.differsProbabilityCeilingPct ?? 12) / 100;
       const differsColdGapMin = input.navThresholds?.differsColdGapMin ?? 5;
       const targetColdGap = N - 1 - (this.buffer.lastIndexOf(targetDigit));
 
       const differsMathReady = targetLanding <= differsCeiling && targetColdGap >= differsColdGapMin;
-      const combinedDiffersReady = differsMathReady && selectedCount > 0 && allSelectedPass;
+      const combinedDiffersReady = differsMathReady && (selectedCount === 0 || allSelectedPass);
 
       if (combinedDiffersReady) alertDecision = "READY / MANUAL ALERT";
-      else if (selectedCount === 0) alertDecision = "HOLD / NO SIGNAL";
       else alertDecision = "HOLD / RULES NOT MET";
+
         } else if (market === "overunder" || market === "evenodd" || market === "risefall") {
       // Analysis-only markets: calculations run continuously, alerts stay restricted to Matches & Differs
       alertDecision = "HOLD / NO SIGNAL";
