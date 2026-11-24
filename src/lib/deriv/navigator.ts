@@ -246,6 +246,10 @@ export interface NavRuleHit {
   enabled: boolean;
   pass: boolean;
   detail: string;
+  /** Raw numeric metric for tick-over-tick directional slope filtering. */
+  metric?: number;
+  /** "up" = must strictly increase; "down" = must strictly decrease; "none" = binary gate. */
+  slopeDir?: "up" | "down" | "none";
 }
 
 const pctOf = (x: number) => `${(x * 100).toFixed(2)}%`;
