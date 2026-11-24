@@ -508,8 +508,9 @@ export default function DigitsApp() {
   }, [cancelLeadUpFire, scheduleRender]);
   
     const evaluateAndMaybeFire = useCallback(() => {
+    // Navigator (worker) is the single source of truth for alert, simulated, and live entries.
+    return;
     const cfgNow = cfgRef.current;
-    // Navigator is the sole source of alert-mode READY; restrict alerts & sims to Matches & Differs only.
     if (cfgNow.mode === "alert") return;
     if (cfgNow.market !== "matches" && cfgNow.market !== "differs") return;
     const win = bufRef.current!.lastN(cfgNow.lookback);
