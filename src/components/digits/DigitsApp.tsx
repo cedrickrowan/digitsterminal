@@ -81,6 +81,20 @@ export default function DigitsApp() {
   connectedRef.current = connected;
   staleRef.current = stale;
   const [signals, setSignals] = useState<Signal[]>([]);
+  const sessionStatsRef = useRef<{ edgePct: number; settled: number }>({ edgePct: 0, settled: 0 });
+  useEffect(() => {
+    const resolved = signals.filter((s) => s.result === "win" || s.result === "loss");
+    if (resolved.length === 0) {
+      sessionStatsRef.current = { edgePct: 0, settled: 0 };
+      return;
+    }
+    const wins = resolved.reduce((a, s) => a + (s.result === "win" ? 1 : 0), 0);
+    const realized = wins / resolved.length;
+    const expected =
+      resolved.reduce((a, s) => a + (typeof s.expected === "number" && Number.isFinite(s.expected) ? s.expected : 0.1), 0) /
+      resolved.length;
+    sessionStatsRef.current = { edgePct: (realized - expected) * 100, settled: resolved.length };
+  }, [signals]);
   const [lastPrice, setLastPrice] = useState<number | null>(null);
   const [openEntry, setOpenEntry] = useState<{ price: number; tick: number } | null>(null);
   const [matched, setMatched] = useState(false);
@@ -405,9 +419,20 @@ export default function DigitsApp() {
           }
         }
 
-        if (ready && !wasReady && currentCfg.mode === "alert") {
+       if (ready && !wasReady && currentCfg.mode === "alert") {
           const sigId = Date.now() + Math.random();
           const entryPrice = lastPriceRef.current;
+          const entryDelay = Math.max(0, Number(currentCfg.navThresholds?.entryDelayTicks ?? 1));
+          const settleHorizon = entryDelay + Math.max(1, currentCfg.duration);
+          pendingSimRef.current.push({
+            id: sigId,
+            tickIndex: totalTicksRef.current + settleHorizon,
+            settleHorizon,
+            predicted: nav!.navTargetDigit,
+            entryPrice,
+            market: currentCfg.market,
+            barrier: currentCfg.barrier,
+          });
           setSignals((prev) => [
             ...prev.slice(-40),
             {
@@ -436,7 +461,18 @@ export default function DigitsApp() {
     const stream = new Subject<{ digit: number; ts: number; tickId: number; rtt: number; quote: number; pip: number }>();
     tickStreamRef.current = stream;
     const sub = stream.pipe(auditTime(0)).subscribe(({ digit, ts, tickId, rtt, quote, pip }) => {
-      worker.postMessage({ type: "tick", digit, ts, tickId, cfg: cfgRef.current, rttMs: rtt, quote, pip });
+      worker.postMessage({
+        type: "tick",
+        digit,
+        ts,
+        tickId,
+        cfg: cfgRef.current,
+        rttMs: rtt,
+        quote,
+        pip,
+        sessionEdgePct: sessionStatsRef.current.edgePct,
+        sessionSettledCount: sessionStatsRef.current.settled,
+      });
     });
     return () => {
       cancelLeadUpFire();
@@ -460,11 +496,13 @@ export default function DigitsApp() {
     }
   }, [cfg.lookback]);
 
-  useEffect(() => {
+    useEffect(() => {
     workerRef.current?.postMessage({
       type: "recompute",
       cfg,
       rttMs: medianOf(pingMedianRef.current),
+      sessionEdgePct: sessionStatsRef.current.edgePct,
+      sessionSettledCount: sessionStatsRef.current.settled,
     });
   }, [cfg]);
   const scheduleRender = useCallback(() => {
