@@ -16,8 +16,8 @@ import type { AppConfig, Market, NavRuleToggles, NavThresholds } from "./types";
 type InMsg =
   | { type: "init"; lookback: number; seed: number[] }
   | { type: "lookback"; lookback: number }
-  | { type: "tick"; digit: number; ts: number; tickId: number; quote: number; pip: number; cfg: AppConfig; rttMs?: number }
-  | { type: "recompute"; cfg: AppConfig; rttMs?: number }
+  | { type: "tick"; digit: number; ts: number; tickId: number; quote: number; pip: number; cfg: AppConfig; rttMs?: number; sessionEdgePct?: number; sessionSettledCount?: number }
+  | { type: "recompute"; cfg: AppConfig; rttMs?: number; sessionEdgePct?: number; sessionSettledCount?: number }  
   | { type: "reset"; lookback: number }
   | { type: "navSeed"; digits: number[]; size?: number }
   | { type: "navLookback"; size: number }
@@ -129,9 +129,11 @@ self.onmessage = (e: MessageEvent<InMsg>) => {
           botJumpTicks: Number(msg.cfg.navThresholds?.botJumpTicks ?? 3),
         },
         unifiedPrior,
+        sessionEdgePct: msg.sessionEdgePct,
+        sessionSettledCount: msg.sessionSettledCount,
       });
       post({ type: "nav", result: navResult ?? null });
-      break;
+      break; 
     }
     case "navSeed": {
       // Seed the navigator's exact FIFO buffer from history (dynamic size).
@@ -255,7 +257,9 @@ self.onmessage = (e: MessageEvent<InMsg>) => {
           entryDelayTicks: Number(msg.cfg.navThresholds?.entryDelayTicks ?? 1),
           botJumpTicks: Number(msg.cfg.navThresholds?.botJumpTicks ?? 3),
         },
-        unifiedPrior,
+                unifiedPrior,
+        sessionEdgePct: msg.sessionEdgePct,
+        sessionSettledCount: msg.sessionSettledCount,
       });
       if (navResult) {
         post({ type: "nav", result: navResult });
