@@ -55,8 +55,11 @@ export interface EngineTickInput {
   navRules?: NavRuleToggles;
   /** Navigator trigger rule percent thresholds. */
   navThresholds?: NavThresholds;
-  /** Unified 10-digit prior from Pre-Arrival Physics + Order 1..7+ VMM + HMM/Context. */
+    /** Unified 10-digit prior from Pre-Arrival Physics + Order 1..7+ VMM + HMM/Context. */
   unifiedPrior?: number[];
+  /** Live session scorecard edge % (realized - expected) and settled count. */
+  sessionEdgePct?: number;
+  sessionSettledCount?: number;
 }
 export interface DigitMetrics {
   digit: number;
@@ -1626,15 +1629,19 @@ export class DigitsEngine {
         }
       }
     }
-
     const differsStrictlyFalling = prevLanding < 0 || currLanding < prevLanding - 1e-6;
+    const edgeGateOn = !!input.navThresholds?.edgeGateEnabled;
+    const edgeGateMin = input.navThresholds?.edgeGateMinPct ?? 0;
+    const settledCount = input.sessionSettledCount ?? 0;
+    const liveEdgePct = input.sessionEdgePct ?? 0;
+    const sessionEdgePass = !edgeGateOn || settledCount === 0 || liveEdgePct >= edgeGateMin;
 
     if (!pingOk) {
       alertDecision = "HOLD / UNSAFE LATENCY";
     } else if (market === "matches") {
       if (selectedCount === 0) {
         alertDecision = "HOLD / NO SIGNAL";
-      } else if (matchesReady && allSelectedPass && allRulesIncreasing) {
+      } else if (matchesReady && allSelectedPass && allRulesIncreasing && sessionEdgePass) {
         alertDecision = "READY / MANUAL ALERT";
       } else {
         alertDecision = "HOLD / RULES NOT MET";
@@ -1648,11 +1655,12 @@ export class DigitsEngine {
         currLanding <= differsCeiling &&
         targetColdGap >= differsColdGapMin &&
         differsStrictlyFalling;
-      const combinedDiffersReady = differsMathReady && (selectedCount === 0 || allSelectedPass);
+      const combinedDiffersReady = differsMathReady && (selectedCount === 0 || allSelectedPass) && sessionEdgePass;
 
       if (combinedDiffersReady) alertDecision = "READY / MANUAL ALERT";
       else alertDecision = "HOLD / RULES NOT MET";
     } else if (market === "overunder" || market === "evenodd" || market === "risefall") {
+
       // Analysis-only markets: calculations run continuously, alerts stay restricted to Matches & Differs
       alertDecision = "HOLD / NO SIGNAL";
     }
