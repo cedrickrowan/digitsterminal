@@ -313,7 +313,7 @@ function ControlsImpl({ cfg, onChange, connected, onConnect, onDisconnect, armed
               }}
             />
           </div>
-          <div className="flex items-center justify-between text-[11px]">
+                    <div className="flex items-center justify-between text-[11px]">
             <span className="text-muted-foreground">Entry Delay (ticks):</span>
             <input
               type="number"
@@ -328,7 +328,28 @@ function ControlsImpl({ cfg, onChange, connected, onConnect, onDisconnect, armed
               }}
             />
           </div>
-
+          <div className="flex items-center justify-between border-t border-border pt-1.5 text-[11px]">
+            <label className="flex items-center gap-2 text-muted-foreground">
+              <input
+                type="checkbox"
+                checked={!!cfg.navThresholds.edgeGateEnabled}
+                onChange={(e) => {
+                  const next = { ...cfg.navThresholds, edgeGateEnabled: e.target.checked };
+                  onChange({ navThresholds: next });
+                }}
+              />
+              <span>Require Session Edge ≥ (%)</span>
+            </label>
+            <input
+              type="number"
+              min={-50}
+              max={100}
+              step={0.5}
+              className="w-16 rounded border border-border bg-input px-1 py-0.5 text-right font-mono text-[10px]"
+              value={cfg.navThresholds.edgeGateMinPct ?? 0}
+              onChange={(e) => setNavThreshold("edgeGateMinPct", Number(e.target.value))}
+            />
+          </div>
       <div className="flex items-center gap-1 border-t border-border pt-2">
         <span className="mr-1 text-muted-foreground">Mode</span>
         {(["alert", "simulated", "live"] as Mode[]).map((m) => (
