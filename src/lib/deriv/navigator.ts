@@ -1465,9 +1465,14 @@ export class DigitsEngine {
     const market = input.market ?? "matches";
     const barrier = clamp(Math.round(input.barrier ?? 4), 0, 9);
 
-    // 8b. Market-specific horizon blocks (v3)
+        // 8b. Market-specific horizon blocks (v3)
     const deadZoneLimit = (input.navThresholds?.deadZoneThresholdPct ?? 10) / 100;
-    const overUnder = this.computeOverUnder(currOffset, barrier, deadZoneLimit);
+    const edgeGateOn = !!input.navThresholds?.edgeGateEnabled;
+    const edgeGateMin = input.navThresholds?.edgeGateMinPct ?? 0;
+    const settledCount = input.sessionSettledCount ?? 0;
+    const liveEdgePct = input.sessionEdgePct ?? 0;
+    const sessionEdgePass = !edgeGateOn || settledCount === 0 || liveEdgePct >= edgeGateMin;
+    const overUnder = this.computeOverUnder(currOffset, barrier, deadZoneLimit, freshPool, sessionEdgePass);
     const evenOdd = this.computeParity(currOffset);
     const riseFall = this.computeDirection();
 
@@ -1769,18 +1774,35 @@ export class DigitsEngine {
    *    Barrier 0: Over 0 only (digits 1-9 win, 0 loses). P(Under) = 0.
    *    Barrier 9: Under 9 only (digits 0-8 win, 9 loses). P(Over) = 0.
    */
-      private computeOverUnder(currOffset: number, barrier: number, deadZoneLimit = NAV_TIE_DEAD_ZONE): OverUnderBlock {
+       private computeOverUnder(
+    currOffset: number,
+    barrier: number,
+    deadZoneLimit = NAV_TIE_DEAD_ZONE,
+    freshPool: number[] = [],
+    sessionEdgePass: boolean = true,
+  ): OverUnderBlock {
     const N = Math.min(this.count, this.bufferSize);
     let rawOver = 0.0;
     let rawUnder = 0.0;
+    let maxOverLoser = 0.0;  // highest single losing digit for OVER (0..barrier)
+    let maxUnderLoser = 0.0; // highest single losing digit for UNDER (barrier..9)
+    let freshOverCount = 0;
+    let freshUnderCount = 0;
+
     for (let d = 0; d < 10; d++) {
       const p = this.TD[currOffset + d];
-      if (d > barrier) rawOver += p;
-      else if (d < barrier) rawUnder += p;
+      const isFresh = freshPool.includes(d);
+      if (d > barrier) {
+        rawOver += p;
+        if (isFresh) freshOverCount++;
+      } else if (d < barrier) {
+        rawUnder += p;
+        if (isFresh) freshUnderCount++;
+      }
+      if (d <= barrier && p > maxOverLoser) maxOverLoser = p;
+      if (d >= barrier && p > maxUnderLoser) maxUnderLoser = p;
     }
     const pTie = this.TD[currOffset + barrier];
-
-    // Exact contract probabilities (without inflating out the tie)
     const pOver = rawOver;
     const pUnder = rawUnder;
 
@@ -1790,8 +1812,8 @@ export class DigitsEngine {
       if (d > barrier) baseOverCount += this.freq100[d];
       else if (d < barrier) baseUnderCount += this.freq100[d];
     }
-    const baselineOver = N > 0 ? baseOverCount / N : 0;
-    const baselineUnder = N > 0 ? baseUnderCount / N : 0;
+    const baselineOver = N > 0 ? baseOverCount / N : (9 - barrier) / 10;
+    const baselineUnder = N > 0 ? baseUnderCount / N : barrier / 10;
 
     let microOverCount = 0;
     let microUnderCount = 0;
@@ -1800,67 +1822,82 @@ export class DigitsEngine {
       else if (d < barrier) microUnderCount += this.freqMicro[d];
     }
     const microN = Math.min(N, this.microWindow);
-    const microOver = microN > 0 ? microOverCount / microN : 0;
-    const microUnder = microN > 0 ? microUnderCount / microN : 0;
+    const microOver = microN > 0 ? microOverCount / microN : baselineOver;
+    const microUnder = microN > 0 ? microUnderCount / microN : baselineUnder;
     const momentumOver = microOver - baselineOver;
     const momentumUnder = microUnder - baselineUnder;
 
-    // Dead Zone Filter:
-    // - 3-way middle barriers (1..8): block if barrier tie >= 10% (lose-lose risk)
-    // - 2-way boundaries (0 & 9): block only if losing digit >= 15% (keeps <85% win rate out)
-    const isBoundary = barrier === 0 || barrier === 9;
-    const deadZone = isBoundary ? pTie >= (deadZoneLimit * 1.5) : pTie >= deadZoneLimit;
-    let rec: OverUnderBlock["rec"] = "HOLD";
-    let prob = 0;
-    let velocity = 0;
+    // Fresh (anti-tired) digit density on each side
+    const overDigitsTotal = Math.max(1, 9 - barrier);
+    const underDigitsTotal = Math.max(1, barrier);
+    const overFreshRatio = barrier < 9 ? freshOverCount / overDigitsTotal : 0;
+    const underFreshRatio = barrier > 0 ? freshUnderCount / underDigitsTotal : 0;
+    // Winning side must have at least 1 fresh digit and >= fresh density of the opposite side
+    const overFreshOk = freshOverCount >= 1 && (barrier === 0 || overFreshRatio >= underFreshRatio);
+    const underFreshOk = freshUnderCount >= 1 && (barrier === 9 || underFreshRatio >= overFreshRatio);
 
-    if (barrier === 0) {
+    // Exact uniform random baselines for the selected barrier (0..9)
+    const fairOver = (9 - barrier) / 10;
+    const fairUnder = barrier / 10;
+    const minEdgeRequired = 0.045; // Must beat fair baseline by >= +4.5%
+
+    const isBoundary = barrier === 0 || barrier === 9;
+    const tieBlocked = !isBoundary && pTie >= deadZoneLimit;
+
+    const overSafe =
+      sessionEdgePass &&
+      barrier < 9 &&
+      !tieBlocked &&
+      maxOverLoser < (barrier === 0 ? deadZoneLimit * 1.5 : deadZoneLimit) &&
+      pOver >= fairOver + minEdgeRequired &&
+      pOver >= baselineOver &&
+      momentumOver >= 0 &&
+      overFreshOk;
+
+    const underSafe =
+      sessionEdgePass &&
+      barrier > 0 &&
+      !tieBlocked &&
+      maxUnderLoser < (barrier === 9 ? deadZoneLimit * 1.5 : deadZoneLimit) &&
+      pUnder >= fairUnder + minEdgeRequired &&
+      pUnder >= baselineUnder &&
+      momentumUnder >= 0 &&
+      underFreshOk;
+
+    const deadZone = tieBlocked || (!overSafe && !underSafe && (maxOverLoser >= deadZoneLimit || maxUnderLoser >= deadZoneLimit));
+
+    let rec: OverUnderBlock["rec"] = "HOLD";
+    let prob = Math.max(pOver, pUnder);
+    let velocity = pOver >= pUnder ? momentumOver : momentumUnder;
+
+    if (overSafe && underSafe) {
+      const overEdgeScore = (pOver - fairOver) + 0.35 * momentumOver + 0.05 * overFreshRatio;
+      const underEdgeScore = (pUnder - fairUnder) + 0.35 * momentumUnder + 0.05 * underFreshRatio;
+      if (overEdgeScore >= underEdgeScore) {
+        rec = "OVER";
+        prob = pOver;
+        velocity = momentumOver;
+      } else {
+        rec = "UNDER";
+        prob = pUnder;
+        velocity = momentumUnder;
+      }
+    } else if (overSafe) {
+      rec = "OVER";
       prob = pOver;
       velocity = momentumOver;
-      if (!deadZone && pOver >= 0.85 && (momentumOver >= 0 || pOver >= baselineOver)) {
-        rec = "OVER";
-      }
-    } else if (barrier === 9) {
+    } else if (underSafe) {
+      rec = "UNDER";
       prob = pUnder;
       velocity = momentumUnder;
-      if (!deadZone && pUnder >= 0.85 && (momentumUnder >= 0 || pUnder >= baselineUnder)) {
-        rec = "UNDER";
-      }
     } else {
-      const canUnder = pUnder > 0.65 && pTie < 0.07;
-      const canOver = pOver > 0.65 && pTie < 0.07;
-
-      if (!deadZone) {
-        if (canUnder && (!canOver || pUnder >= pOver)) {
-          rec = "UNDER";
-          prob = pUnder;
-          velocity = momentumUnder;
-        } else if (canOver && (!canUnder || pOver >= pUnder)) {
-          rec = "OVER";
-          prob = pOver;
-          velocity = momentumOver;
-        } else {
-          // Signed momentum comparison so falling sides are properly penalized
-          const overScore = pOver + 0.35 * momentumOver;
-          const underScore = pUnder + 0.35 * momentumUnder;
-          if (overScore > underScore && pOver - baselineOver >= 0.04) {
-            rec = "OVER";
-            prob = pOver;
-            velocity = momentumOver;
-          } else if (underScore > overScore && pUnder - baselineUnder >= 0.04) {
-            rec = "UNDER";
-            prob = pUnder;
-            velocity = momentumUnder;
-          } else {
-            rec = "HOLD";
-            prob = Math.max(pOver, pUnder);
-            velocity = pOver >= pUnder ? momentumOver : momentumUnder;
-          }
-        }
+      rec = "HOLD";
+      if (barrier === 0 || (barrier < 9 && (pOver - fairOver) >= (pUnder - fairUnder))) {
+        prob = pOver;
+        velocity = momentumOver;
       } else {
-        rec = "HOLD";
-        prob = Math.max(pOver, pUnder);
-        velocity = pOver >= pUnder ? momentumOver : momentumUnder;
+        prob = pUnder;
+        velocity = momentumUnder;
       }
     }
 
@@ -1879,7 +1916,7 @@ export class DigitsEngine {
       velocity,
     };
   }
-
+ 
   /** Even/Odd horizon engine (v3): P(Even) = Σ_{even d} [M^D]_{s0,d} via
    *  matrix exponentiation, corroborated by the Wald–Wolfowitz runs Z and
    *  micro-window parity momentum. */
