@@ -66,6 +66,7 @@ export interface NavThresholds {
   deadZoneThresholdPct?: number;
   botJumpTicks?: number;
   entryDelayTicks?: number;
+  maxContracts?: number;
   edgeGateEnabled?: boolean;
   edgeGateMinPct?: number;
 }
@@ -189,6 +190,7 @@ export const DEFAULT_CONFIG: AppConfig = {
     hurstMinEdge: 0.05,
     botJumpTicks: 3,
     entryDelayTicks: 1,
+    maxContracts: 5,
     edgeGateEnabled: false,
     edgeGateMinPct: 0,
   },
