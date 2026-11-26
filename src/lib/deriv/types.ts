@@ -187,7 +187,7 @@ export const DEFAULT_CONFIG: AppConfig = {
     differsProbabilityCeilingPct: 12,
     differsColdGapMin: 5,
     hurstMinEdge: 0.05,
-    botJumpTicks: 0,
+    botJumpTicks: 3,
     entryDelayTicks: 1,
     edgeGateEnabled: false,
     edgeGateMinPct: 0,
