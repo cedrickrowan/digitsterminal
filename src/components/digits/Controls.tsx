@@ -314,7 +314,7 @@ function ControlsImpl({ cfg, onChange, connected, onConnect, onDisconnect, armed
             />
           </div>
 
-                    <div className="flex items-center justify-between text-[11px]">
+           <div className="flex items-center justify-between text-[11px]">
             <span className="text-muted-foreground">Entry Delay (ticks):</span>
             <input
               type="number"
@@ -329,6 +329,22 @@ function ControlsImpl({ cfg, onChange, connected, onConnect, onDisconnect, armed
               }}
             />
           </div>
+          <div className="flex items-center justify-between text-[11px]">
+            <span className="text-muted-foreground">Max Contracts (runs):</span>
+            <input
+              type="number"
+              min={1}
+              max={20}
+              step={1}
+              className="w-14 rounded border border-border bg-input px-1 py-0.5 text-right font-mono text-[10px]"
+              value={cfg.navThresholds.maxContracts ?? 5}
+              onChange={(e) => {
+                const val = e.target.value;
+                setNavThreshold("maxContracts", val === "" ? 1 : Math.min(20, Math.max(1, Math.floor(Number(val)))));
+              }}
+            />
+          </div>
+
           <div className="flex items-center justify-between border-t border-border pt-1.5 text-[11px]">
             <label className="flex items-center gap-2 text-muted-foreground">
               <input
