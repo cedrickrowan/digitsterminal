@@ -276,7 +276,7 @@ function buildNavRuleHits(
   win: number[],
   duration: number,
   pMarkov1Target: number,
-  pMarkovLateTarget: number = 0,
+  contractProbs: { step: number; prob: number }[] = [],
 ): NavRuleHit[] {
   const t = thr ?? NAV_THRESHOLDS_DEFAULT;
   const on = (k: keyof NavRuleToggles) => !!rules?.[k];
@@ -404,11 +404,19 @@ function buildNavRuleHits(
     detail: `pair ${pctOf(tm.pairProb)} ≥ ${t.pairRunPct}%`,
   });
 
-  // 10. Exact Settlement Peak
+   // 10. Exact Multi-Contract Settlement Peak (Contract 1 vs Contracts 2..4, skipping Bot Jump ticks)
   const delayTicks = Math.max(0, Number(t.entryDelayTicks ?? 1));
   const targetStep = delayTicks + duration;
   const notEarly = delayTicks === 0 || pMarkovDTarget >= pMarkov1Target;
-  const notLate = pMarkovDTarget >= pMarkovLateTarget;
+  let strongerLaterContract: { idx: number; step: number; prob: number } | null = null;
+  for (let i = 1; i < contractProbs.length; i++) {
+    if (contractProbs[i].prob > pMarkovDTarget + 1e-6) {
+      if (!strongerLaterContract || contractProbs[i].prob > strongerLaterContract.prob) {
+        strongerLaterContract = { idx: i + 1, step: contractProbs[i].step, prob: contractProbs[i].prob };
+      }
+    }
+  }
+  const notLate = strongerLaterContract === null;
   hits.push({
     rule: "landing",
     label: NAV_RULE_LABELS.landing,
@@ -417,12 +425,12 @@ function buildNavRuleHits(
     metric: pMarkovDTarget,
     slopeDir: "up",
     detail: !notEarly
-      ? `blocked: early t+1 (${pctOf(pMarkov1Target)}) > t+${targetStep}`
-      : !notLate
-        ? `blocked: late t+${targetStep + 1} (${pctOf(pMarkovLateTarget)}) > t+${targetStep}`
-        : `peak @ t+${targetStep} (${pctOf(pMarkovDTarget)} ≥ ${t.landingPct}%)`,
+      ? `blocked: delay t+${delayTicks} (${pctOf(pMarkov1Target)}) > C1 @ t+${targetStep}`
+      : strongerLaterContract
+        ? `blocked: C${strongerLaterContract.idx} @ t+${strongerLaterContract.step} (${pctOf(strongerLaterContract.prob)}) > C1 @ t+${targetStep}`
+        : `C1 peak @ t+${targetStep} (${pctOf(pMarkovDTarget)} ≥ ${t.landingPct}%)`,
   });
-
+ 
   // 11. Anti-tired freshness (binary gate)
   hits.push({
     rule: "freshness",
@@ -1117,11 +1125,12 @@ export class DigitsEngine {
       }
     }
 
-              // 2. Matrix Exponentiation for Landing Probability at exact settlement tick (entryDelay + D)
-    const botJump = Math.max(0, input.navThresholds?.botJumpTicks ?? 0);
+                  // 2. Matrix Exponentiation for exact contract settlement ticks (C1, C2, C3, C4)
+    const rawJump = input.navThresholds?.botJumpTicks;
+    const botJump = Number.isFinite(rawJump) ? Math.max(0, rawJump!) : 3;
     const rawDelay = input.navThresholds?.entryDelayTicks;
-    const entryDelay = Number.isFinite(rawDelay) ? Math.max(0, rawDelay!) : (botJump > 0 ? 1 : 0);
-    // Contract 1 settles at entryDelay + D ticks from the alert
+    const entryDelay = Number.isFinite(rawDelay) ? Math.max(0, rawDelay!) : 1;
+    // Contract 1 settles at entryDelay + D; each next contract adds (botJump + D)
     const settleStep = Math.max(1, entryDelay + D);
     this.matPower10x10(this.T1, settleStep, this.TD);
 
@@ -1504,12 +1513,21 @@ export class DigitsEngine {
     const targetFresh = freshPool.includes(targetDigit);
     const navRulesEnabled = !!input.navRules && Object.values(input.navRules).some(Boolean);
     
-    const pMarkovDTarget = this.TD[currOffset + targetDigit];
-    const pMarkov1Target = this.T1[currOffset + targetDigit];
-    // Compute 1 tick AFTER contract settlement (TD * T1) to detect late-arriving spikes
-    let pMarkovLateTarget = 0;
-    for (let k = 0; k < 10; k++) {
-      pMarkovLateTarget += this.TD[currOffset + k] * this.T1[k * 10 + targetDigit];
+       const pMarkovDTarget = this.TD[currOffset + targetDigit];
+    // Entry-delay tick probability (if entryDelay > 0, check step = entryDelay; otherwise step 1)
+    let pMarkovDelayTarget = this.T1[currOffset + targetDigit];
+    if (entryDelay > 1) {
+      const TDelay = new Float64Array(100);
+      this.matPower10x10(this.T1, entryDelay, TDelay);
+      pMarkovDelayTarget = TDelay[currOffset + targetDigit];
+    }
+    // Evaluate exact settlement probabilities across Contracts 1, 2, 3, and 4
+    const contractProbs: { step: number; prob: number }[] = [{ step: settleStep, prob: pMarkovDTarget }];
+    const TContract = new Float64Array(100);
+    for (let c = 1; c <= 3; c++) {
+      const cStep = settleStep + c * (botJump + D);
+      this.matPower10x10(this.T1, cStep, TContract);
+      contractProbs.push({ step: cStep, prob: TContract[currOffset + targetDigit] });
     }
     const win = Array.from(this.buffer.subarray(0, N));
 
@@ -1530,10 +1548,10 @@ export class DigitsEngine {
       hurstH,
       win,
       D,
-      pMarkov1Target,
-      pMarkovLateTarget,
+      pMarkovDelayTarget,
+      contractProbs,
     );
-
+ 
     // Push master confluence feedback into your panel UI list
     navRuleHits.push({
       rule: "macroConfluence",
