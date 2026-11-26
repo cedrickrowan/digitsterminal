@@ -1521,10 +1521,12 @@ export class DigitsEngine {
       this.matPower10x10(this.T1, entryDelay, TDelay);
       pMarkovDelayTarget = TDelay[currOffset + targetDigit];
     }
-    // Evaluate exact settlement probabilities across Contracts 1, 2, 3, and 4
+        // Evaluate exact settlement probabilities across Contracts 1..maxContracts
+    const rawMaxContracts = input.navThresholds?.maxContracts;
+    const totalContracts = Number.isFinite(rawMaxContracts) ? Math.min(20, Math.max(1, Math.floor(rawMaxContracts!))) : 5;
     const contractProbs: { step: number; prob: number }[] = [{ step: settleStep, prob: pMarkovDTarget }];
     const TContract = new Float64Array(100);
-    for (let c = 1; c <= 3; c++) {
+    for (let c = 1; c < totalContracts; c++) {
       const cStep = settleStep + c * (botJump + D);
       this.matPower10x10(this.T1, cStep, TContract);
       contractProbs.push({ step: cStep, prob: TContract[currOffset + targetDigit] });
