@@ -1655,12 +1655,7 @@ export class DigitsEngine {
       }
     }
     const differsStrictlyFalling = prevLanding < 0 || currLanding < prevLanding - 1e-6;
-    const edgeGateOn = !!input.navThresholds?.edgeGateEnabled;
-    const edgeGateMin = input.navThresholds?.edgeGateMinPct ?? 0;
-    const settledCount = input.sessionSettledCount ?? 0;
-    const liveEdgePct = input.sessionEdgePct ?? 0;
-    const sessionEdgePass = !edgeGateOn || settledCount === 0 || liveEdgePct >= edgeGateMin;
-
+    
     if (!pingOk) {
       alertDecision = "HOLD / UNSAFE LATENCY";
     } else if (market === "matches") {
