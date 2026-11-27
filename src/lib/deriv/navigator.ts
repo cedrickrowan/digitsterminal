@@ -1702,17 +1702,24 @@ export class DigitsEngine {
       } else {
         alertDecision = "HOLD / RULES NOT MET";
       }
-   } else if (market === "differs") {
+       } else if (market === "differs") {
       const differsCeiling = (input.navThresholds?.differsProbabilityCeilingPct ?? 12) / 100;
       const differsColdGapMin = checkedRules.freshness ? 0 : (input.navThresholds?.differsColdGapMin ?? 5);
       const targetColdGap = N - 1 - (this.buffer.lastIndexOf(targetDigit));
 
+      // Active cluster burst guard: block Differs if target digit appeared >= 2 times in the last 5 ticks
+      let burstCount5 = 0;
+      const burstStart = Math.max(0, N - 5);
+      for (let i = burstStart; i < N; i++) {
+        if (this.buffer[i] === targetDigit) burstCount5++;
+      }
+
       const differsMathReady =
         currLanding <= differsCeiling &&
         targetColdGap >= differsColdGapMin &&
+        burstCount5 < 2 &&
         differsStrictlyFalling;
       const combinedDiffersReady = differsMathReady && (selectedCount === 0 || allSelectedPass) && sessionEdgePass;
-
       if (combinedDiffersReady) alertDecision = "READY / MANUAL ALERT";
       else alertDecision = "HOLD / RULES NOT MET";
     } else if (market === "overunder" || market === "evenodd" || market === "risefall") {
