@@ -1503,7 +1503,7 @@ export class DigitsEngine {
     const settledCount = input.sessionSettledCount ?? 0;
     const liveEdgePct = input.sessionEdgePct ?? 0;
     const sessionEdgePass = !edgeGateOn || settledCount === 0 || liveEdgePct >= edgeGateMin;
-    const overUnder = this.computeOverUnder(currOffset, barrier, deadZoneLimit, freshPool, sessionEdgePass);
+    const overUnder = this.computeOverUnder(currOffset, barrier, deadZoneLimit, freshPool, sessionEdgePass, zRun);
     const evenOdd = this.computeParity(currOffset);
     const riseFall = this.computeDirection();
 
@@ -1800,13 +1800,23 @@ export class DigitsEngine {
    *    Barrier 0: Over 0 only (digits 1-9 win, 0 loses). P(Under) = 0.
    *    Barrier 9: Under 9 only (digits 0-8 win, 9 loses). P(Over) = 0.
    */
-       private computeOverUnder(
+     private computeOverUnder(
     currOffset: number,
     barrier: number,
     deadZoneLimit = NAV_TIE_DEAD_ZONE,
     freshPool: number[] = [],
     sessionEdgePass: boolean = true,
+    runsZScore: number = 0,
   ): OverUnderBlock {
+    const underSafe =
+      sessionEdgePass &&
+      barrier > 0 &&
+      !tieBlocked &&
+      maxUnderLoser < (barrier === 9 ? deadZoneLimit * 1.5 : deadZoneLimit) &&
+      pUnder >= fairUnder + minEdgeRequired &&
+      pUnder >= baselineUnder &&
+      momentumUnder >= 0 &&
+      underFreshOk;
     const N = Math.min(this.count, this.bufferSize);
     let rawOver = 0.0;
     let rawUnder = 0.0;
@@ -1869,8 +1879,10 @@ export class DigitsEngine {
 
     const isBoundary = barrier === 0 || barrier === 9;
     const tieBlocked = !isBoundary && pTie >= deadZoneLimit;
+    const notChoppy = runsZScore <= 1.96;
 
     const overSafe =
+      notChoppy &&
       sessionEdgePass &&
       barrier < 9 &&
       !tieBlocked &&
@@ -1881,6 +1893,7 @@ export class DigitsEngine {
       overFreshOk;
 
     const underSafe =
+      notChoppy &&
       sessionEdgePass &&
       barrier > 0 &&
       !tieBlocked &&
