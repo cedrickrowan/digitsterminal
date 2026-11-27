@@ -2045,8 +2045,27 @@ export class DigitsEngine {
       }
     }
 
-    return { pEven, pOdd, baselineEven, momentumEven, momentumOdd, rec, prob, velocity };
+        return { pEven, pOdd, baselineEven, momentumEven, momentumOdd, rec, prob, velocity };
   }
+
+  /** Rise/Fall direction engine (v3): pure price-increment analysis —
+   *  ΔS = S_t − S_{t−1} — fully separated from digit modulo arithmetic.
+   *  Tracks baseline vs micro-window up/down fractions (momentum) and the
+   *  current directional run length. */
+  private computeDirection(): DirectionBlock {
+    const total = Math.min(this.deltaCount, 64);
+    const flat: DirectionBlock = {
+      pRise: 0.5,
+      pFall: 0.5,
+      baselineUp: 0.5,
+      momentumRise: 0,
+      momentumFall: 0,
+      runLength: 0,
+      runDir: "FLAT",
+      rec: "HOLD",
+      prob: 0,
+      velocity: 0,
+    };
     if (total < 5) return flat;
 
     // Baseline fractions over the whole ΔS ring (oldest → newest).
