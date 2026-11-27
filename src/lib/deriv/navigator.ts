@@ -277,6 +277,7 @@ function buildNavRuleHits(
   duration: number,
   pMarkov1Target: number,
   contractProbs: { step: number; prob: number }[] = [],
+  market: Market = "matches",
 ): NavRuleHit[] {
   const t = thr ?? NAV_THRESHOLDS_DEFAULT;
   const on = (k: keyof NavRuleToggles) => !!rules?.[k];
@@ -462,14 +463,17 @@ function buildNavRuleHits(
         : `C1 peak @ t+${targetStep} (${pctOf(pMarkovDTarget)} ≥ ${t.landingPct}%)`,
   });
  
-  // 11. Anti-tired freshness (binary gate)
+    // 11. Anti-tired freshness (Matches requires FRESH; Differs requires TIRED on the spot)
+  const freshnessPass = market === "differs" ? !fresh : fresh;
   hits.push({
     rule: "freshness",
     label: NAV_RULE_LABELS.freshness,
     enabled: on("freshness"),
-    pass: fresh,
+    pass: freshnessPass,
     slopeDir: "none",
-    detail: fresh ? "FRESH · anti-tired ok" : "TIRED · suppressed",
+    detail: market === "differs"
+      ? (!fresh ? "TIRED · differs ok" : "FRESH · suppressed for differs")
+      : (fresh ? "FRESH · anti-tired ok" : "TIRED · suppressed"),
   });
 
   // 12. Parity confluence
@@ -1588,8 +1592,9 @@ export class DigitsEngine {
       D,
       pMarkovDelayTarget,
       contractProbs,
+      market,
     );
- 
+      
     // Push master confluence feedback into your panel UI list
     navRuleHits.push({
       rule: "macroConfluence",
@@ -1697,9 +1702,9 @@ export class DigitsEngine {
       } else {
         alertDecision = "HOLD / RULES NOT MET";
       }
-    } else if (market === "differs") {
+   } else if (market === "differs") {
       const differsCeiling = (input.navThresholds?.differsProbabilityCeilingPct ?? 12) / 100;
-      const differsColdGapMin = input.navThresholds?.differsColdGapMin ?? 5;
+      const differsColdGapMin = checkedRules.freshness ? 0 : (input.navThresholds?.differsColdGapMin ?? 5);
       const targetColdGap = N - 1 - (this.buffer.lastIndexOf(targetDigit));
 
       const differsMathReady =
