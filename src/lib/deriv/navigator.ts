@@ -1508,7 +1508,7 @@ export class DigitsEngine {
     const liveEdgePct = input.sessionEdgePct ?? 0;
     const sessionEdgePass = !edgeGateOn || settledCount === 0 || liveEdgePct >= edgeGateMin;
     const overUnder = this.computeOverUnder(currOffset, barrier, deadZoneLimit, freshPool, sessionEdgePass, zRun);
-    const evenOdd = this.computeParity(currOffset);
+    const evenOdd = this.computeParity(currOffset, freshPool, sessionEdgePass, zRun);
     const riseFall = this.computeDirection();
 
     const fmtPrice = input.price > 0 ? input.price.toFixed(input.pip) : "";
@@ -1959,13 +1959,28 @@ export class DigitsEngine {
     };
   }
  
-  /** Even/Odd horizon engine (v3): P(Even) = Σ_{even d} [M^D]_{s0,d} via
-   *  matrix exponentiation, corroborated by the Wald–Wolfowitz runs Z and
-   *  micro-window parity momentum. */
-    private computeParity(currOffset: number): ParityBlock {
+    /** Even/Odd horizon engine (v3): P(Even) = Σ_{even d} [M^D]_{s0,d} via
+   *  matrix exponentiation, corroborated by Wald–Wolfowitz pair/run clustering
+   *  (runsZScore <= 0), micro-window momentum, fresh parity balance, and
+   *  the live Session Edge Gate. */
+  private computeParity(
+    currOffset: number,
+    freshPool: number[] = [],
+    sessionEdgePass: boolean = true,
+    runsZScore: number = 0,
+  ): ParityBlock {
     const N = Math.min(this.count, this.bufferSize);
     let rawEven = 0.0;
-    for (let d = 0; d < 10; d += 2) rawEven += this.TD[currOffset + d];
+    let freshEvenCount = 0;
+    let freshOddCount = 0;
+    for (let d = 0; d < 10; d++) {
+      if (d % 2 === 0) {
+        rawEven += this.TD[currOffset + d];
+        if (freshPool.includes(d)) freshEvenCount++;
+      } else {
+        if (freshPool.includes(d)) freshOddCount++;
+      }
+    }
 
     let baseEven = 0;
     for (let d = 0; d < 10; d += 2) baseEven += this.freq100[d];
@@ -1983,42 +1998,55 @@ export class DigitsEngine {
     const pEven = clamp(rawEven + 0.35 * momentumEven, 0.05, 0.95);
     const pOdd = 1.0 - pEven;
 
+    // Pair/streak clustering gate: negative runsZScore confirms digits are
+    // grouping into Even/Odd pairs & streaks rather than alternating E-O-E-O
+    const pairClusteringActive = runsZScore <= 0.0;
+    const minEdgeRequired = 0.045; // >= 54.5% win prob to clear payout spread
+
+    const evenFreshOk = freshEvenCount >= 1 && freshEvenCount >= freshOddCount;
+    const oddFreshOk = freshOddCount >= 1 && freshOddCount >= freshEvenCount;
+
+    const evenSafe =
+      sessionEdgePass &&
+      pairClusteringActive &&
+      pEven >= 0.5 + minEdgeRequired &&
+      pEven >= baselineEven &&
+      momentumEven >= 0 &&
+      evenFreshOk;
+
+    const oddSafe =
+      sessionEdgePass &&
+      pairClusteringActive &&
+      pOdd >= 0.5 + minEdgeRequired &&
+      pOdd >= baselineOdd &&
+      momentumOdd >= 0 &&
+      oddFreshOk;
+
     let rec: ParityBlock["rec"] = "HOLD";
     let prob = Math.max(pEven, pOdd);
     let velocity = pEven >= pOdd ? momentumEven : momentumOdd;
 
-    if (Math.abs(pEven - 0.5) >= 0.035) {
-      if (pEven > pOdd) {
-        rec = "EVEN";
+    if (evenSafe && (!oddSafe || pEven >= pOdd)) {
+      rec = "EVEN";
+      prob = pEven;
+      velocity = momentumEven;
+    } else if (oddSafe) {
+      rec = "ODD";
+      prob = pOdd;
+      velocity = momentumOdd;
+    } else {
+      rec = "HOLD";
+      if (pEven >= pOdd) {
         prob = pEven;
         velocity = momentumEven;
       } else {
-        rec = "ODD";
         prob = pOdd;
         velocity = momentumOdd;
       }
     }
+
     return { pEven, pOdd, baselineEven, momentumEven, momentumOdd, rec, prob, velocity };
   }
-
-  /** Rise/Fall direction engine (v3): pure price-increment analysis —
-   *  ΔS = S_t − S_{t−1} — fully separated from digit modulo arithmetic.
-   *  Tracks baseline vs micro-window up/down fractions (momentum) and the
-   *  current directional run length. */
-  private computeDirection(): DirectionBlock {
-    const total = Math.min(this.deltaCount, 64);
-    const flat: DirectionBlock = {
-      pRise: 0.5,
-      pFall: 0.5,
-      baselineUp: 0.5,
-      momentumRise: 0,
-      momentumFall: 0,
-      runLength: 0,
-      runDir: "FLAT",
-      rec: "HOLD",
-      prob: 0,
-      velocity: 0,
-    };
     if (total < 5) return flat;
 
     // Baseline fractions over the whole ΔS ring (oldest → newest).
