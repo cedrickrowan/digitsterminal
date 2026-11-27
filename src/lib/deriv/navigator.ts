@@ -1808,15 +1808,6 @@ export class DigitsEngine {
     sessionEdgePass: boolean = true,
     runsZScore: number = 0,
   ): OverUnderBlock {
-    const underSafe =
-      sessionEdgePass &&
-      barrier > 0 &&
-      !tieBlocked &&
-      maxUnderLoser < (barrier === 9 ? deadZoneLimit * 1.5 : deadZoneLimit) &&
-      pUnder >= fairUnder + minEdgeRequired &&
-      pUnder >= baselineUnder &&
-      momentumUnder >= 0 &&
-      underFreshOk;
     const N = Math.min(this.count, this.bufferSize);
     let rawOver = 0.0;
     let rawUnder = 0.0;
