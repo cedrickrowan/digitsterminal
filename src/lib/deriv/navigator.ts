@@ -217,6 +217,7 @@ export const NAV_RULE_LABELS: Record<keyof NavRuleToggles, string> = {
   markovD: "Markov D-Step",
   hurstFilter: "Hurst Non-Random (H)",
   macroConfluence: "Macro Confluence Gate",
+  lorenzStable: "Lorenz Wing Stable",
 };
 
 /** Fallback thresholds when the caller supplies none (percent). */
@@ -281,6 +282,8 @@ function buildNavRuleHits(
   pMarkov1Target: number,
   contractProbs: { step: number; prob: number }[] = [],
   market: Market = "matches",
+  lorenzWing: "LEFT" | "RIGHT" = "RIGHT",
+  lorenzFlip: boolean = false,
 ): NavRuleHit[] {
   const t = thr ?? NAV_THRESHOLDS_DEFAULT;
   const on = (k: keyof NavRuleToggles) => !!rules?.[k];
@@ -580,7 +583,7 @@ function buildNavRuleHits(
   const hurstEdge = Math.abs(hurstH - 0.5);
   const minEdge = t.hurstMinEdge ?? 0.05;
   const regimeTag = hurstH > 0.5 ? "persistent" : hurstH < 0.5 ? "mean-rev" : "noise";
-  hits.push({
+    hits.push({
     rule: "hurstFilter",
     label: NAV_RULE_LABELS.hurstFilter,
     enabled: on("hurstFilter"),
@@ -588,6 +591,16 @@ function buildNavRuleHits(
     metric: hurstEdge,
     slopeDir: "up",
     detail: `H=${hurstH.toFixed(2)} (${regimeTag} · |Δ|=${hurstEdge.toFixed(2)} ≥ ${minEdge.toFixed(2)})`,
+  });
+
+  // 19. Lorenz Attractor Wing Stability (binary gate — blocks chaotic x=0 wing-flip ticks)
+  hits.push({
+    rule: "lorenzStable",
+    label: NAV_RULE_LABELS.lorenzStable,
+    enabled: on("lorenzStable"),
+    pass: !lorenzFlip,
+    slopeDir: "none",
+    detail: lorenzFlip ? "wing flip · regime shift" : `${lorenzWing} wing · stable`,
   });
 
   return hits;
@@ -1548,8 +1561,9 @@ export class DigitsEngine {
     const settledCount = input.sessionSettledCount ?? 0;
     const liveEdgePct = input.sessionEdgePct ?? 0;
     const sessionEdgePass = !edgeGateOn || settledCount === 0 || liveEdgePct >= edgeGateMin;
-    const overUnder = this.computeOverUnder(currOffset, barrier, deadZoneLimit, freshPool, sessionEdgePass, zRun);
-    const evenOdd = this.computeParity(currOffset, freshPool, sessionEdgePass, zRun);
+    const lorenzStableOk = !input.navRules?.lorenzStable || !lorenzFlip;
+    const overUnder = this.computeOverUnder(currOffset, barrier, deadZoneLimit, freshPool, sessionEdgePass && lorenzStableOk, zRun);
+    const evenOdd = this.computeParity(currOffset, freshPool, sessionEdgePass && lorenzStableOk, zRun);
     const riseFall = this.computeDirection();
 
     const fmtPrice = input.price > 0 ? input.price.toFixed(input.pip) : "";
@@ -1634,8 +1648,10 @@ export class DigitsEngine {
       pMarkovDelayTarget,
       contractProbs,
       market,
+      lorenzWing,
+      lorenzFlip,
     );
-      
+
     // Push master confluence feedback into your panel UI list
     navRuleHits.push({
       rule: "macroConfluence",
