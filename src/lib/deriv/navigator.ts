@@ -142,6 +142,9 @@ export interface EngineResult {
   hurstH: number; // Rescaled-range Hurst exponent (0.50 = Brownian noise)
   cusum: number; // Page-Hinkley accumulator 
   cusumShift: boolean; // structural regime shift detected this tick
+  lorenzWing: "LEFT" | "RIGHT"; // Lorenz strange-attractor lobe (x < 0 vs x >= 0)
+  lorenzFlip: boolean; // true when trajectory crosses x = 0 between butterfly wings
+  lorenzEnergy: number; // normalized Lorenz z-axis attractor energy (0..1+)
   regime: "BALANCED_RANDOM" | "PARITY_CLUSTERING" | "MEAN_REVERTING";
   adaptiveKlThreshold: number;
 
@@ -640,8 +643,14 @@ export class DigitsEngine {
   private emaKl: number = 0.2;
   private readonly alpha: number = 0.05;
 
-  // CUSUM / Page-Hinkley state
+    // CUSUM / Page-Hinkley state
   private cusumAcc: number = 0;
+
+  // Lorenz Strange Attractor Phase-Space State (σ=10, ρ=28, β=8/3)
+  private lorenzX: number = 0.1;
+  private lorenzY: number = 0.0;
+  private lorenzZ: number = 25.0;
+
       // ---- PARALLEL DISCRETE PRNG ENGINE MEMORY STORAGE CHANNELS ----
   private cgr_x: number = 0.50;
   private cgr_y: number = 0.50;
@@ -749,6 +758,9 @@ export class DigitsEngine {
     this.deltaCount = 0;
     this.emaKl = 0.2;
     this.cusumAcc = 0;
+    this.lorenzX = 0.1;
+    this.lorenzY = 0.0;
+    this.lorenzZ = 25.0;
     this.prevLandingProb.fill(-1);
     this.prevRuleMetrics.clear();
     this.lastSlopeTickId = -1;
@@ -1410,7 +1422,7 @@ export class DigitsEngine {
     let mean = 0;
     for (let i = 0; i < N; i++) mean += this.buffer[i];
     mean /= N;
-    let cusumShift = false;
+        let cusumShift = false;
     for (let i = microStart; i < N; i++) {
       this.cusumAcc = Math.max(0, this.cusumAcc + (this.buffer[i] - mean - 0.5));
       if (this.cusumAcc > 18) {
@@ -1419,6 +1431,35 @@ export class DigitsEngine {
         this.emaKl = 0.2;
       }
     }
+
+    // 6d. Lorenz Attractor Phase-Space Integration (RK2 midpoint step, σ=10, ρ=28, β=8/3)
+    const prevWingLeft = this.lorenzX < 0;
+    {
+      const sigma = 10.0;
+      const rho = 28.0;
+      const beta = 8.0 / 3.0;
+      const dt = 0.015;
+      const drive = ((currDigit - 4.5) / 4.5) * 2.5; // bounded tick perturbation (-2.5..+2.5)
+
+      const dx1 = sigma * (this.lorenzY - this.lorenzX) + drive;
+      const dy1 = this.lorenzX * (rho - this.lorenzZ) - this.lorenzY;
+      const dz1 = this.lorenzX * this.lorenzY - beta * this.lorenzZ;
+
+      const mx = this.lorenzX + 0.5 * dt * dx1;
+      const my = this.lorenzY + 0.5 * dt * dy1;
+      const mz = this.lorenzZ + 0.5 * dt * dz1;
+
+      const dx2 = sigma * (my - mx) + drive;
+      const dy2 = mx * (rho - mz) - my;
+      const dz2 = mx * my - beta * mz;
+
+      this.lorenzX = clamp(this.lorenzX + dt * dx2, -40, 40);
+      this.lorenzY = clamp(this.lorenzY + dt * dy2, -40, 40);
+      this.lorenzZ = clamp(this.lorenzZ + dt * dz2, 0, 60);
+    }
+    const lorenzWing: EngineResult["lorenzWing"] = this.lorenzX < 0 ? "LEFT" : "RIGHT";
+    const lorenzFlip = (this.lorenzX < 0) !== prevWingLeft;
+    const lorenzEnergy = this.lorenzZ / 50.0;
 
     // 7. Scaled Fatigue & Streak Filter
     this.freqTail.fill(0);
