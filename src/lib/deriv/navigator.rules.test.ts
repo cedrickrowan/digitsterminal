@@ -44,6 +44,7 @@ const allOff: NavRuleToggles = {
   markovD: false,
   hurstFilter: false,
   macroConfluence: false,
+  lorenzStable: false,
   differsDecay: false,
 };
 
