@@ -35,7 +35,10 @@ export interface NavRuleToggles {
   frequencyEnvelope: boolean;
   markovD: boolean;
   hurstFilter: boolean;
+  /** Master Confluence Gate: target digit parity & zone must align with macro waves. */
   macroConfluence: boolean;
+  /** Lorenz Attractor Wing Stability: pauses signals on chaotic x=0 wing-flip ticks. */
+  lorenzStable: boolean;
   differsDecay?: boolean;
 }
 
@@ -163,6 +166,7 @@ export const DEFAULT_CONFIG: AppConfig = {
     markovD: false,
     hurstFilter: false,
     macroConfluence: false,
+    lorenzStable: false,
     differsDecay: false,
   },
   
