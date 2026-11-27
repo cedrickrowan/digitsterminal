@@ -337,23 +337,54 @@ function buildNavRuleHits(
     detail: `freq ${targetFreqPct.toFixed(1)}% < ${t.triggerProbBelow}%`,
   });
 
-  // 5. Sequence followup horizon: entryDelay + D
+   // 5. Sequence followup across bot contract stride (C1..Max Contracts, skipping Bot Jump ticks)
   const entryDelay = Math.max(0, Number(t.entryDelayTicks ?? 1));
-  const horizon = entryDelay + Math.max(1, duration);
+  const jumpTicks = Math.max(0, Number(t.botJumpTicks ?? 3));
+  const maxRuns = Math.min(20, Math.max(1, Math.floor(Number(t.maxContracts ?? 5))));
+  const firstSettle = entryDelay + Math.max(1, duration);
   const patternLen = Math.max(1, duration);
   const pattern = win.slice(-Math.min(patternLen, win.length));
-  const seq = sequenceFollowups(win, pattern, horizon);
-  const pSeq = (seq.probs[target] ?? 0) * 100;
+
+  let bestSeq = sequenceFollowups(win, pattern, firstSettle);
+  let bestStep = firstSettle;
+  let bestPSeq = (bestSeq.probs[target] ?? 0) * 100;
+  let strideHits = 0;
+  let strideSamples = 0;
+
+  if (jumpTicks > 0 && maxRuns > 1) {
+    for (let c = 0; c < maxRuns; c++) {
+      const cStep = firstSettle + c * (jumpTicks + Math.max(1, duration));
+      const s = sequenceFollowups(win, pattern, cStep);
+      if (s.total >= 3) {
+        strideSamples++;
+        const probPct = (s.probs[target] ?? 0) * 100;
+        if (probPct > (t.triggerSequenceAbove ?? 20)) strideHits++;
+        if (probPct > bestPSeq) {
+          bestPSeq = probPct;
+          bestSeq = s;
+          bestStep = cStep;
+        }
+      }
+    }
+  } else {
+    if (bestSeq.total >= 3) {
+      strideSamples = 1;
+      if (bestPSeq > (t.triggerSequenceAbove ?? 20)) strideHits = 1;
+    }
+  }
+
   hits.push({
     rule: "sequence",
     label: NAV_RULE_LABELS.sequence,
     enabled: on("sequence"),
-    pass: seq.total >= 3 && pSeq > (t.triggerSequenceAbove ?? 20),
-    metric: pSeq,
+    pass: strideSamples > 0 && bestPSeq > (t.triggerSequenceAbove ?? 20),
+    metric: bestPSeq,
     slopeDir: "up",
-    detail: `[${seq.pattern.join("")}]→+${horizon} ${pSeq.toFixed(0)}% > ${t.triggerSequenceAbove}%`,
+    detail: jumpTicks > 0 && maxRuns > 1
+      ? `[${bestSeq.pattern.join("")}]→+${bestStep} ${bestPSeq.toFixed(0)}% (${strideHits}/${strideSamples} runs) > ${t.triggerSequenceAbove}%`
+      : `[${bestSeq.pattern.join("")}]→+${bestStep} ${bestPSeq.toFixed(0)}% > ${t.triggerSequenceAbove}%`,
   });
-
+ 
   // 6. Cold probability based on gap since last appearance (strengthens as cold P drops)
   const g = gapsSinceLast(win)[target] ?? bufferSize;
   const pCold = coldProb(g) * 100;
