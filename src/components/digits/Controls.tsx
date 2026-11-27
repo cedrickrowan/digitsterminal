@@ -42,8 +42,9 @@ const NAV_RULE_META: {
   { key: "antiRepeat", label: "Anti-repeat filter" },
   { key: "frequencyEnvelope", label: "Freq envelope [min, max]%", thr: "frequencyMinPct", thrMax: "frequencyMaxPct", suffix: "%" },
   { key: "markovD", label: "D-Step Markov", thr: "markovDPct", suffix: "%" },
-  { key: "hurstFilter", label: "Hurst Non-Random (H)", thr: "hurstMinEdge", step: 0.01 },
+  { key: "hurstFilter", label: "Hurst Non-Random (H)" },
   { key: "macroConfluence", label: "Macro Confluence Gate" },
+  { key: "lorenzStable", label: "Lorenz Wing Stable" },
 ];
 
 const MARKETS: { key: Market; label: string }[] = [
