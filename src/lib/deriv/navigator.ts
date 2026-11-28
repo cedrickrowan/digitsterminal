@@ -659,10 +659,15 @@ export class DigitsEngine {
     // CUSUM / Page-Hinkley state
   private cusumAcc: number = 0;
 
-  // Lorenz Strange Attractor Phase-Space State (σ=10, ρ=28, β=8/3)
+    // Lorenz Strange Attractor Phase-Space State (σ=10, ρ=28, β=8/3)
   private lorenzX: number = 0.1;
   private lorenzY: number = 0.0;
   private lorenzZ: number = 25.0;
+
+  // Dedicated Price-Increment (ΔS) Lorenz Attractor for Rise/Fall
+  private priceLorenzX: number = 0.1;
+  private priceLorenzY: number = 0.0;
+  private priceLorenzZ: number = 25.0;
 
       // ---- PARALLEL DISCRETE PRNG ENGINE MEMORY STORAGE CHANNELS ----
   private cgr_x: number = 0.50;
@@ -774,6 +779,9 @@ export class DigitsEngine {
     this.lorenzX = 0.1;
     this.lorenzY = 0.0;
     this.lorenzZ = 25.0;
+    this.priceLorenzX = 0.1;
+    this.priceLorenzY = 0.0;
+    this.priceLorenzZ = 25.0;
     this.prevLandingProb.fill(-1);
     this.prevRuleMetrics.clear();
     this.lastSlopeTickId = -1;
@@ -1564,8 +1572,7 @@ export class DigitsEngine {
     const lorenzStableOk = !input.navRules?.lorenzStable || !lorenzFlip;
     const overUnder = this.computeOverUnder(currOffset, barrier, deadZoneLimit, freshPool, sessionEdgePass && lorenzStableOk, zRun);
     const evenOdd = this.computeParity(currOffset, freshPool, sessionEdgePass && lorenzStableOk, zRun);
-    const riseFall = this.computeDirection();
-
+    const riseFall = this.computeDirection(sessionEdgePass && lorenzStableOk, !!input.navRules?.lorenzStable);
     const fmtPrice = input.price > 0 ? input.price.toFixed(input.pip) : "";
     const is1sSymbol = input.symbol.startsWith("1HZ");
     const pingThresholdMs = is1sSymbol ? 350 : 500;
@@ -2108,11 +2115,14 @@ export class DigitsEngine {
         return { pEven, pOdd, baselineEven, momentumEven, momentumOdd, rec, prob, velocity };
   }
 
-  /** Rise/Fall direction engine (v3): pure price-increment analysis —
+    /** Rise/Fall direction engine (v3): pure price-increment analysis —
    *  ΔS = S_t − S_{t−1} — fully separated from digit modulo arithmetic.
-   *  Tracks baseline vs micro-window up/down fractions (momentum) and the
-   *  current directional run length. */
-  private computeDirection(): DirectionBlock {
+   *  Tracks baseline vs micro-window up/down fractions (momentum), current
+   *  directional run length, and dedicated ΔS Lorenz phase-space stability. */
+  private computeDirection(
+    gatesPass: boolean = true,
+    lorenzFilterOn: boolean = false,
+  ): DirectionBlock {
     const total = Math.min(this.deltaCount, 64);
     const flat: DirectionBlock = {
       pRise: 0.5,
@@ -2156,6 +2166,35 @@ export class DigitsEngine {
     const momentumRise = microUpFrac - baselineUp;
     const momentumFall = microDownFrac - baselineDown;
 
+    // Step dedicated Price-Increment (ΔS) Lorenz Attractor (RK2 midpoint, σ=10, ρ=28, β=8/3)
+    const latestDelta = this.deltas[(this.deltaCount - 1) % 64];
+    const prevPriceWingLeft = this.priceLorenzX < 0;
+    {
+      const sigma = 10.0;
+      const rho = 28.0;
+      const beta = 8.0 / 3.0;
+      const dt = 0.015;
+      const drive = latestDelta > 0 ? 2.5 : latestDelta < 0 ? -2.5 : 0.0;
+
+      const dx1 = sigma * (this.priceLorenzY - this.priceLorenzX) + drive;
+      const dy1 = this.priceLorenzX * (rho - this.priceLorenzZ) - this.priceLorenzY;
+      const dz1 = this.priceLorenzX * this.priceLorenzY - beta * this.priceLorenzZ;
+
+      const mx = this.priceLorenzX + 0.5 * dt * dx1;
+      const my = this.priceLorenzY + 0.5 * dt * dy1;
+      const mz = this.priceLorenzZ + 0.5 * dt * dz1;
+
+      const dx2 = sigma * (my - mx) + drive;
+      const dy2 = mx * (rho - mz) - my;
+      const dz2 = mx * my - beta * mz;
+
+      this.priceLorenzX = clamp(this.priceLorenzX + dt * dx2, -40, 40);
+      this.priceLorenzY = clamp(this.priceLorenzY + dt * dy2, -40, 40);
+      this.priceLorenzZ = clamp(this.priceLorenzZ + dt * dz2, 0, 60);
+    }
+    const priceWingRight = this.priceLorenzX >= 0;
+    const priceWingFlip = (this.priceLorenzX < 0) !== prevPriceWingLeft;
+
     // Momentum-adjusted horizon probability.
     const pRise = clamp(baselineUp + 0.6 * momentumRise, 0.05, 0.95);
     const pFall = 1 - pRise;
@@ -2190,6 +2229,12 @@ export class DigitsEngine {
       velocity = momentumFall;
     }
     if (Math.abs(pRise - 0.5) < 0.02 && Math.abs(momentumRise) < 0.05) rec = "HOLD";
+    if (!gatesPass) rec = "HOLD";
+    if (lorenzFilterOn) {
+      if (priceWingFlip) rec = "HOLD";
+      else if (rec === "RISE" && !priceWingRight) rec = "HOLD";
+      else if (rec === "FALL" && priceWingRight) rec = "HOLD";
+    }
     return {
       pRise,
       pFall,
